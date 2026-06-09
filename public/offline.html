@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Çevrimdışı — Muğla Monitör</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { min-height: 100vh; background: #0f172a; color: #94a3b8; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 2rem; text-align: center; }
+    .logo { width: 48px; height: 48px; border-radius: 10px; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; color: #818cf8; margin: 0 auto; }
+    h1 { color: #e2e8f0; font-size: 1.1rem; }
+    p { font-size: 0.8rem; max-width: 320px; line-height: 1.6; }
+    .badge { display: inline-block; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; font-size: 0.7rem; padding: 0.25rem 0.75rem; border-radius: 999px; }
+    button { margin-top: 0.5rem; padding: 0.5rem 1.5rem; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.4); color: #818cf8; border-radius: 8px; font-family: inherit; font-size: 0.8rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="logo">M</div>
+  <span class="badge">ÇEVRİMDİŞI</span>
+  <h1>Muğla Monitör</h1>
+  <p>İnternet bağlantısı yok. Son önbelleğe alınan veriler gösteriliyor. Bağlantı sağlandığında otomatik olarak güncellenecek.</p>
+  <button onclick="location.reload()">Yeniden Dene</button>
+</body>
+</html>

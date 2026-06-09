@@ -1,0 +1,16 @@
+project_id = "wivooargsmcwbiokpklu"
+
+[functions.data-scrape]
+verify_jwt = false
+
+[functions.reference-data]
+verify_jwt = false
+
+[functions.social-analyze]
+verify_jwt = false
+
+[functions.social-collect]
+verify_jwt = false
+
+[functions.transport-scrape]
+verify_jwt = false
