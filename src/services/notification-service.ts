@@ -75,7 +75,7 @@ class NotificationService {
           { action: "open", title: "Detay" },
           { action: "dismiss", title: "Kapat" },
         ],
-      });
+      } as NotificationOptions & { vibrate?: number[]; actions?: { action: string; title: string }[] });
     } else {
       // Fallback to basic Notification
       new Notification(alert.title, options);

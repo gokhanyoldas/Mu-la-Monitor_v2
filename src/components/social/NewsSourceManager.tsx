@@ -222,7 +222,7 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-mono font-medium truncate">{src.name}</span>
-                {src.rss_url && <Rss size={8} className="text-orange-400 shrink-0" title="RSS beslemesi mevcut" />}
+                {src.rss_url && <Rss size={8} className="text-orange-400 shrink-0" />}
                 {src.region && (
                   <span className="text-[8px] font-mono text-muted-foreground/60 border border-border/30 px-1 rounded shrink-0">
                     {src.region}

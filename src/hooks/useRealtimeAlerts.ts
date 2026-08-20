@@ -55,11 +55,51 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
   }, []);
 
   useEffect(() => {
+    // Recent alert history — the feed shouldn't start empty on first paint
+    supabase
+      .from("alert_events")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        data?.forEach((row: Record<string, unknown>) => {
+          addAlert({
+            id: `evt_${row.id}`,
+            type: (row.type as RealtimeAlert["type"]) ?? "system",
+            severity: (row.severity as AlertSeverity) ?? "high",
+            title: String(row.title ?? "Uyarı"),
+            body: String(row.body ?? ""),
+            source: String(row.source ?? "Sistem"),
+            timestamp: String(row.created_at ?? new Date().toISOString()),
+            lat: row.lat != null ? Number(row.lat) : undefined,
+            lon: row.lon != null ? Number(row.lon) : undefined,
+          });
+        });
+      });
+
     const channel = supabase.channel("mugla-critical-alerts", {
       config: { broadcast: { ack: false } },
     });
 
     channel
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "alert_events",
+      }, (payload) => {
+        // Persistent alert feed: written by data-scrape (earthquakes) and
+        // anomaly-scan (critical anomalies) on the server side.
+        const row = payload.new as Record<string, unknown>;
+        addAlert({
+          id: `evt_${row.id ?? Date.now()}`,
+          type: (row.type as RealtimeAlert["type"]) ?? "system",
+          severity: (row.severity as AlertSeverity) ?? "high",
+          title: String(row.title ?? "Uyarı"),
+          body: String(row.body ?? ""),
+          source: String(row.source ?? "Sistem"),
+          timestamp: String(row.created_at ?? new Date().toISOString()),
+          lat: row.lat != null ? Number(row.lat) : undefined,
+          lon: row.lon != null ? Number(row.lon) : undefined,
+        });
+      })
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "social_analyses", filter: "sentiment=eq.critical",
       }, (payload) => {

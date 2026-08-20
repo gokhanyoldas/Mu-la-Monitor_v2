@@ -85,7 +85,7 @@ export const useNotifications = () => {
         requireInteraction: options?.severity === "critical",
         vibrate: options?.severity === "critical" ? [500, 200, 500] : [200, 100, 200],
         data: { url: options?.url ?? "/" },
-      });
+      } as NotificationOptions & { vibrate?: number[] });
     } else {
       new Notification(title, { body, icon: "/favicon.ico" });
     }

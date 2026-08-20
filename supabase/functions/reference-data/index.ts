@@ -1,9 +1,15 @@
 // Muğla Monitor - reference-data Edge Function
 // Semi-static reference data: TÜİK, MEB, Sağlık Bakanlığı, Belediye
 import { corsHeaders } from '../_shared/cors.ts';
+import { readLiveCache, writeLiveCache } from '../_shared/cache.ts';
 
 const MUGLA_LAT = 37.2153;
 const MUGLA_LON = 28.3636;
+
+// Reference data barely changes; traffic density is the exception.
+const MIN = 60 * 1000;
+const TYPE_TTL: Record<string, number> = { traffic_density: 30 * MIN };
+const DEFAULT_TTL = 6 * 60 * MIN;
 
 async function fetchDemographics() {
   return {
@@ -372,10 +378,31 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const data = await handler();
-    return new Response(JSON.stringify({ data }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    const ttl = TYPE_TTL[type] ?? DEFAULT_TTL;
+    const cached = await readLiveCache<Record<string, unknown>>(type, ttl).catch(() => null);
+    if (cached?.fresh) {
+      return new Response(
+        JSON.stringify({ data: { ...cached.data, cache_hit: true, fetched_at: cached.fetched_at } }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    try {
+      const data = await handler();
+      writeLiveCache(type, data, ttl, (data as any)?.source)
+        .catch((e) => console.error('[reference-data] cache write:', e));
+      return new Response(JSON.stringify({ data }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } catch (fetchErr) {
+      if (cached) {
+        return new Response(
+          JSON.stringify({ data: { ...cached.data, stale: true, fetched_at: cached.fetched_at } }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+      throw fetchErr;
+    }
   } catch (err) {
     console.error('[reference-data] error:', err);
     return new Response(

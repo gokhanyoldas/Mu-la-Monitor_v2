@@ -14,6 +14,427 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_events: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: number
+          lat: number | null
+          lon: number | null
+          metadata: Json
+          severity: string
+          source: string | null
+          title: string
+          type: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: number
+          lat?: number | null
+          lon?: number | null
+          metadata?: Json
+          severity?: string
+          source?: string | null
+          title: string
+          type: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: number
+          lat?: number | null
+          lon?: number | null
+          metadata?: Json
+          severity?: string
+          source?: string | null
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      ai_summaries: {
+        Row: {
+          date: string
+          generated_at: string
+          id: string
+          summary: string
+          type: string
+        }
+        Insert: {
+          date?: string
+          generated_at?: string
+          id?: string
+          summary: string
+          type: string
+        }
+        Update: {
+          date?: string
+          generated_at?: string
+          id?: string
+          summary?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      anomaly_alerts: {
+        Row: {
+          baseline_num: number | null
+          category: string
+          description: string | null
+          detected_at: string
+          id: string
+          is_active: boolean
+          metric_key: string
+          severity: string
+          title: string
+          value_num: number | null
+        }
+        Insert: {
+          baseline_num?: number | null
+          category: string
+          description?: string | null
+          detected_at?: string
+          id?: string
+          is_active?: boolean
+          metric_key: string
+          severity: string
+          title: string
+          value_num?: number | null
+        }
+        Update: {
+          baseline_num?: number | null
+          category?: string
+          description?: string | null
+          detected_at?: string
+          id?: string
+          is_active?: boolean
+          metric_key?: string
+          severity?: string
+          title?: string
+          value_num?: number | null
+        }
+        Relationships: []
+      }
+      historical_snapshots: {
+        Row: {
+          category: string
+          created_at: string | null
+          id: number
+          metric_key: string
+          snapshot_date: string
+          source: string | null
+          unit: string | null
+          value_num: number | null
+          value_text: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          id?: number
+          metric_key: string
+          snapshot_date: string
+          source?: string | null
+          unit?: string | null
+          value_num?: number | null
+          value_text?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          id?: number
+          metric_key?: string
+          snapshot_date?: string
+          source?: string | null
+          unit?: string | null
+          value_num?: number | null
+          value_text?: string | null
+        }
+        Relationships: []
+      }
+      live_data_cache: {
+        Row: {
+          data: Json
+          data_type: string
+          error: string | null
+          expires_at: string | null
+          fetched_at: string
+          id: string
+          source: string | null
+        }
+        Insert: {
+          data: Json
+          data_type: string
+          error?: string | null
+          expires_at?: string | null
+          fetched_at?: string
+          id?: string
+          source?: string | null
+        }
+        Update: {
+          data?: Json
+          data_type?: string
+          error?: string | null
+          expires_at?: string | null
+          fetched_at?: string
+          id?: string
+          source?: string | null
+        }
+        Relationships: []
+      }
+      monitored_accounts: {
+        Row: {
+          channel_id: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          is_active: boolean
+          last_checked: string | null
+          platform: string
+          username: string
+        }
+        Insert: {
+          channel_id?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_active?: boolean
+          last_checked?: string | null
+          platform: string
+          username: string
+        }
+        Update: {
+          channel_id?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_active?: boolean
+          last_checked?: string | null
+          platform?: string
+          username?: string
+        }
+        Relationships: []
+      }
+      social_posts: {
+        Row: {
+          analyzed_at: string | null
+          author: string | null
+          collected_at: string | null
+          content: string
+          content_hash: string | null
+          id: string
+          keywords_matched: string[] | null
+          platform: string
+          published_at: string | null
+          sentiment: string | null
+          sentiment_confidence: number | null
+          sentiment_method: string | null
+          region?: string | null
+          url?: string | null
+        }
+        Insert: {
+          analyzed_at?: string | null
+          author?: string | null
+          collected_at?: string | null
+          content: string
+          id?: string
+          keywords_matched?: string[] | null
+          platform: string
+          published_at?: string | null
+          sentiment?: string | null
+          sentiment_confidence?: number | null
+          sentiment_method?: string | null
+          url?: string | null
+        }
+        Update: {
+          analyzed_at?: string | null
+          author?: string | null
+          collected_at?: string | null
+          content?: string
+          id?: string
+          keywords_matched?: string[] | null
+          platform?: string
+          published_at?: string | null
+          sentiment?: string | null
+          sentiment_confidence?: number | null
+          sentiment_method?: string | null
+          url?: string | null
+        }
+        Relationships: []
+      }
+      user_preferences: {
+        Row: {
+          created_at: string | null
+          id: number
+          preferences: Json
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          preferences?: Json
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          preferences?: Json
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      news_sources: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          is_active: boolean
+          name: string
+          region: string | null
+          rss_url: string | null
+          url: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          region?: string | null
+          rss_url?: string | null
+          url?: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          region?: string | null
+          rss_url?: string | null
+          url?: string
+        }
+        Relationships: []
+      }
+
+      email_alerts: {
+        Row: {
+          alert_keyword: string | null
+          article_snippet: string | null
+          article_title: string
+          article_url: string | null
+          created_at: string | null
+          email_received_at: string | null
+          id: string
+          processed: boolean | null
+          published_at: string | null
+          social_post_id: string | null
+          source: string
+          source_domain: string | null
+        }
+        Insert: {
+          alert_keyword?: string | null
+          article_snippet?: string | null
+          article_title?: string
+          article_url?: string | null
+          created_at?: string | null
+          email_received_at?: string | null
+          id?: string
+          processed?: boolean | null
+          published_at?: string | null
+          social_post_id?: string | null
+          source?: string
+          source_domain?: string | null
+        }
+        Update: {
+          alert_keyword?: string | null
+          article_snippet?: string | null
+          article_title?: string
+          article_url?: string | null
+          created_at?: string | null
+          email_received_at?: string | null
+          id?: string
+          processed?: boolean | null
+          published_at?: string | null
+          social_post_id?: string | null
+          source?: string
+          source_domain?: string | null
+        }
+        Relationships: []
+      }
+
+      osint_searches: {
+        Row: {
+          found_count: number | null
+          id: string
+          platform_count: number | null
+          query: string
+          results: Json | null
+          search_type: string
+          searched_at: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          found_count?: number | null
+          id?: string
+          platform_count?: number | null
+          query: string
+          results?: Json | null
+          search_type?: string
+          searched_at?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          found_count?: number | null
+          id?: string
+          platform_count?: number | null
+          query?: string
+          results?: Json | null
+          search_type?: string
+          searched_at?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      source_reliability: {
+        Row: {
+          accurate_posts: number | null
+          first_seen_at: string | null
+          id: string
+          last_seen_at: string | null
+          platform: string
+          reliability_score: number | null
+          source_name: string
+          total_posts: number | null
+        }
+        Insert: {
+          accurate_posts?: number | null
+          first_seen_at?: string | null
+          id?: string
+          last_seen_at?: string | null
+          platform: string
+          reliability_score?: number | null
+          source_name: string
+          total_posts?: number | null
+        }
+        Update: {
+          accurate_posts?: number | null
+          first_seen_at?: string | null
+          id?: string
+          last_seen_at?: string | null
+          platform?: string
+          reliability_score?: number | null
+          source_name?: string
+          total_posts?: number | null
+        }
+        Relationships: []
+      }
       social_analyses: {
         Row: {
           analyzed_at: string
@@ -72,70 +493,85 @@ export type Database = {
       }
       social_keywords: {
         Row: {
+          category: string | null
           created_at: string
+          created_by: string | null
           id: string
           is_active: boolean
           keyword: string
           platform: string
+          region: string | null
           user_id: string
         }
         Insert: {
+          category?: string | null
           created_at?: string
+          created_by?: string | null
           id?: string
           is_active?: boolean
           keyword: string
           platform?: string
-          user_id: string
+          region?: string | null
+          user_id?: string
         }
         Update: {
+          category?: string | null
           created_at?: string
+          created_by?: string | null
           id?: string
           is_active?: boolean
           keyword?: string
           platform?: string
+          region?: string | null
           user_id?: string
         }
         Relationships: []
       }
       social_trends: {
         Row: {
-          created_at: string
+          avg_confidence: number | null
+          created_at: string | null
           id: string
-          keyword: string
           mention_count: number | null
-          negative_ratio: number | null
-          neutral_ratio: number | null
-          platform: string
-          positive_ratio: number | null
-          snapshot_date: string
-          top_topics: string[] | null
-          user_id: string
+          negative_count: number | null
+          neutral_count: number | null
+          period_end: string
+          period_start: string
+          period_type: string
+          platform: string | null
+          positive_count: number | null
+          region: string | null
+          top_keywords: string[] | null
         }
         Insert: {
-          created_at?: string
+          avg_confidence?: number | null
+          created_at?: string | null
           id?: string
-          keyword: string
           mention_count?: number | null
-          negative_ratio?: number | null
-          neutral_ratio?: number | null
-          platform: string
-          positive_ratio?: number | null
-          snapshot_date?: string
-          top_topics?: string[] | null
-          user_id: string
+          negative_count?: number | null
+          neutral_count?: number | null
+          period_end: string
+          period_start: string
+          period_type?: string
+          platform?: string | null
+          positive_count?: number | null
+          region?: string | null
+          top_keywords?: string[] | null
         }
         Update: {
-          created_at?: string
+          avg_confidence?: number | null
+          created_at?: string | null
           id?: string
-          keyword?: string
           mention_count?: number | null
-          negative_ratio?: number | null
-          neutral_ratio?: number | null
-          platform?: string
-          positive_ratio?: number | null
-          snapshot_date?: string
-          top_topics?: string[] | null
-          user_id?: string
+          negative_count?: number | null
+          neutral_count?: number | null
+          period_end?: string
+          period_start?: string
+          period_type?: string
+          platform?: string | null
+          positive_count?: number | null
+          region?: string | null
+          top_keywords?: string[] | null
         }
         Relationships: []
       }

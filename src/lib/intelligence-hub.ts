@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { notificationService } from "@/services/notification-service";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 
 export type DataCategory =
   | "weather" | "economy" | "tourism" | "environment"
@@ -36,6 +38,7 @@ class IntelligenceHub {
   private subscribers: Map<DataCategory, Set<Function>> = new Map();
   private anomalySubscribers: Set<Function> = new Set();
   private refreshIntervals: Map<DataCategory, NodeJS.Timeout> = new Map();
+  private anomalyChannel: RealtimeChannel | null = null;
 
   private categoryTTL: Record<DataCategory, number> = {
     weather: 15 * 60 * 1000,
@@ -60,13 +63,78 @@ class IntelligenceHub {
     this.loadFromCache();
     this.initializeAnomalyDetectors();
     this.startDataCollection();
+    this.syncServerAnomalies();
   }
 
   stop() {
     this.isRunning = false;
     this.refreshIntervals.forEach(interval => clearInterval(interval));
     this.refreshIntervals.clear();
+    if (this.anomalyChannel) {
+      supabase.removeChannel(this.anomalyChannel);
+      this.anomalyChannel = null;
+    }
     console.log("Intelligence Hub stopped");
+  }
+
+  // ── Server-side anomaly engine (anomaly-scan edge function) ─────────────
+  // Loads active anomalies once, then streams updates via Realtime so
+  // server-detected anomalies appear even while the user is idle.
+  private syncServerAnomalies() {
+    const toAlert = (row: any): AnomalyAlert => ({
+      id: `db_${row.id}`,
+      severity: row.severity,
+      category: row.category,
+      title: row.title,
+      description: row.description ?? "",
+      timestamp: new Date(row.detected_at).getTime(),
+      metadata: { value: row.value_num, baseline: row.baseline_num, source: "anomaly-scan" },
+    });
+
+    const ingest = (alert: AnomalyAlert) => {
+      const existing = this.anomalyAlerts.findIndex(a => a.id === alert.id);
+      if (existing >= 0) {
+        this.anomalyAlerts[existing] = alert;
+      } else {
+        this.anomalyAlerts.unshift(alert);
+        if (this.anomalyAlerts.length > 50) this.anomalyAlerts.pop();
+      }
+      this.notifyAnomalySubscribers(alert);
+    };
+
+    supabase
+      .from("anomaly_alerts")
+      .select("*")
+      .eq("is_active", true)
+      .order("detected_at", { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        data?.forEach(row => ingest(toAlert(row)));
+      });
+
+    this.anomalyChannel = supabase
+      .channel("ih-server-anomalies")
+      .on("postgres_changes", { event: "*", schema: "public", table: "anomaly_alerts" }, (payload) => {
+        const row = payload.new as any;
+        if (!row?.id) return;
+        if (row.is_active === false) {
+          this.anomalyAlerts = this.anomalyAlerts.filter(a => a.id !== `db_${row.id}`);
+          return;
+        }
+        const alert = toAlert(row);
+        const isNew = !this.anomalyAlerts.some(a => a.id === alert.id);
+        ingest(alert);
+        // Critical server-side anomalies trigger a native notification (once)
+        if (isNew && alert.severity === "critical") {
+          notificationService.sendAlert({
+            title: alert.title,
+            body: alert.description,
+            severity: "critical",
+            tag: alert.id,
+          });
+        }
+      })
+      .subscribe();
   }
 
   private loadFromCache() {
