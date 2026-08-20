@@ -47,6 +47,12 @@ class CacheManager {
   constructor(prefix = CACHE_PREFIX) { this.prefix = prefix; }
   private buildKey(key: string): string { return `${this.prefix}${key}`; }
 
+  // JSON turns Infinity into null — both mean "never expires"
+  private isExpired<T>(entry: CacheEntry<T>): boolean {
+    if (entry.ttl == null || entry.ttl === Infinity) return false;
+    return Date.now() - entry.timestamp > entry.ttl;
+  }
+
   set<T>(key: string, data: T, ttl: number = TTL.MEDIUM): void {
     try {
       const entry: CacheEntry<T> = { data, timestamp: Date.now(), ttl };
@@ -61,7 +67,7 @@ class CacheManager {
       const raw = localStorage.getItem(this.buildKey(key));
       if (!raw) return null;
       const entry: CacheEntry<T> = JSON.parse(raw);
-      if (entry.ttl !== Infinity && Date.now() - entry.timestamp > entry.ttl) {
+      if (this.isExpired(entry)) {
         this.delete(key); return null;
       }
       return entry.data;
@@ -73,7 +79,7 @@ class CacheManager {
       const raw = localStorage.getItem(this.buildKey(key));
       if (!raw) return null;
       const entry: CacheEntry<T> = JSON.parse(raw);
-      if (entry.ttl !== Infinity && Date.now() - entry.timestamp > entry.ttl) {
+      if (this.isExpired(entry)) {
         this.delete(key); return null;
       }
       return { data: entry.data, ageMs: Date.now() - entry.timestamp };
@@ -89,8 +95,8 @@ class CacheManager {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k?.startsWith(this.prefix)) {
-        const shortKey = k.slice(this.prefix.length);
-        if (!preferenceKeys.includes(shortKey as CacheKey)) toDelete.push(k);
+        const shortKey = k.slice(this.prefix.length) as CacheKey;
+        if (!(preferenceKeys as readonly string[]).includes(shortKey)) toDelete.push(k);
       }
     }
     toDelete.forEach((k) => localStorage.removeItem(k));
@@ -131,7 +137,7 @@ class CacheManager {
       sizeBytes += raw.length * 2;
       try {
         const entry = JSON.parse(raw) as CacheEntry<unknown>;
-        if (entry.ttl !== Infinity && Date.now() - entry.timestamp > entry.ttl) expiredKeys++;
+        if (this.isExpired(entry)) expiredKeys++;
       } catch { /* corrupt */ }
     }
     return { totalKeys, expiredKeys, sizeKB: Math.round(sizeBytes / 1024) };

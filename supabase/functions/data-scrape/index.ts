@@ -1,9 +1,27 @@
 // Muğla Monitor - data-scrape Edge Function
 // Real-time data from free APIs: Open-Meteo, USGS, Frankfurter, Google News RSS
 import { corsHeaders } from '../_shared/cors.ts';
+import { getServiceClient, readLiveCache, writeLiveCache } from '../_shared/cache.ts';
 
 const MUGLA_LAT = 37.2153;
 const MUGLA_LON = 28.3636;
+
+// Freshness TTL per data type. Cached responses younger than this are served
+// directly without calling upstream APIs (cron jobs keep the cache warm).
+const MIN = 60 * 1000;
+const TYPE_TTL: Record<string, number> = {
+  weather: 10 * MIN,
+  air_quality: 20 * MIN,
+  earthquakes: 5 * MIN,
+  economy: 30 * MIN,
+  news: 15 * MIN,
+  trends: 30 * MIN,
+  dams: 6 * 60 * MIN,
+  tourism: 60 * MIN,
+  energy: 60 * MIN,
+  real_estate: 24 * 60 * MIN,
+  road_works: 30 * MIN,
+};
 
 // ─────────────────────────────────────────────
 //  WEATHER  —  Open-Meteo (no API key needed)
@@ -386,6 +404,38 @@ async function fetchRoadWorks() {
 }
 
 // ─────────────────────────────────────────────
+//  SIGNIFICANT QUAKE DETECTOR
+//  New M≥4 events near Muğla are persisted to alert_events,
+//  which Realtime pushes to connected dashboards instantly.
+// ─────────────────────────────────────────────
+async function detectSignificantQuakes(data: any) {
+  const sb = getServiceClient();
+  if (!sb || !Array.isArray(data?.earthquakes)) return;
+
+  const significant = data.earthquakes.filter((q: any) => (q.magnitude ?? 0) >= 4.0);
+  for (const q of significant.slice(0, 5)) {
+    const { data: existing } = await sb
+      .from('alert_events')
+      .select('id')
+      .eq('type', 'earthquake')
+      .contains('metadata', { event_id: q.id })
+      .limit(1);
+    if (existing?.length) continue;
+
+    await sb.from('alert_events').insert({
+      type: 'earthquake',
+      severity: q.magnitude >= 5 ? 'critical' : 'high',
+      title: `M${Number(q.magnitude).toFixed(1)} Deprem — ${q.place ?? 'Muğla Bölgesi'}`,
+      body: `Derinlik: ${q.depth_km ?? '?'} km`,
+      source: 'USGS',
+      lat: q.lat ?? null,
+      lon: q.lon ?? null,
+      metadata: { event_id: q.id, magnitude: q.magnitude, url: q.url ?? null },
+    });
+  }
+}
+
+// ─────────────────────────────────────────────
 //  MAIN HANDLER
 // ─────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
@@ -418,10 +468,39 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const data = await handler();
-    return new Response(JSON.stringify({ data }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    const ttl = TYPE_TTL[type] ?? 10 * MIN;
+    const cached = await readLiveCache<Record<string, unknown>>(type, ttl).catch(() => null);
+
+    // Fresh cache hit: serve instantly, skip upstream API call
+    if (cached?.fresh) {
+      return new Response(
+        JSON.stringify({ data: { ...cached.data, cache_hit: true, fetched_at: cached.fetched_at } }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    try {
+      const data = await handler();
+      // Persist for cron warm-up + stale fallback (never block the response on cache writes)
+      writeLiveCache(type, data, ttl, (data as any)?.source)
+        .catch((e) => console.error('[data-scrape] cache write:', e));
+      if (type === 'earthquakes') {
+        detectSignificantQuakes(data)
+          .catch((e) => console.error('[data-scrape] quake detect:', e));
+      }
+      return new Response(JSON.stringify({ data }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } catch (fetchErr) {
+      // Upstream API failed: degrade gracefully to the last known good value
+      if (cached) {
+        return new Response(
+          JSON.stringify({ data: { ...cached.data, stale: true, fetched_at: cached.fetched_at } }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+      throw fetchErr;
+    }
   } catch (err) {
     console.error('[data-scrape] error:', err);
     return new Response(

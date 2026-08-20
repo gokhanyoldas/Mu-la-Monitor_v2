@@ -82,7 +82,7 @@ export function MuglaMap({ earthquakes = [], fires = [], className, height = 420
       } catch { if (!cancelled) setLoadError("MapLibre yüklenemedi"); }
     };
     load();
-    return () => { cancelled = true; /* @ts-ignore */ map?.remove?.(); };
+    return () => { cancelled = true; (map as { remove?: () => void } | undefined)?.remove?.(); };
   }, []);
 
   return (
@@ -94,9 +94,9 @@ export function MuglaMap({ earthquakes = [], fires = [], className, height = 420
         </div>
       )}
       <div className="absolute top-3 right-3 flex flex-col gap-1.5 z-10">
-        <button onClick={() => { /* @ts-ignore */ mapRef.current?.zoomIn?.(); }} className="p-1.5 rounded-lg bg-background/90 border border-border/50 hover:bg-muted transition-colors shadow-sm"><ZoomIn className="h-4 w-4 text-muted-foreground" /></button>
-        <button onClick={() => { /* @ts-ignore */ mapRef.current?.zoomOut?.(); }} className="p-1.5 rounded-lg bg-background/90 border border-border/50 hover:bg-muted transition-colors shadow-sm"><ZoomOut className="h-4 w-4 text-muted-foreground" /></button>
-        <button onClick={() => { /* @ts-ignore */ mapRef.current?.flyTo?.({ center: [28.35, 37.05], zoom: 8 }); }} className="p-1.5 rounded-lg bg-background/90 border border-border/50 hover:bg-muted transition-colors shadow-sm"><Crosshair className="h-4 w-4 text-muted-foreground" /></button>
+        <button onClick={() => { (mapRef.current as { zoomIn?: () => void } | null)?.zoomIn?.(); }} className="p-1.5 rounded-lg bg-background/90 border border-border/50 hover:bg-muted transition-colors shadow-sm"><ZoomIn className="h-4 w-4 text-muted-foreground" /></button>
+        <button onClick={() => { (mapRef.current as { zoomOut?: () => void } | null)?.zoomOut?.(); }} className="p-1.5 rounded-lg bg-background/90 border border-border/50 hover:bg-muted transition-colors shadow-sm"><ZoomOut className="h-4 w-4 text-muted-foreground" /></button>
+        <button onClick={() => { (mapRef.current as { flyTo?: (o: { center: [number, number]; zoom: number }) => void } | null)?.flyTo?.({ center: [28.35, 37.05], zoom: 8 }); }} className="p-1.5 rounded-lg bg-background/90 border border-border/50 hover:bg-muted transition-colors shadow-sm"><Crosshair className="h-4 w-4 text-muted-foreground" /></button>
       </div>
       <div className="absolute bottom-3 left-3 bg-background/90 border border-border/50 rounded-lg p-2 shadow-sm z-10">
         <div className="flex items-center gap-1 mb-1.5"><Layers className="h-3.5 w-3.5 text-muted-foreground" /><span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Katmanlar</span></div>

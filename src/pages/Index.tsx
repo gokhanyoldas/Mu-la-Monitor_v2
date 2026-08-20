@@ -29,6 +29,8 @@ import { TourismForecastPanel } from "@/components/TourismForecastPanel";
 // M15: Kullanıcı Profil Paneli
 import { UserProfilePanel } from "@/components/UserProfilePanel";
 import { ProactiveBrainSection } from "@/components/dashboard/sections/ProactiveBrainSection";
+// Şehir Nabzı: tüm canlı veri katmanlarını birleştiren AI brifingi
+import { AISummaryCard } from "@/components/AISummaryCard";
 
 const sectionComponents: Record<Exclude<DashboardTab, "genel">, React.FC[]> = {
   ekonomi: [EconomySection],
@@ -109,6 +111,7 @@ const Index = () => {
 
         {isGenel ? (
           <div className="space-y-3">
+            <AISummaryCard type="pulse" />
             <ProactiveBrainSection />
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               {/* Col 1 — Economy + Social */}

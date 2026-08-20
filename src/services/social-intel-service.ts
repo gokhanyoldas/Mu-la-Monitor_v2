@@ -310,7 +310,7 @@ class SocialIntelService {
       return [];
     }
 
-    return data || [];
+    return (data as unknown as SocialPost[]) || [];
   }
 
   getConnectionStatus() {

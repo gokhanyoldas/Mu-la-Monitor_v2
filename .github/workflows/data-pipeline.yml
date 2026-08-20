@@ -1,0 +1,52 @@
+# Muğla Monitor — Veri Hattı Zamanlayıcısı (yedek)
+# Birincil zamanlayıcı Supabase pg_cron'dur (20260820000001_live_pipeline.sql).
+# Bu workflow, pg_cron'un kullanılamadığı ortamlar için aynı çağrıları yapar.
+#
+# Gerekli GitHub secrets:
+#   SUPABASE_URL      — https://<proje>.supabase.co
+#   SUPABASE_ANON_KEY — proje anon public key
+
+name: data-pipeline
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # her 30 dakikada bir
+  workflow_dispatch: {}       # manuel tetikleme
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refresh fast-layer live data
+        run: |
+          for TYPE in weather air_quality earthquakes; do
+            curl -sf -X POST "$SUPABASE_URL/functions/v1/data-scrape" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -d "{\"type\":\"$TYPE\"}" > /dev/null || echo "warn: $TYPE refresh failed"
+          done
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Refresh medium-layer live data
+        run: |
+          for TYPE in economy news trends road_works; do
+            curl -sf -X POST "$SUPABASE_URL/functions/v1/data-scrape" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+              -d "{\"type\":\"$TYPE\"}" > /dev/null || echo "warn: $TYPE refresh failed"
+          done
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Run anomaly scan
+        run: |
+          curl -sf -X POST "$SUPABASE_URL/functions/v1/anomaly-scan" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -d '{}' > /dev/null || echo "warn: anomaly-scan failed"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}

@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cacheManager, TTL } from "@/lib/cache-manager";
 
-export type SummaryType = "daily" | "social" | "earthquake" | "weather";
+export type SummaryType = "daily" | "social" | "earthquake" | "weather" | "pulse";
 
 interface AISummary { type: SummaryType; summary: string; generated_at: string; isStale?: boolean; }
 
@@ -49,9 +49,10 @@ export function useAISummary(type: SummaryType = "daily") {
 }
 
 export function useAllAISummaries() {
+  const pulse = useAISummary("pulse");
   const daily = useAISummary("daily");
   const social = useAISummary("social");
   const earthquake = useAISummary("earthquake");
   const weather = useAISummary("weather");
-  return { daily, social, earthquake, weather };
+  return { pulse, daily, social, earthquake, weather };
 }

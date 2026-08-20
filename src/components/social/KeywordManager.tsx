@@ -6,10 +6,13 @@ import { useToast } from "@/hooks/use-toast";
 interface Keyword {
   id: string;
   keyword: string;
-  category: string;
+  category: string | null;
   region: string | null;
   is_active: boolean;
-  created_by: string;
+  created_by: string | null;
+  platform: string;
+  created_at: string;
+  user_id: string;
 }
 
 interface KeywordManagerProps {

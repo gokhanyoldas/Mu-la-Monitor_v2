@@ -5,7 +5,7 @@ const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
-interface SummaryRequest { type: "daily" | "social" | "earthquake" | "weather"; context?: string; }
+interface SummaryRequest { type: "daily" | "social" | "earthquake" | "weather" | "pulse"; context?: string; }
 
 async function fetchSocialContext(supabase: ReturnType<typeof createClient>): Promise<string> {
   const { data } = await supabase.from("social_analyses")
@@ -15,6 +15,38 @@ async function fetchSocialContext(supabase: ReturnType<typeof createClient>): Pr
   return data.map((r) => `[${r.source}][${r.sentiment}] ${r.title}: ${r.summary ?? ""}`).join("\n");
 }
 
+// "Şehir Nabzı" — tüm canlı veri katmanlarını (live_data_cache) tek bağlamda birleştirir.
+async function fetchPulseContext(supabase: ReturnType<typeof createClient>): Promise<string> {
+  const { data: rows } = await supabase.from("live_data_cache")
+    .select("data_type, data")
+    .in("data_type", ["weather", "air_quality", "earthquakes", "economy", "dams", "tourism", "news"]);
+  const byType = new Map((rows ?? []).map((r: any) => [r.data_type, r.data]));
+
+  const parts: string[] = [];
+  const w = byType.get("weather");
+  if (w) parts.push(`Hava: ${w.temperature}°C (${w.condition}), nem %${w.humidity}, rüzgar ${w.windspeed} km/h, deniz ${w.sea_temp}°C.`);
+  const aq = byType.get("air_quality");
+  if (aq) parts.push(`Hava kalitesi: EAQI ${aq.aqi} (${aq.aqi_label}), PM2.5 ${aq.pm25} µg/m³.`);
+  const eq = byType.get("earthquakes");
+  if (eq) {
+    const latest = (eq.earthquakes ?? [])[0];
+    parts.push(`Deprem: son dönemde ${eq.count} olay${latest ? `, en son M${Number(latest.magnitude).toFixed(1)} (${latest.place})` : ""}.`);
+  }
+  const eco = byType.get("economy");
+  if (eco?.usd_try) parts.push(`Ekonomi: USD/TRY ${eco.usd_try}, EUR/TRY ${eco.eur_try}.`);
+  const dams = byType.get("dams");
+  if (dams) parts.push(`Barajlar: ortalama doluluk %${dams.avg_occupancy}.`);
+  const tourism = byType.get("tourism");
+  if (tourism) parts.push(`Turizm: otel doluluğu %${tourism.hotel_occupancy}.`);
+  const news = byType.get("news");
+  if (news?.items?.length) {
+    parts.push("Öne çıkan haberler:");
+    for (const n of news.items.slice(0, 5)) parts.push(`- ${n.title}`);
+  }
+  parts.push(`Sosyal medya özeti: ${await fetchSocialContext(supabase)}`);
+  return parts.join("\n");
+}
+
 function buildPrompt(type: SummaryRequest["type"], context: string): string {
   const base = `Sen Muğla ili için çalışan bir bölgesel istihbarat asistanısın.\nGörevin kısa, net ve bilgilendirici Türkçe özetler üretmek.\nMaksimum 3 madde halinde, her madde 1 cümle, toplam 60-80 kelime.`;
   const prompts = {
@@ -22,6 +54,7 @@ function buildPrompt(type: SummaryRequest["type"], context: string): string {
     social: `${base}\n\nAşağıdaki sosyal medya analizlerine dayanarak kamuoyu özeti üret:\n\n${context}`,
     earthquake: `${base}\n\nAşağıdaki deprem verilerine dayanarak risk özeti üret:\n\n${context}`,
     weather: `${base}\n\nAşağıdaki hava durumu verilerine dayanarak kısa tahmin özeti üret:\n\n${context}`,
+    pulse: `Sen Muğla ili için çalışan bir şehir istihbarat analistisin.\nAşağıdaki canlı veri akışına dayanarak "Şehir Nabzı" brifingi üret.\nMaksimum 4 madde: (1) genel durum, (2) dikkat gerektiren risk, (3) öne çıkan gelişme, (4) kısa öneri.\nHer madde tek cümle, toplam 80-100 kelime, Türkçe.\n\n${context}`,
   };
   return prompts[type];
 }
@@ -35,12 +68,16 @@ serve(async (req) => {
     let body: SummaryRequest = { type: "daily" };
     if (req.method === "POST") body = await req.json().catch(() => ({ type: "daily" }));
     else { const url = new URL(req.url); body.type = (url.searchParams.get("type") as SummaryRequest["type"]) ?? "daily"; }
-    const context = body.context ?? (await fetchSocialContext(supabase));
+    const context = body.context
+      ?? (body.type === "pulse" ? await fetchPulseContext(supabase) : await fetchSocialContext(supabase));
     const prompt = buildPrompt(body.type, context);
     const gemRes = await fetch(`${GEMINI_URL}?key=${geminiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 256 } }),
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: body.type === "pulse" ? 400 : 256 },
+      }),
     });
     if (!gemRes.ok) { const err = await gemRes.text(); throw new Error(`Gemini API error ${gemRes.status}: ${err}`); }
     const gemData = await gemRes.json();

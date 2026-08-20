@@ -1,7 +1,7 @@
 // AISummaryCard.tsx
 // Gemini-powered AI summary card with refresh and stale indicator.
 
-import { RefreshCw, Brain, AlertTriangle, CloudSun, MessageSquare, TrendingUp } from "lucide-react";
+import { RefreshCw, Brain, AlertTriangle, CloudSun, MessageSquare, TrendingUp, Activity } from "lucide-react";
 import { useAISummary, type SummaryType } from "@/hooks/useAISummary";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const TYPE_CONFIG: Record<SummaryType, {
   color: string;
   gradient: string;
 }> = {
+  pulse: { icon: Activity, label: "Şehir Nabzı", color: "text-rose-400", gradient: "from-rose-500/10 to-transparent" },
   daily: { icon: Brain, label: "Günlük AI Özeti", color: "text-violet-400", gradient: "from-violet-500/10 to-transparent" },
   social: { icon: MessageSquare, label: "Kamuoyu Özeti", color: "text-blue-400", gradient: "from-blue-500/10 to-transparent" },
   earthquake: { icon: AlertTriangle, label: "Deprem Risk Özeti", color: "text-orange-400", gradient: "from-orange-500/10 to-transparent" },

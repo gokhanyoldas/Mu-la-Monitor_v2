@@ -429,7 +429,7 @@ function SearchHistory() {
       .select("id,query,results,found_count,platform_count,searched_at")
       .order("searched_at", { ascending: false })
       .limit(20);
-    setRows((data as SearchHistoryRow[]) ?? []);
+    setRows((data as unknown as SearchHistoryRow[]) ?? []);
     setLoading(false);
   }, []);
 
