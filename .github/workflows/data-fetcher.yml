@@ -1,0 +1,24 @@
+name: 7/24 Muğla Monitör Data Fetcher
+
+on:
+  schedule:
+    # Her 30 dakikada bir otomatik çalışır (0 TL maliyet)
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # İstediğiniz an elle tetiklemek için
+
+jobs:
+  fetch-and-store:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/node-style@v3
+        with:
+          node-version: '18'
+
+      - name: Fetch Regional Data
+        run: |
+          echo "Muğla 13 ilçe için canlı veri akışı taranıyor..."
+          # Buraya haber ve sosyal medya çekme script'imiz bağlanır
