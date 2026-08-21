@@ -3,7 +3,9 @@ import { osintDataManager } from "@/services/osint-data-manager";
 import { dataSyncService, SyncStatus } from "@/services/data-sync-service";
 import { getCategoryStats } from "@/services/sample-data-service";
 import { IntelligenceFeed } from "@/components/intelligence/IntelligenceFeed";
-import { LiveMap } from "@/components/intelligence/LiveMap";
+import { LiveIncidentMap } from "@/components/intelligence/LiveIncidentMap";
+import { IncidentFilterBar, type IncidentFilterState } from "@/components/intelligence/IncidentFilterBar";
+import { ExecutiveReportPanel } from "@/components/intelligence/ExecutiveReportPanel";
 import { AnomalyAlertSystem } from "@/components/intelligence/AnomalyAlertSystem";
 import { CategoryCard } from "@/components/intelligence/CategoryCard";
 import { CircleAlert as AlertCircle, RefreshCw, Database, Activity } from "lucide-react";
@@ -29,6 +31,7 @@ export default function OSINTDashboard() {
   const [categoryStats, setCategoryStats] = useState(
     getCategoryStats(osintDataManager.getIntelligenceFeed())
   );
+  const [incidentFilter, setIncidentFilter] = useState<IncidentFilterState>({ scope: "all", district: null });
 
   useEffect(() => {
     // Start data sync service
@@ -189,13 +192,19 @@ export default function OSINTDashboard() {
         </div>
       </div>
 
-      {/* Main Grid: Map and Feed */}
+      {/* Filtre çubuğu: Genel / İlçe / Kritik + Dışa Aktarım */}
+      <IncidentFilterBar value={incidentFilter} onChange={setIncidentFilter} className="mb-4" />
+
+      {/* Main Grid: Canlı Olay Haritası + Akış */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        <div className="lg:col-span-2 h-96">
-          <LiveMap />
+        <div className="lg:col-span-2">
+          <LiveIncidentMap
+            districtFilter={incidentFilter.scope === "district" ? incidentFilter.district : null}
+          />
         </div>
-        <div className="h-96">
+        <div className="flex flex-col gap-4">
           <IntelligenceFeed />
+          <ExecutiveReportPanel />
         </div>
       </div>
 
