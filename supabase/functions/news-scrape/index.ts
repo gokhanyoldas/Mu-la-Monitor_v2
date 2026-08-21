@@ -15,21 +15,53 @@ const USER_AGENTS = [
 let uaIdx = 0;
 const nextUA = () => USER_AGENTS[uaIdx++ % USER_AGENTS.length];
 
-interface FeedSource { name: string; url: string; type: "rss" | "html"; }
+interface FeedSource { name: string; url: string; type: "rss" | "html"; platform: "news" | "emergency"; }
+
+// 13 ilçeyi kapsayan Google News RSS sorguları (NLP NER ilçe etiketlemesi yapar)
+const GN = (q: string) => `https://news.google.com/rss/search?q=${q}&hl=tr&gl=TR&ceid=TR:tr`;
 
 const SOURCES: FeedSource[] = [
-  // Muğla yerel basın RSS
-  { name: "Muğla Haber (Google News RSS)", type: "rss", url: "https://news.google.com/rss/search?q=Mu%C4%9Fla&hl=tr&gl=TR&ceid=TR:tr" },
-  { name: "Bodrum (Google News RSS)", type: "rss", url: "https://news.google.com/rss/search?q=Bodrum+Mu%C4%9Fla&hl=tr&gl=TR&ceid=TR:tr" },
-  { name: "Marmaris (Google News RSS)", type: "rss", url: "https://news.google.com/rss/search?q=Marmaris&hl=tr&gl=TR&ceid=TR:tr" },
-  { name: "Fethiye (Google News RSS)", type: "rss", url: "https://news.google.com/rss/search?q=Fethiye&hl=tr&gl=TR&ceid=TR:tr" },
-  { name: "Datça (Google News RSS)", type: "rss", url: "https://news.google.com/rss/search?q=Dat%C3%A7a&hl=tr&gl=TR&ceid=TR:tr" },
-  // Belediye duyuruları
-  { name: "Muğla Büyükşehir Belediyesi", type: "html", url: "https://www.mugla.bel.tr/haberler" },
-  { name: "Menteşe Belediyesi", type: "html", url: "https://www.mentese.bel.tr/haberler" },
+  // ── Acil durum & kamu kaynakları ──
+  { name: "AFAD Duyurular", type: "html", platform: "emergency", url: "https://www.afad.gov.tr/haberler" },
+  {
+    name: "Deprem İzleme (USGS)",
+    type: "rss", platform: "emergency",
+    url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom",
+  },
+  // ── Muğla Büyükşehir & İlçe Belediyeleri ──
+  { name: "Muğla Büyükşehir Belediyesi", type: "html", platform: "news", url: "https://www.mugla.bel.tr/haberler" },
+  { name: "Bodrum Belediyesi", type: "html", platform: "news", url: "https://www.bodrum.bel.tr/haberler" },
+  { name: "Marmaris Belediyesi", type: "html", platform: "news", url: "https://www.marmaris.bel.tr/" },
+  { name: "Fethiye Belediyesi", type: "html", platform: "news", url: "https://www.fethiye.bel.tr/" },
+  { name: "Menteşe Belediyesi", type: "html", platform: "news", url: "https://www.mentese.bel.tr/haberler" },
+  // ── İlçe bazlı yerel haber akışları (13 ilçe) ──
+  { name: "Muğla Genel", type: "rss", platform: "news", url: GN("Mu%C4%9Fla") },
+  { name: "Bodrum", type: "rss", platform: "news", url: GN("Bodrum+Mu%C4%9Fla") },
+  { name: "Marmaris", type: "rss", platform: "news", url: GN("Marmaris") },
+  { name: "Fethiye", type: "rss", platform: "news", url: GN("Fethiye") },
+  { name: "Datça", type: "rss", platform: "news", url: GN("Dat%C3%A7a") },
+  { name: "Menteşe", type: "rss", platform: "news", url: GN("Mente%C5%9Fe") },
+  { name: "Milas", type: "rss", platform: "news", url: GN("Milas") },
+  { name: "Dalaman", type: "rss", platform: "news", url: GN("Dalaman") },
+  { name: "Ortaca", type: "rss", platform: "news", url: GN("Ortaca") },
+  { name: "Seydikemer", type: "rss", platform: "news", url: GN("Seydikemer") },
+  { name: "Köyceğiz", type: "rss", platform: "news", url: GN("K%C3%B6yce%C4%9Fiz") },
+  { name: "Ula", type: "rss", platform: "news", url: GN("Ula+Mu%C4%9Fla") },
+  { name: "Yatağan", type: "rss", platform: "news", url: GN("Yata%C4%9Fan") },
+  { name: "Kavaklıdere", type: "rss", platform: "news", url: GN("Kavakl%C4%B1dere") },
 ];
 
 function parseRssItems(xml: string, limit = 20): { title: string; link: string; pubDate: string; description: string }[] {
+  // Atom feed'leri (USGS vb.) <entry> kullanır — ikisini de destekle
+  const atom = xml.match(/<entry>([\s\S]*?)<\/entry>/g);
+  if (atom) {
+    return atom.slice(0, limit).map(e => ({
+      title: stripCdata(e.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] ?? ""),
+      link: e.match(/<link[^>]*href="([^"]+)"/)?.[1] ?? "",
+      pubDate: e.match(/<updated>([\s\S]*?)<\/updated>/)?.[1] ?? e.match(/<published>([\s\S]*?)<\/published>/)?.[1] ?? new Date().toISOString(),
+      description: stripCdata(e.match(/<summary[^>]*>([\s\S]*?)<\/summary>/)?.[1] ?? "").replace(/<[^>]+>/g, ""),
+    })).filter(i => i.title.length > 5);
+  }
   const items = xml.match(/<item>([\s\S]*?)<\/item>/g) ?? [];
   return items.slice(0, limit).map(item => ({
     title: stripCdata(item.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? ""),
@@ -85,7 +117,7 @@ Deno.serve(async (req) => {
         const nlp = analyzeText(item.text);
         const url = item.link.startsWith("http") ? item.link : new URL(item.link, src.url).href;
         const { error } = await sb.from("social_posts").upsert({
-          platform: "news",
+          platform: src.platform === "emergency" ? "emergency_feed" : "news",
           content: item.text.slice(0, 2000),
           author: src.name,
           url,
@@ -102,7 +134,21 @@ Deno.serve(async (req) => {
           lat: nlp.lat,
           lon: nlp.lon,
         }, { onConflict: "content_hash", ignoreDuplicates: true });
-        if (!error) stats[src.name].inserted++;
+        if (!error) {
+          stats[src.name].inserted++;
+          // Acil durum kaynağından gelen ve afet kategorisine düşen içerikler
+          // canlı haritada kritik pin olarak görünsün
+          if (src.platform === "emergency" && nlp.category === "fire_disaster") {
+            await sb.from("alert_events").insert({
+              type: "fire", severity: "high",
+              title: item.title.slice(0, 180),
+              body: (item.description || item.text || "").slice(0, 400),
+              source: src.name,
+              lat: nlp.lat, lon: nlp.lon,
+              metadata: { url },
+            }).then(() => {}, () => {});
+          }
+        }
       }
     } catch (err) {
       console.warn(`[news-scrape] ${src.name} başarısız:`, err);

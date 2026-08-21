@@ -6,6 +6,7 @@ import { IntelligenceFeed } from "@/components/intelligence/IntelligenceFeed";
 import { LiveIncidentMap } from "@/components/intelligence/LiveIncidentMap";
 import { IncidentFilterBar, type IncidentFilterState } from "@/components/intelligence/IncidentFilterBar";
 import { ExecutiveReportPanel } from "@/components/intelligence/ExecutiveReportPanel";
+import { DemoDataButton } from "@/components/intelligence/DemoDataButton";
 import { AnomalyAlertSystem } from "@/components/intelligence/AnomalyAlertSystem";
 import { CategoryCard } from "@/components/intelligence/CategoryCard";
 import { CircleAlert as AlertCircle, RefreshCw, Database, Activity } from "lucide-react";
@@ -137,6 +138,7 @@ export default function OSINTDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
+            <DemoDataButton />
             <Button
               onClick={handleManualRefresh}
               disabled={syncStatus.isRefreshing}
