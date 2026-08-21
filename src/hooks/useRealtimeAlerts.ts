@@ -81,7 +81,10 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
       config: { broadcast: { ack: false } },
     });
 
-    channel
+    // Guard: tüm dinleyiciler .subscribe()'dan önce kuruluyor; herhangi bir
+    // hata durumunda abonelik atlanır ve uygulama crash etmez.
+    try {
+      channel
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "alert_events",
       }, (payload) => {
@@ -141,6 +144,10 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
       .subscribe((status) => {
         setIsConnected(status === "SUBSCRIBED");
       });
+    } catch (err) {
+      console.warn("[useRealtimeAlerts] Realtime aboneliği kurulamadı — bildirimler polling ile devam:", err);
+      supabase.removeChannel(channel);
+    }
 
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); setIsConnected(false); };

@@ -41,22 +41,31 @@ export function useLiveData<T = any>(type: DataType, options?: {
   // updates without waiting for the next poll.
   useEffect(() => {
     if (options?.enabled === false) return;
-    const channel = supabase
-      .channel(`live-data:${type}`)
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "live_data_cache",
-        filter: `data_type=eq.${type}`,
-      }, (payload) => {
-        const row = payload.new as { data?: T };
-        if (row?.data == null) return;
-        // setQueryData (exact key) — prior version used setQueriesData with an
-        // exact match, which never resolved once extraBody joined the key.
-        queryClient.setQueryData(["live-data", type, options?.extraBody], row.data);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    // Guard: register all listeners BEFORE subscribe. If Realtime is already
+    // subscribed (e.g. reused channel instance) a post-subscribe .on() throws
+    // synchronously — that error crashed the app via RootErrorBoundary.
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      channel = supabase
+        .channel(`live-data:${type}`)
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "live_data_cache",
+          filter: `data_type=eq.${type}`,
+        }, (payload) => {
+          const row = payload.new as { data?: T };
+          if (row?.data == null) return;
+          // setQueryData (exact key) — prior version used setQueriesData with an
+          // exact match, which never resolved once extraBody joined the key.
+          queryClient.setQueryData(["live-data", type, options?.extraBody], row.data);
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn(`[useLiveData] Realtime aboneliği kurulamadı (${type}) — polling ile devam:`, err);
+      return;
+    }
+    return () => { supabase.removeChannel(channel!); };
   }, [type, options?.enabled, options?.extraBody, queryClient]);
 
   return useQuery<T | null>({
