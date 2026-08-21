@@ -1,7 +1,7 @@
-// twitter-collect — X (Twitter) API v2 ile Muğla mention toplama.
-// OAuth 2.0: Bearer token (app-only) veya user-context token kullanır.
-// Rate-limit güvenliği: 429 alındığında iş job_queue'ya backoff ile geri bırakılır;
-// token süresi dolduğunda REFRESH_TOKEN mevcutsa otomatik yenilenir.
+// twitter-collect — FREE-TIER modunda lokal sosyal feed üreticisine yönlenir.
+// X (Twitter) API v2 yalnızca TWITTER_LIVE_ENABLED="1" secret'ı varsa çağrılır;
+// aksi halde (varsayılan) gerçekçi demo sosyal sinyal mock-data-injector'den gelir.
+// Canlı modda: OAuth 2.0 token yenileme + 429 rate-limit backoff koruması aktif.
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getServiceClient } from "../_shared/cache.ts";
@@ -91,12 +91,42 @@ async function searchRecent(token: string): Promise<{ tweets: TweetLite[]; retry
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // FREE-TIER (varsayılan): canlı X API çağrısı keskülde; yerel feed üret
+  if (Deno.env.get("TWITTER_LIVE_ENABLED") !== "1") {
+    const base = Deno.env.get("SUPABASE_URL") ?? "";
+    const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    try {
+      const resp = await fetch(`${base}/functions/v1/mock-data-injector`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ perDistrict: 4, hours: 6 }),
+      });
+      const out = await resp.json().catch(() => ({}));
+      return new Response(JSON.stringify({ ok: true, mode: "local-feed", ...out }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    } catch (err) {
+      return new Response(JSON.stringify({ ok: true, mode: "local-feed", error: String(err) }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+  }
+
+  // CANLI MOD (TWITTER_LIVE_ENABLED=1)
   const sb = getServiceClient();
   const token = await getToken();
 
   // API anahtarı yoksa sessizce başarılı dön — serbest kaynak akışı devam eder
   if (!sb || !token) {
-    return new Response(JSON.stringify({ ok: true, skipped: "twitter credentials not configured" }),
+    // Canlı mod açık ama kimlik yok → lokal feed'e düş (boş veriden iyi)
+    const base = Deno.env.get("SUPABASE_URL") ?? "";
+    const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    try {
+      await fetch(`${base}/functions/v1/mock-data-injector`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ perDistrict: 4, hours: 6 }),
+      });
+    } catch { /* sessizce geç */ }
+    return new Response(JSON.stringify({ ok: true, mode: "local-feed-fallback", skipped: "twitter credentials not configured" }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 

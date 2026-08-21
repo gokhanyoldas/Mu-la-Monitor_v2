@@ -14,3 +14,21 @@ verify_jwt = false
 
 [functions.transport-scrape]
 verify_jwt = false
+
+[functions.twitter-collect]
+verify_jwt = false
+
+[functions.news-scrape]
+verify_jwt = false
+
+[functions.job-worker]
+verify_jwt = false
+
+[functions.spike-scan]
+verify_jwt = false
+
+[functions.executive-report]
+verify_jwt = false
+
+[functions.mock-data-injector]
+verify_jwt = false
