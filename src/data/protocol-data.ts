@@ -1,6 +1,6 @@
 // Top priority protocol members (inline)
 // Full list fetched at runtime from mugla.gov.tr
-// Last scraped: 2026-05-07
+// Last scraped: 2026-08-20 (canlı mugla.gov.tr doğrulandı)
 
 export interface ProtocolMember {
   sira: string;
@@ -207,7 +207,7 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "5",
     "unvan": "Dalaman Kaymakamı",
-    "isim": "Mesut YAKUTA",
+    "isim": "Ferhat VARDAR",
     "telefon": "692 5011 - 692 1285",
     "faks": "692 2719",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
@@ -231,7 +231,7 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "5",
     "unvan": "Kavaklıdere Kaymakamı",
-    "isim": "Ali ARGAMA",
+    "isim": "Turgay İLHAN",
     "telefon": "592 7101 - 7118",
     "faks": "592 7821",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"

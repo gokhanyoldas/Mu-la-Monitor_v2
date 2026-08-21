@@ -3,10 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { DISTRICTS, getDistrictBySlug } from "@/data/districts";
+import { PROTOCOL_DATA } from "@/data/protocol-data";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { StatusList } from "@/components/dashboard/StatusList";
-import { MapPin, ArrowLeft, Users, TrendingUp, Newspaper, AlertTriangle } from "lucide-react";
+import { MapPin, ArrowLeft, Users, TrendingUp, Newspaper, AlertTriangle, Phone, Landmark } from "lucide-react";
 
 interface PostItem {
   id: string;
@@ -128,7 +129,7 @@ const DistrictPage = () => {
       {/* Main grid */}
       <div className="p-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
 
-        {/* Col 1 — Demographics */}
+        {/* Col 1 — Demographics + Protokol */}
         <div className="space-y-3">
           <DashboardPanel title="İlçe Bilgileri" icon={<MapPin size={14} />}>
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -171,6 +172,39 @@ const DistrictPage = () => {
               </p>
             )}
           </DashboardPanel>
+
+          {/* Protokol — Kaymakam & Belediye Başkanı (valilik listesi canlı izlenir) */}
+          {(() => {
+            const officials = PROTOCOL_DATA.filter(m =>
+              m.unvan === `${district.name} Kaymakamı` ||
+              m.unvan === `${district.name} Belediye Başkanı`
+            );
+            if (officials.length === 0) return null;
+            return (
+              <DashboardPanel title="İlçe Protokolü" icon={<Landmark size={14} />} badge="RESMİ" badgeVariant="info">
+                <div className="space-y-2">
+                  {officials.map(o => (
+                    <div key={o.unvan} className="p-2 rounded-lg bg-secondary/30 border border-border/30">
+                      <div className="text-[9px] font-mono text-muted-foreground uppercase">{o.unvan}</div>
+                      <div className="text-xs font-bold text-foreground mt-0.5">{o.isim}</div>
+                      {o.telefon && (
+                        <div className="flex items-center gap-1 text-[10px] font-mono text-primary mt-1">
+                          <Phone size={10} /> (0252) {o.telefon.split("-")[0].trim()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <a
+                    href="https://www.mugla.gov.tr/il-protokol-listesi"
+                    target="_blank" rel="noopener noreferrer"
+                    className="block text-[9px] font-mono text-muted-foreground hover:text-primary text-center pt-1 transition-colors"
+                  >
+                    Kaynak: mugla.gov.tr il protokol listesi ↗
+                  </a>
+                </div>
+              </DashboardPanel>
+            );
+          })()}
         </div>
 
         {/* Col 2 & 3 — Social posts */}

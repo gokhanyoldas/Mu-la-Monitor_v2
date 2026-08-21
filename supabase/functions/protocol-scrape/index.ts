@@ -5,6 +5,69 @@ import { corsHeaders } from "../_shared/cors.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
+
+    // ── DB persist + değişiklik takibi (service client varsa) ──
+    const sbUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const sbKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    let changesSummary: { added: number; removed: number; updated: number } | null = null;
+    if (sbUrl && sbKey) {
+      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+      const sb = createClient(sbUrl, sbKey);
+      const { data: prev } = await sb.from("protocol_members").select("unvan, isim, telefon, kategori");
+
+      const norm = (x: unknown) => (x ?? "").toString().trim().toLocaleLowerCase("tr");
+      const keyOf = (m: { unvan: string; isim: string }) => `${norm(m.unvan)}|${norm(m.isim)}`;
+      const prevMap = new Map((prev ?? []).map(r => [keyOf({ unvan: r.unvan, isim: r.isim }), r]));
+
+      const changes: { change_type: string; unvan: string; isim_old: string | null; isim_new: string | null; detail: string }[] = [];
+      let added = 0, removed = 0, updated = 0;
+
+      for (const m of protocol) {
+        const k = keyOf({ unvan: norm(m.unvan), isim: norm(m.isim) });
+        const prevRow = prevMap.get(k);
+        if (!prevRow) {
+          added++;
+          changes.push({ change_type: "added", unvan: m.unvan, isim_old: null, isim_new: m.isim, detail: `Yeni protokol üyesi: ${m.unvan} — ${m.isim}` });
+        } else if (prevRow.telefon !== m.telefon) {
+          updated++;
+          changes.push({ change_type: "updated", unvan: m.unvan, isim_old: m.isim, isim_new: m.isim, detail: `İletişim güncellendi (${m.isim}): ${prevRow.telefon} → ${m.telefon}` });
+        }
+        prevMap.delete(k);
+      }
+      for (const [k, r] of prevMap) {
+        removed++;
+        changes.push({ change_type: "removed", unvan: r.unvan, isim_old: r.isim, isim_new: null, detail: `Protokolden kaldırıldı: ${r.unvan} — ${r.isim}` });
+      }
+
+      // Snapshot'ı replace et (basit tam yenileme — takip liste hepsini tutar)
+      if (protocol.length > 0) {
+        await sb.from("protocol_members").delete().neq("unvan", "").then(() => {});
+        await sb.from("protocol_members").insert(
+          protocol.map(m => ({
+            isim: m.isim, unvan: m.unvan, kategori: m.kategori,
+            telefon: m.telefon, faks: m.faks,
+            district: m.unvan.match(/^(.+?)\s+(Kaymakamı|Belediye\s+Başkanı)$/)?.[1] ?? null,
+          }))
+        );
+      }
+      if (changes.length > 0) {
+        await sb.from("protocol_changes").insert(
+          changes.map(c => ({ ...c, scraped_at: new Date().toISOString() }))
+        );
+        // Önemli görevlerdeki değişimler haritada uyarı olarak görünür
+        const important = changes.filter(c => /Kaymakamı|Vali|Belediye Başkanı|Başsavcısı|Rektör/i.test(c.unvan));
+        for (const c of important.slice(0, 5)) {
+          await sb.from("alert_events").insert({
+            type: "governance", severity: "medium",
+            title: `Protokol değişikliği: ${c.unvan}`,
+            body: c.detail, source: "Protokol İzleme",
+            metadata: { change_type: c.change_type },
+          }).then(() => {}, () => {});
+        }
+      }
+      changesSummary = { added, removed, updated };
+    }
+
     return new Response("ok", { headers: corsHeaders });
   }
 
@@ -92,6 +155,7 @@ Deno.serve(async (req: Request) => {
         success: true,
         protocol,
         count: protocol.length,
+        changes: changesSummary,
         source: "https://www.mugla.gov.tr/il-protokol-listesi",
         scraped_at: new Date().toISOString(),
       }),
