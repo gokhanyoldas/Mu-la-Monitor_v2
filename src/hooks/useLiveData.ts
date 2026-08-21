@@ -9,18 +9,19 @@ export type DataType =
   | "gastronomy" | "budget" | "culture" | "life_quality"
   | "earthquakes" | "all";
 
-const REFERENCE_TYPES = new Set([
-  "demographics", "education", "health", "agriculture",
-  "traffic_density", "gastronomy", "budget", "culture", "life_quality",
-]);
-
 async function readPersistentCache<T>(type: DataType): Promise<T | null> {
-  const { data } = await supabase
-    .from("live_data_cache")
-    .select("data, fetched_at")
-    .eq("data_type", type)
-    .maybeSingle();
-  return (data?.data as T) || null;
+  try {
+    if (!supabase) return null;
+    const { data } = await supabase
+      .from("live_data_cache")
+      .select("data, fetched_at")
+      .eq("data_type", type)
+      .maybeSingle();
+    return (data?.data as T) || null;
+  } catch (err) {
+    console.error("Cache read error:", err);
+    return null;
+  }
 }
 
 export function useLiveData<T>(type: DataType) {
@@ -33,31 +34,36 @@ export function useLiveData<T>(type: DataType) {
   });
 
   useEffect(() => {
-    if (!type) return;
+    if (!type || !supabase) return;
 
-    // Supabase Realtime aboneliği sıralaması düzeltildi (.on önce, .subscribe en son)
-    const channel = supabase
-      .channel(`live-data:${type}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "live_data_cache",
-          filter: `data_type=eq.${type}`,
-        },
-        (payload) => {
-          if (payload.new) {
-            queryClient.setQueryData(["live-data", type], (payload.new as any).data);
+    try {
+      const channel = supabase
+        .channel(`live-data:${type}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "live_data_cache",
+            filter: `data_type=eq.${type}`,
+          },
+          (payload) => {
+            if (payload?.new) {
+              queryClient.setQueryData(["live-data", type], (payload.new as any).data);
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } catch (e) {
+      console.error("Realtime subscription error:", e);
+    }
   }, [type, queryClient]);
 
   return query;
 }
+
+export default useLiveData;
