@@ -216,6 +216,9 @@ export type Database = {
         Relationships: []
       }
       social_posts: {
+        // Not: district/category/sentiment_score/lat/lon/entities/is_duplicate
+        // kolonları 20260821000001_intelligence_platform migrasyonuyla eklendi;
+        // CLI type-regen yapılana kadar burada elle tanımlı.
         Row: {
           analyzed_at: string | null
           author: string | null
@@ -231,6 +234,14 @@ export type Database = {
           sentiment_method: string | null
           region?: string | null
           url?: string | null
+          district?: string | null
+          category?: string | null
+          sentiment_score?: number | null
+          entities?: Json | null
+          lat?: number | null
+          lon?: number | null
+          is_duplicate?: boolean | null
+          cluster_id?: number | null
         }
         Insert: {
           analyzed_at?: string | null
@@ -245,6 +256,14 @@ export type Database = {
           sentiment_confidence?: number | null
           sentiment_method?: string | null
           url?: string | null
+          district?: string | null
+          category?: string | null
+          sentiment_score?: number | null
+          entities?: Json | null
+          lat?: number | null
+          lon?: number | null
+          is_duplicate?: boolean | null
+          cluster_id?: number | null
         }
         Update: {
           analyzed_at?: string | null
