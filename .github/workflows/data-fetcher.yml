@@ -14,11 +14,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Setup Node.js
-        uses: actions/node-style@v3
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
 
       - name: Fetch Regional Data
         run: |
           echo "Muğla 13 ilçe için canlı veri akışı taranıyor..."
-          # Buraya haber ve sosyal medya çekme script'imiz bağlanır
