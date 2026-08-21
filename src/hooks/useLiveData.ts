@@ -51,11 +51,13 @@ export function useLiveData<T = any>(type: DataType, options?: {
       }, (payload) => {
         const row = payload.new as { data?: T };
         if (row?.data == null) return;
-        queryClient.setQueriesData({ queryKey: ["live-data", type] }, row.data);
+        // setQueryData (exact key) — prior version used setQueriesData with an
+        // exact match, which never resolved once extraBody joined the key.
+        queryClient.setQueryData(["live-data", type, options?.extraBody], row.data);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [type, options?.enabled, queryClient]);
+  }, [type, options?.enabled, options?.extraBody, queryClient]);
 
   return useQuery<T | null>({
     queryKey: ["live-data", type, options?.extraBody],
