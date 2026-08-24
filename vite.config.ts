@@ -11,6 +11,13 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // OpenHands iş ortamı önizleme host'ları
+    allowedHosts: [
+      ".prod-runtime.all-hands.dev",
+      ".all-hands.dev",
+      "localhost",
+      "127.0.0.1",
+    ],
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

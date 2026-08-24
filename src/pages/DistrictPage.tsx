@@ -30,9 +30,10 @@ const SENTIMENT_LABELS: Record<string, string> = {
 };
 
 const DistrictPage = () => {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug, ilceId } = useParams<{ slug?: string; ilceId?: string }>();
+  const param = slug ?? ilceId ?? "";
   const navigate = useNavigate();
-  const district = getDistrictBySlug(slug ?? "");
+  const district = getDistrictBySlug(param);
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [stats, setStats] = useState({ positive: 0, negative: 0, neutral: 0, total: 0 });
   const [isLoading, setIsLoading] = useState(true);
