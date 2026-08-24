@@ -28,7 +28,10 @@ const tabs: { label: string; value: DashboardTab }[] = [
 export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardHeaderProps) => {
   const [time, setTime] = useState(new Date());
   const [districtOpen, setDistrictOpen] = useState(false);
+  // Dropdown, overflow-x-auto tab barının kırpmasından kaçınmak için fixed konumlanır
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const districtBtnRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -37,9 +40,24 @@ export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardH
         setDistrictOpen(false);
       }
     };
+    const closeOnScroll = () => setDistrictOpen(false);
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    window.addEventListener("scroll", closeOnScroll, true);
+    window.addEventListener("resize", closeOnScroll);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("scroll", closeOnScroll, true);
+      window.removeEventListener("resize", closeOnScroll);
+    };
   }, []);
+
+  const toggleDistrictMenu = () => {
+    if (!districtOpen && districtBtnRef.current) {
+      const r = districtBtnRef.current.getBoundingClientRect();
+      setMenuPos({ top: r.bottom + 4, left: r.left });
+    }
+    setDistrictOpen(v => !v);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -124,18 +142,24 @@ export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardH
           </button>
         ))}
 
-        {/* İlçeler dropdown */}
-        <div className="relative ml-1 flex-shrink-0" ref={dropdownRef}>
+        {/* İlçeler dropdown — fixed konum: tab barı overflow kırpmasını aşar */}
+        <div className="ml-1 flex-shrink-0" ref={dropdownRef}>
           <button
-            onClick={() => setDistrictOpen(v => !v)}
-            className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors"
+            ref={districtBtnRef}
+            onClick={toggleDistrictMenu}
+            className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono whitespace-nowrap transition-colors ${
+              districtOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
             <MapPin size={10} />
             İlçeler
             <ChevronDown size={9} className={`transition-transform ${districtOpen ? "rotate-180" : ""}`} />
           </button>
-          {districtOpen && (
-            <div className="absolute top-full left-0 mt-1 w-36 bg-background border border-border rounded-md shadow-lg z-50 overflow-hidden">
+          {districtOpen && menuPos && (
+            <div
+              className="fixed w-40 bg-background border border-border rounded-md shadow-xl z-[999] overflow-hidden"
+              style={{ top: menuPos.top, left: menuPos.left }}
+            >
               <div className="py-0.5 max-h-64 overflow-y-auto scrollbar-thin">
                 {DISTRICTS.map(d => (
                   <button
