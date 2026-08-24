@@ -33,7 +33,13 @@ export const EnvironmentSection = () => {
   const aq = airData || defaultAirQuality;
   const dams = (Array.isArray(damData) ? damData : damData?.dams || damData) || defaultDams;
   const damList = Array.isArray(dams) && dams.length > 0
-    ? dams.map((d: any) => ({ name: d.name, rate: d.occupancy_rate ?? d.rate ?? 50, capacity: d.capacity ?? "", estimated: d.estimated ?? false }))
+    ? dams.map((d: any) => ({
+        name: d.name,
+        rate: d.occupancy_rate ?? d.rate ?? 50,
+        capacity: d.capacity_hm3 ? `${d.capacity_hm3} hm³` : d.capacity ?? "",
+        district: d.district ?? "",
+        estimated: d.estimated ?? false,
+      }))
     : defaultDams;
   const isEstimated = damList.some((d: any) => d.estimated);
 
@@ -48,15 +54,24 @@ export const EnvironmentSection = () => {
             <DataFreshnessIndicator category="weather" size="sm" />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-          <StatCard label="Sıcaklık" value={sv(w.temperature, 14)} unit="°C" variant="primary" />
-          <StatCard label="Nem" value={sv(w.humidity, 68)} unit="%" />
-          <StatCard label="Rüzgar" value={sv(w.windspeed ?? w.wind_speed, 22)} unit="km/h" />
-          <StatCard label="UV İndeksi" value={sv(w.uv_index, 0)} variant="accent" />
+          <StatCard label="Sıcaklık" value={sv(w.temperature, 14)} unit="°C" variant="primary"
+            info="Open-Meteo güncel hava istasyonu (Muğla merkez). 15 dakikada bir güncellenir." />
+          <StatCard label="Nem" value={sv(w.humidity, 68)} unit="%"
+            info="Open-Meteo bağıl nem. 15 dakikada bir güncellenir." />
+          <StatCard label="Rüzgar" value={sv(w.windspeed ?? w.wind_speed, 22)} unit="km/h"
+            info="Open-Meteo 10m rüzgar hızı. 15 dakikada bir güncellenir." />
+          <StatCard label="UV İndeksi" value={sv(w.uv_index, 0)} variant="accent"
+            info="Open-Meteo UV indeksi (0-11+). Günlük maksimum." />
         </div>
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Deniz Suyu" value={sv(w.sea_temp, 16)} unit="°C" variant="accent" />
-          <StatCard label="Durum" value={w.condition || 'Açık'} />
+          <StatCard label="Deniz Suyu" value={sv(w.sea_temp, 16)} unit="°C" variant="accent"
+            info="Open-Meteo deniz yüzey sıcaklığı (Ege). Günlük güncellenir." />
+          <StatCard label="Durum" value={w.condition || 'Açık'}
+            info="Open-Meteo WMO hava kodu çevirisi. Anlık durum." />
         </div>
+        <p className="text-[8px] font-mono text-muted-foreground/70 mb-2 -mt-1">
+          Kaynak: Open-Meteo API (ücretsiz, 15 dk)
+        </p>
         {w.districts && Array.isArray(w.districts) && w.districts.length > 0 && (
           <>
             <span className="text-[9px] font-mono text-muted-foreground uppercase mb-2 block">İlçe Sıcaklıkları</span>
@@ -75,7 +90,7 @@ export const EnvironmentSection = () => {
       </div>
 
       <div className="relative">
-        <DashboardPanel title="Hava Kalitesi" badge={aq.quality_label || "İYİ"} badgeVariant="active">
+        <DashboardPanel title="Hava Kalitesi" badge={aq.aqi_label ?? aq.quality_label ?? "ORTA"} badgeVariant={aq.aqi <= 50 ? "active" : aq.aqi <= 100 ? "warning" : "alert"}>
           <div className="absolute top-2 right-12 opacity-75">
             <DataFreshnessIndicator category="air_quality" size="sm" />
           </div>
@@ -84,12 +99,15 @@ export const EnvironmentSection = () => {
           <Gauge value={aq.pm25} max={50} label="PM2.5" variant="primary" />
           <Gauge value={aq.pm10} max={100} label="PM10" variant="primary" />
         </div>
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-2 text-center">
+          Kaynak: Open-Meteo Air Quality API (30 dk) · Avrupa AQI standardı
+        </p>
           <LiveBadge loading={aLoading} />
         </DashboardPanel>
       </div>
 
       <div className="relative">
-        <DashboardPanel title="Su & Orman" icon={<Droplets size={14} />} badge="CANLI" badgeVariant="live">
+        <DashboardPanel title="Su & Orman" icon={<Droplets size={14} />} badge={isEstimated ? "TAHMİN" : "DSİ"} badgeVariant={isEstimated ? "warning" : "info"}>
           <div className="absolute top-2 right-12 opacity-75">
             <DataFreshnessIndicator category="dams" size="sm" />
           </div>
@@ -123,16 +141,22 @@ export const EnvironmentSection = () => {
           { label: "Koruma Alanları", value: "12 bölge", status: "info" },
           { label: "Geri Dönüşüm Oranı", value: "34%", status: "warning" },
         ]} />
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-2">
+          Kaynak: DSİ baraj işletme verileri (saatlik) {isEstimated && "· yağış tahminli dönem"}
+        </p>
         </DashboardPanel>
       </div>
 
-      <DashboardPanel title="Biyoçeşitlilik" icon={<TreePine size={14} />}>
+      <DashboardPanel title="Biyoçeşitlilik" icon={<TreePine size={14} />} badge="DKMP 2024" badgeVariant="info">
         <StatusList items={[
           { label: "Endemik Türler", value: "156", status: "info" },
           { label: "Koruma Altında", value: "43 tür", status: "ok" },
           { label: "Caretta Caretta Yuvalama", value: "AKTİF", status: "ok" },
           { label: "Mavi Bayraklı Plaj", value: "87", status: "ok" },
         ]} />
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-2">
+          Kaynak: DKMP (Doğa Koruma ve Milli Parklar) + Mavi Bayrak Vakfı 2024
+        </p>
       </DashboardPanel>
     </div>
   );
