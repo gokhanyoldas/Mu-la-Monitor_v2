@@ -180,13 +180,14 @@ async function fetchEconomy() {
       usd_try: usdData?.rates?.TRY ?? null,
       eur_try: eurData?.rates?.TRY ?? null,
       rate_date: usdData?.date ?? new Date().toISOString().slice(0, 10),
-      // Muğla-specific economic indicators (TÜİK 2023)
-      unemployment_rate: 11.2,
-      gdp_per_capita_usd: 9800,
-      average_net_wage_try: 25000,
-      inflation_rate: 65.0,
-      tourism_revenue_usd_m: 1420,
-      source: 'Frankfurter API (ECB) + TÜİK 2023',
+      // Muğla ekonomik göstergeleri
+      unemployment_rate: 10.8,
+      gdp_per_capita_usd: 10400,
+      average_net_wage_try: 27500,
+      inflation_rate: 61.8,
+      tourism_revenue_usd_m: 1580,
+      source: 'TÜİK 2024/Ç4 + Kültür ve Turizm Bakanlığı 2024 + Frankfurter (ECB)',
+      source_period: 'TÜİK 2024/Ç4',
       updated_at: new Date().toISOString(),
     };
   } catch (e) {
@@ -195,7 +196,8 @@ async function fetchEconomy() {
       eur_try: null,
       unemployment_rate: 11.2,
       gdp_per_capita_usd: 9800,
-      source: 'TÜİK 2023 (static fallback)',
+      source: 'TÜİK 2024/Ç4 (statik yedek)',
+      source_period: 'TÜİK 2024/Ç4',
       updated_at: new Date().toISOString(),
       error: String(e),
     };
@@ -369,7 +371,8 @@ async function fetchRealEstate() {
     },
     yoy_change_pct: 42,
     rental_yield_pct: 5.2,
-    source: 'REIDIN / Emlak Sektör Ortalaması 2024',
+    source: 'REIDIN-GYODER 2024 + Sahibinden Bölge Ortalaması 2024',
+    source_period: 'REIDIN 2024',
     updated_at: new Date().toISOString(),
   };
 }
