@@ -168,6 +168,8 @@ export const ProactiveBrainSection = () => {
         icon={<Brain className="text-primary animate-pulse" size={15} />}
         badge="PROAKTİF BEYİN"
         badgeVariant="live"
+        collapsible
+        defaultOpen={false}
       >
         <div className="p-3 bg-secondary/20 rounded-lg border border-border/40 space-y-3">
           

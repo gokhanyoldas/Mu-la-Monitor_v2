@@ -1,4 +1,5 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 interface DashboardPanelProps {
   title: string;
@@ -9,6 +10,10 @@ interface DashboardPanelProps {
   children: ReactNode;
   className?: string;
   count?: number;
+  /** true ise başlık tıklanabilir olur ve içerik aç/kapa yapar */
+  collapsible?: boolean;
+  /** collapsible iken başlangıç durumu (varsayılan: true) */
+  defaultOpen?: boolean;
 }
 
 const badgeStyles = {
@@ -28,10 +33,22 @@ export const DashboardPanel = ({
   children,
   className = "",
   count,
+  collapsible = false,
+  defaultOpen = true,
 }: DashboardPanelProps) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const open = collapsible ? isOpen : true;
+
   return (
     <div className={`panel-border rounded-lg overflow-hidden ${className}`}>
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30">
+      <div
+        className={`flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30 ${
+          collapsible ? "cursor-pointer select-none hover:bg-secondary/50 transition-colors" : ""
+        }`}
+        onClick={collapsible ? () => setIsOpen(v => !v) : undefined}
+        role={collapsible ? "button" : undefined}
+        aria-expanded={collapsible ? open : undefined}
+      >
         <div className="flex items-center gap-2">
           {icon && <span className="text-primary text-sm">{icon}</span>}
           <div>
@@ -50,14 +67,29 @@ export const DashboardPanel = ({
             </span>
           )}
         </div>
-        {badge && (
-          <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border ${badgeStyles[badgeVariant]}`}>
-            {badge}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {badge && (
+            <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border ${badgeStyles[badgeVariant]}`}>
+              {badge}
+            </span>
+          )}
+          {collapsible && (
+            <ChevronDown
+              size={14}
+              className={`text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`}
+            />
+          )}
+        </div>
       </div>
-      <div className="p-3">
-        {children}
+      <div
+        className="grid transition-all duration-300 ease-in-out"
+        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div className="p-3">
+            {children}
+          </div>
+        </div>
       </div>
     </div>
   );
