@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS monitored_accounts (
 
 -- RLS: allow authenticated + anon read, authenticated write
 ALTER TABLE monitored_accounts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "public_read" ON monitored_accounts FOR SELECT USING (true);
-CREATE POLICY "auth_write"  ON monitored_accounts FOR ALL USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "public_read" ON monitored_accounts FOR SELECT USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "auth_write"  ON monitored_accounts FOR ALL USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Default seed: common Muğla-related accounts (can be managed via UI)
 INSERT INTO monitored_accounts (platform, username, display_name) VALUES

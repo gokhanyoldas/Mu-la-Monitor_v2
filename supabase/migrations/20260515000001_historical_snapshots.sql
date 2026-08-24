@@ -27,14 +27,20 @@ create index if not exists historical_snapshots_category_key_idx
 -- RLS: all authenticated users can read; only service role can insert
 alter table public.historical_snapshots enable row level security;
 
-create policy "public read" on public.historical_snapshots
+DO $$ BEGIN
+  CREATE POLICY "public read" ON public.historical_snapshots
   for select using (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "service insert" on public.historical_snapshots
+DO $$ BEGIN
+  CREATE POLICY "service insert" ON public.historical_snapshots
   for insert with check (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "service upsert" on public.historical_snapshots
+DO $$ BEGIN
+  CREATE POLICY "service upsert" ON public.historical_snapshots
   for update using (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 comment on table public.historical_snapshots is
   'Günlük metrik anlık görüntüleri — tarihsel karşılaştırma için';

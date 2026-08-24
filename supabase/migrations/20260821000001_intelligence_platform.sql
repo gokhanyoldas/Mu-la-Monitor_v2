@@ -120,57 +120,66 @@ alter table public.keyword_volume_snapshots enable row level security;
 
 -- job_queue sadece service role (edge function) erişir — public okuma yok
 drop policy if exists "job_queue_service_only" on public.job_queue;
-create policy "job_queue_service_only" on public.job_queue
+DO $$ BEGIN
+  CREATE POLICY "job_queue_service_only" ON public.job_queue
   for all using (auth.role() = 'service_role');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 drop policy if exists "kvs_read_all" on public.keyword_volume_snapshots;
-create policy "kvs_read_all" on public.keyword_volume_snapshots
+DO $$ BEGIN
+  CREATE POLICY "kvs_read_all" ON public.keyword_volume_snapshots
   for select using (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ─── Zamanlayıcılar (pg_cron) ───
 create extension if not exists pg_cron;
 
 -- Kuyruk işleyici her 2 dk
+select cron.unschedule(jobid) from cron.job where jobname = 'job-worker';
 select cron.schedule('job-worker',       '*/2 * * * *', $$
   select net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/job-worker',
+    url := current_setting('app.supabase_url', true) || '/functions/v1/job-worker',
     headers := jsonb_build_object('Content-Type', 'application/json',
-                                  'Authorization', 'Bearer ' || current_setting('app.anon_key')),
+                                  'Authorization', 'Bearer ' || current_setting('app.anon_key', true)),
     body   := '{}'::jsonb
-  ); $$) where not exists (select 1 from cron.job where jobname = 'job-worker');
+  ); $$);
 
 -- Twitter toplama her 15 dk (rate-limit güvenli)
+select cron.unschedule(jobid) from cron.job where jobname = 'twitter-collect';
 select cron.schedule('twitter-collect',  '*/15 * * * *', $$
   select net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/twitter-collect',
+    url := current_setting('app.supabase_url', true) || '/functions/v1/twitter-collect',
     headers := jsonb_build_object('Content-Type', 'application/json',
-                                  'Authorization', 'Bearer ' || current_setting('app.anon_key')),
+                                  'Authorization', 'Bearer ' || current_setting('app.anon_key', true)),
     body   := '{}'::jsonb
-  ); $$) where not exists (select 1 from cron.job where jobname = 'twitter-collect');
+  ); $$);
 
 -- Yerel haber/RSS her 15 dk
+select cron.unschedule(jobid) from cron.job where jobname = 'news-scrape';
 select cron.schedule('news-scrape',      '*/15 * * * *', $$
   select net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/news-scrape',
+    url := current_setting('app.supabase_url', true) || '/functions/v1/news-scrape',
     headers := jsonb_build_object('Content-Type', 'application/json',
-                                  'Authorization', 'Bearer ' || current_setting('app.anon_key')),
+                                  'Authorization', 'Bearer ' || current_setting('app.anon_key', true)),
     body   := '{}'::jsonb
-  ); $$) where not exists (select 1 from cron.job where jobname = 'news-scrape');
+  ); $$);
 
 -- Ani sıçrama taraması her 10 dk
+select cron.unschedule(jobid) from cron.job where jobname = 'spike-scan';
 select cron.schedule('spike-scan',       '*/10 * * * *', $$
   select net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/spike-scan',
+    url := current_setting('app.supabase_url', true) || '/functions/v1/spike-scan',
     headers := jsonb_build_object('Content-Type', 'application/json',
-                                  'Authorization', 'Bearer ' || current_setting('app.anon_key')),
+                                  'Authorization', 'Bearer ' || current_setting('app.anon_key', true)),
     body   := '{}'::jsonb
-  ); $$) where not exists (select 1 from cron.job where jobname = 'spike-scan');
+  ); $$);
 
 -- Günlük yönetici özeti her sabah 07:00
+select cron.unschedule(jobid) from cron.job where jobname = 'executive-report';
 select cron.schedule('executive-report', '0 7 * * *', $$
   select net.http_post(
-    url := current_setting('app.supabase_url') || '/functions/v1/executive-report',
+    url := current_setting('app.supabase_url', true) || '/functions/v1/executive-report',
     headers := jsonb_build_object('Content-Type', 'application/json',
-                                  'Authorization', 'Bearer ' || current_setting('app.anon_key')),
+                                  'Authorization', 'Bearer ' || current_setting('app.anon_key', true)),
     body   := '{}'::jsonb
-  ); $$) where not exists (select 1 from cron.job where jobname = 'executive-report');
+  ); $$);

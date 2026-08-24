@@ -13,17 +13,25 @@ create unique index if not exists user_preferences_user_id_idx
 alter table public.user_preferences enable row level security;
 
 -- Users can only read/write their own preferences
-create policy "owner select" on public.user_preferences
+DO $$ BEGIN
+  CREATE POLICY "owner select" ON public.user_preferences
   for select using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "owner insert" on public.user_preferences
+DO $$ BEGIN
+  CREATE POLICY "owner insert" ON public.user_preferences
   for insert with check (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "owner update" on public.user_preferences
+DO $$ BEGIN
+  CREATE POLICY "owner update" ON public.user_preferences
   for update using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "owner delete" on public.user_preferences
+DO $$ BEGIN
+  CREATE POLICY "owner delete" ON public.user_preferences
   for delete using (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 comment on table public.user_preferences is
   'Kullanıcı başına kişiselleştirme tercihleri (ilçe, sekme, gizli bölümler, kompakt mod)';

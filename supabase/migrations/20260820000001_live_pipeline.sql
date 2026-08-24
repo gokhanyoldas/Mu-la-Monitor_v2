@@ -24,11 +24,13 @@ create index if not exists idx_alert_events_type on public.alert_events (type, c
 
 alter table public.alert_events enable row level security;
 
-create policy "public read alert_events"
-  on public.alert_events for select using (true);
+DO $$ BEGIN
+  CREATE POLICY "public read alert_events" ON public.alert_events for select using (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "service write alert_events"
-  on public.alert_events for insert with check (true);
+DO $$ BEGIN
+  CREATE POLICY "service write alert_events" ON public.alert_events for insert with check (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 comment on table public.alert_events is
   'Kritik olay akışı — realtime broadcast ile anında dashboard''a düşer';
@@ -53,11 +55,13 @@ create index if not exists idx_anomaly_alerts_active
 
 alter table public.anomaly_alerts enable row level security;
 
-create policy "public read anomaly_alerts"
-  on public.anomaly_alerts for select using (true);
+DO $$ BEGIN
+  CREATE POLICY "public read anomaly_alerts" ON public.anomaly_alerts for select using (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-create policy "service write anomaly_alerts"
-  on public.anomaly_alerts for all using (true) with check (true);
+DO $$ BEGIN
+  CREATE POLICY "service write anomaly_alerts" ON public.anomaly_alerts for all using (true) with check (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 comment on table public.anomaly_alerts is
   'anomaly-scan tarafından üretilen anomali kayıtları — category+metric_key başına tek aktif kayıt (upsert)';

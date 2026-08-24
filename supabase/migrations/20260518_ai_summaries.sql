@@ -8,8 +8,12 @@ create table if not exists public.ai_summaries (
   unique (type, date)
 );
 alter table public.ai_summaries enable row level security;
-create policy "ai_summaries_public_read" on public.ai_summaries for select using (true);
-create policy "ai_summaries_service_write" on public.ai_summaries for all using (auth.role() = 'service_role');
+DO $$ BEGIN
+  CREATE POLICY "ai_summaries_public_read" ON public.ai_summaries for select using (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "ai_summaries_service_write" ON public.ai_summaries for all using (auth.role() = 'service_role');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- pg_cron: generate AI summaries every 6 hours
 select cron.schedule(
