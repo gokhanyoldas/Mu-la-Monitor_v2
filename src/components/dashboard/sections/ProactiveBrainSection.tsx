@@ -14,6 +14,11 @@ type Scenario = "normal" | "heatwave" | "mega_tourism" | "social_tension" | "yor
 interface Briefing {
   headline: string;
   story: string;
+  featuredEvent?: {
+    name: string; dateRange: string; status: string;
+    metrics: { label: string; value: string }[];
+    insight: string; protocolNote: string;
+  };
   swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] };
   lifecycle: {
     before: { title: string; items: string[] };
@@ -392,58 +397,53 @@ export const ProactiveBrainSection = () => {
             </div>
           )}
 
-          {/* Featured Event Deep Dive: 17. Uluslararası Muğla Yörük Türkmen Toyu Özel Analizi */}
-          <div className="p-3 bg-cyan-950/20 border border-cyan-800/30 rounded-md space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Heart className="text-cyan-400 animate-pulse fill-cyan-400" size={12} />
-                <span className="text-[10px] font-mono font-bold text-cyan-300">
-                  Özel Vaka Analiz Alanı: 17. Uluslararası Muğla Yörük Türkmen Toyu
+          {/* ═══ ÖZEL VAKA ANALİZİ — Senaryoya göre AI'dan dinamik ═══ */}
+          {briefing?.featuredEvent && (
+            <div className="p-3 bg-cyan-950/20 border border-cyan-800/30 rounded-md space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Heart className="text-cyan-400 animate-pulse fill-cyan-400" size={12} />
+                  <span className="text-[10px] font-mono font-bold text-cyan-300">
+                    Özel Vaka Analiz Alanı: {briefing.featuredEvent.name}
+                  </span>
+                </div>
+                <span className="text-[8px] font-mono font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20 uppercase">
+                  {briefing.featuredEvent.status}
                 </span>
               </div>
-              <span className="text-[8px] font-mono font-bold text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded border border-green-500/20">
-                BAŞARIYLA TESPİT EDİLDİ
-              </span>
-            </div>
-            
-            <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
-              Muğla Büyükşehir Belediyesi tarafından <span className="text-foreground">5-7 Haziran 2026</span> tarihlerinde düzenlenen devasa etkinlik otonom sistemlerimiz tarafından anında fark edilerek tam teşekküllü sentiment ve protokol haritalandırmasından geçirilmiştir:
-            </p>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-              <div className="p-1.5 bg-background/50 border border-border/20 rounded text-center">
-                <div className="text-[7px] font-mono text-muted-foreground uppercase">Haber & Paylaşım</div>
-                <div className="text-xs font-mono font-bold text-foreground">12,400+</div>
-              </div>
-              <div className="p-1.5 bg-green-950/20 border border-green-805/30 rounded text-center">
-                <div className="text-[7px] font-mono text-muted-foreground uppercase">Pozitif Duygu</div>
-                <div className="text-xs font-mono font-bold text-green-400">%94.2</div>
-              </div>
-              <div className="p-1.5 bg-red-950/20 border border-red-805/30 rounded text-center">
-                <div className="text-[7px] font-mono text-muted-foreground uppercase">Negatif Duygu</div>
-                <div className="text-xs font-mono font-bold text-red-400">%1.8</div>
-              </div>
-              <div className="p-1.5 bg-background/50 border border-border/20 rounded text-center">
-                <div className="text-[7px] font-mono text-muted-foreground uppercase">Kültürel Etki</div>
-                <div className="text-xs font-mono font-bold text-cyan-400">9.8/10</div>
-              </div>
-            </div>
+              <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+                <span className="text-foreground">{briefing.featuredEvent.dateRange}</span> — otonom sistemlerimiz tarafından izlenerek sentiment ve protokol haritalandırmasından geçirilmektedir:
+              </p>
 
-            <div className="text-[8.5px] font-mono text-muted-foreground/90 space-y-1">
-              <div className="flex items-start gap-1">
-                <CheckCircle2 size={10} className="text-green-500 flex-shrink-0 mt-0.5" />
-                <span>
-                  <strong>Sentiment Ayrıştırması:</strong> Pozitif paylaşımlar yörük kültürünün canlandırılması, yerel yönetim desteği, kortej yürüyüşü ve şenlik coşkusuna odaklanırken; asgari düzeyde kalan negatif/nötr eğilimler sadece <span className="text-red-300">"aşırı sıcak hava"</span> ve <span className="text-orange-300">"otopark/ulaşım ring hattındaki yoğunluklar"</span> olarak saptanmıştır.
-                </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {briefing.featuredEvent.metrics.slice(0, 4).map((m, i) => (
+                  <div key={i} className={`p-1.5 border rounded text-center ${
+                    i === 1 ? "bg-green-950/20 border-green-500/30" :
+                    i === 2 ? "bg-red-950/20 border-red-500/30" :
+                    "bg-background/50 border-border/20"
+                  }`}>
+                    <div className="text-[7px] font-mono text-muted-foreground uppercase">{m.label}</div>
+                    <div className={`text-xs font-mono font-bold ${
+                      i === 1 ? "text-green-400" : i === 2 ? "text-red-400" : i === 3 ? "text-cyan-400" : "text-foreground"
+                    }`}>{m.value}</div>
+                  </div>
+                ))}
               </div>
-              <div className="flex items-start gap-1">
-                <CheckCircle2 size={10} className="text-green-500 flex-shrink-0 mt-0.5" />
-                <span>
-                  <strong>Vali ve Büyükşehir Belediye Başkanı Eşleşmesi:</strong> Basın haberleri ve protokol entegrasyonu başarıyla süzüldü. Yerel kültür ve turizme sinerji etkisi <strong>9.8</strong> olarak skorlandı.
-                </span>
+
+              <div className="text-[8.5px] font-mono text-muted-foreground/90 space-y-1">
+                <div className="flex items-start gap-1">
+                  <CheckCircle2 size={10} className="text-green-500 flex-shrink-0 mt-0.5" />
+                  <span><strong>Sentiment Ayrıştırması:</strong> {briefing.featuredEvent.insight}</span>
+                </div>
+                <div className="flex items-start gap-1">
+                  <CheckCircle2 size={10} className="text-green-500 flex-shrink-0 mt-0.5" />
+                  <span><strong>Protokol & Resmî Eşleşme:</strong> {briefing.featuredEvent.protocolNote}</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
 
         </div>
       </DashboardPanel>

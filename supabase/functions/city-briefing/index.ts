@@ -12,6 +12,14 @@ const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemi
 interface Briefing {
   headline: string;
   story: string;
+  featuredEvent: {
+    name: string;
+    dateRange: string;
+    status: string;               // "yaklaşıyor" | "sürüyor" | "tamamlandı"
+    metrics: { label: string; value: string }[];   // 4 ölçüm kartı
+    insight: string;              // sentiment ayrıştırması / derin bulgu
+    protocolNote: string;         // protokol/resmî eşleşme notu
+  };
   swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] };
   lifecycle: {
     before: { title: string; items: string[] };
@@ -63,6 +71,19 @@ Bu senaryo için SADECE aşağıdaki JSON şemasında geçerli JSON üret (markd
 {
   "headline": "Bugünün şehir manşeti (maks 12 kelime, gazete başlığı gibi, çarpıcı)",
   "story": "Günün hikâyesi: 2-3 cümlelik akıcı özet",
+  "featuredEvent": {
+    "name": "Senaryonun odak etkinliği (örn. 17. Uluslararası Muğla Yörük Türkmen Toyu ya da senaryoya uyan gerçekçi yaklaşan/güncel etkinlik)",
+    "dateRange": "tarih aralığı (örn. 5-7 Haziran 2026)",
+    "status": "yaklaşıyor | sürüyor | tamamlandı",
+    "metrics": [
+      {"label": "Haber & Paylaşım", "value": "tahmini sayı (örn. 12,400+)"},
+      {"label": "Pozitif Duygu", "value": "%xx.x"},
+      {"label": "Negatif Duygu", "value": "%x.x"},
+      {"label": "Kültürel Etki", "value": "x.x/10"}
+    ],
+    "insight": "Sentiment ayrıştırması: pozitifler neye odaklanıyor, negatifler neye (1-2 cümle)",
+    "protocolNote": "Protokol/resmî kurum eşleşmesi ve sinerji notu (1 cümle)"
+  },
   "swot": {
     "strengths": ["2-3 güçlü yön, kısa madde"],
     "weaknesses": ["2-3 zayıf yön, kısa madde"],
@@ -83,9 +104,29 @@ function buildFallback(ctx: Awaited<ReturnType<typeof gatherContext>>): Briefing
   const name = SCENARIO_TR[ctx.scenario] ?? "şehir akışı";
   const mood = ctx.neg > ctx.pos ? "gergin" : "dengeli";
   const top = ctx.topDistricts[0]?.split(":")[0] ?? "Muğla";
+  const FALLBACK_EVENTS: Record<string, { name: string; dateRange: string }> = {
+    normal: { name: "Muğla Günlük Şehir Akışı", dateRange: "Günlük izleme" },
+    heatwave: { name: "Aşırı Sıcak Hava Dalgası", dateRange: "48-72 saatlik pencere" },
+    mega_tourism: { name: "Sezonluk Turist Akını", dateRange: "Hafta sonu yoğunluğu" },
+    social_tension: { name: "Altyapı Kaynaklı Sosyal Gerginlik", dateRange: "Son 24 saat" },
+    yoruk_toy: { name: "17. Uluslararası Muğla Yörük Türkmen Toyu", dateRange: "5-7 Haziran 2026" },
+  };
+  const ev = FALLBACK_EVENTS[ctx.scenario] ?? FALLBACK_EVENTS.normal;
   return {
     headline: `${top} odağında ${name.toLowerCase()}: ${ctx.total} içerik izlendi`,
     story: `Son 24 saatte ${ctx.total} içerik analiz edildi; bölgesel hava ${mood}. En aktif ilçe ${top}. Sistem ${name.toLowerCase()} senaryosunu izlemeye devam ediyor.`,
+    featuredEvent: {
+      name: ev.name, dateRange: ev.dateRange,
+      status: "sürüyor",
+      metrics: [
+        { label: "İzlenen İçerik", value: String(ctx.total) },
+        { label: "Pozitif Duygu", value: `%${ctx.total > 0 ? Math.round((ctx.pos / ctx.total) * 100) : 0}` },
+        { label: "Negatif Duygu", value: `%${ctx.total > 0 ? Math.round((ctx.neg / ctx.total) * 100) : 0}` },
+        { label: "Aktif İlçe", value: `${ctx.topDistricts.length}/13` },
+      ],
+      insight: `Son 24 saatte ${ctx.total} içerik analiz edildi; olumlu içerik ${ctx.pos}, olumsuz ${ctx.neg} kayıt.`,
+      protocolNote: "Resmî kaynaklar ve protokol verisiyle sürekli çapraz doğrulama yapılmaktadır.",
+    },
     swot: {
       strengths: ["Güçlü veri altyapısı ve 13 ilçe kapsaması", "Yüksek izleme frekansı (15 dk)"],
       weaknesses: ["Sosyal kaynak çeşitliliği sınırlı", "İlçe bazlı saha doğrulaması eksik"],
@@ -105,7 +146,7 @@ function extractJson(text: string): Briefing | null {
   if (!m) return null;
   try {
     const parsed = JSON.parse(m[0]);
-    if (parsed.headline && parsed.swot && parsed.lifecycle) return parsed as Briefing;
+    if (parsed.headline && parsed.swot && parsed.lifecycle && parsed.featuredEvent) return parsed as Briefing;
     return null;
   } catch { return null; }
 }
