@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.mock-data-injector]
 verify_jwt = false
+
+[functions.city-briefing]
+verify_jwt = false

@@ -1,17 +1,60 @@
 import { useState, useEffect } from "react";
-import { 
-  Brain, Flame, AlertTriangle, HelpCircle, Users2, ShieldAlert, Sparkles, 
-  TrendingUp, Compass, ThermometerSun, Droplets, Wind, Heart, Play, Activity, CheckCircle2 
+import {
+  Brain, Flame, AlertTriangle, HelpCircle, Users2, ShieldAlert, Sparkles,
+  TrendingUp, Compass, ThermometerSun, Droplets, Wind, Heart, Play, Activity, CheckCircle2,
+  Newspaper, Scale, Hourglass, Radio, Flag
 } from "lucide-react";
 import { DashboardPanel } from "../DashboardPanel";
 import { MiniChart } from "../MiniChart";
 import { StatCard } from "../StatCard";
+import { supabase } from "@/integrations/supabase/client";
 
 type Scenario = "normal" | "heatwave" | "mega_tourism" | "social_tension" | "yoruk_toy";
+
+interface Briefing {
+  headline: string;
+  story: string;
+  swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] };
+  lifecycle: {
+    before: { title: string; items: string[] };
+    during: { title: string; items: string[] };
+    after: { title: string; items: string[] };
+  };
+}
+
+const SWOT_CELLS = [
+  { key: "strengths", label: "GÜÇLÜ YÖNLER", color: "text-green-400", border: "border-green-500/30", bg: "bg-green-950/20" },
+  { key: "weaknesses", label: "ZAYIF YÖNLER", color: "text-red-400", border: "border-red-500/30", bg: "bg-red-950/20" },
+  { key: "opportunities", label: "FIRSATLAR", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-950/20" },
+  { key: "threats", label: "TEHDİTLER", color: "text-amber-400", border: "border-amber-500/30", bg: "bg-amber-950/20" },
+] as const;
+
+const LIFECYCLE_PHASES = [
+  { key: "before", icon: Hourglass, color: "text-blue-400", border: "border-blue-500/30" },
+  { key: "during", icon: Radio, color: "text-green-400", border: "border-green-500/30" },
+  { key: "after", icon: Flag, color: "text-violet-400", border: "border-violet-500/30" },
+] as const;
+
+
 
 export const ProactiveBrainSection = () => {
   const [scenario, setScenario] = useState<Scenario>("normal");
   const [pulse, setPulse] = useState(true);
+  const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+
+  // Senaryo değişince city-briefing fonksiyonundan AI brifingi çek
+  useEffect(() => {
+    let cancelled = false;
+    setBriefingLoading(true);
+    supabase.functions.invoke("city-briefing", { body: { scenario } })
+      .then(({ data, error }) => {
+        if (!cancelled && !error && data?.briefing) setBriefing(data.briefing as Briefing);
+      })
+      .catch(() => { /* briefing opsiyonel */ })
+      .finally(() => { if (!cancelled) setBriefingLoading(false); });
+    return () => { cancelled = true; };
+  }, [scenario]);
 
   // Auto pulsing live effect
   useEffect(() => {
@@ -277,6 +320,77 @@ export const ProactiveBrainSection = () => {
               ⚡ {metrics.playbookAction}
             </div>
           </div>
+
+          {/* ═══ ŞEHİR GAZETESİ — Günlük AI Manşeti ═══ */}
+          {(briefing || briefingLoading) && (
+            <div className="relative overflow-hidden rounded-md border border-amber-500/30 bg-gradient-to-br from-amber-950/30 via-background to-background p-3 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[8px] font-mono font-bold uppercase tracking-widest text-amber-400 flex items-center gap-1">
+                  <Newspaper size={11} /> Şehir Gazetesi — {new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long" })}
+                </span>
+                {briefingLoading && <span className="text-[8px] font-mono text-muted-foreground animate-pulse">AI yazıyor…</span>}
+              </div>
+              {briefing && (
+                <>
+                  <h3 className="text-sm font-mono font-bold text-foreground leading-snug border-b border-amber-500/20 pb-1.5">
+                    📰 {briefing.headline}
+                  </h3>
+                  <p className="text-[10px] font-mono text-muted-foreground leading-relaxed italic">
+                    {briefing.story}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ═══ ETKİNLİK YAŞAM DÖNGÜSÜ — Öncesi / Sırasında / Sonrası ═══ */}
+          {briefing && (
+            <div className="space-y-1.5">
+              <div className="text-[9px] font-mono font-bold text-primary/80 uppercase tracking-widest flex items-center gap-1">
+                <Hourglass size={10} /> Etkinlik Yaşam Döngüsü Raporu
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {LIFECYCLE_PHASES.map(({ key, icon: PhaseIcon, color, border }) => {
+                  const phase = briefing.lifecycle[key as keyof Briefing["lifecycle"]];
+                  return (
+                    <div key={key} className={`p-2.5 rounded-md bg-background/50 border ${border} space-y-1.5`}>
+                      <div className={`text-[9px] font-mono font-bold flex items-center gap-1.5 ${color}`}>
+                        <PhaseIcon size={11} /> {phase.title}
+                      </div>
+                      <ul className="space-y-1">
+                        {phase.items.map((item, i) => (
+                          <li key={i} className="text-[9px] font-mono text-muted-foreground leading-snug flex items-start gap-1">
+                            <span className={`${color} flex-shrink-0`}>▸</span> {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ═══ CANLI SWOT ANALİZİ ═══ */}
+          {briefing && (
+            <div className="space-y-1.5">
+              <div className="text-[9px] font-mono font-bold text-primary/80 uppercase tracking-widest flex items-center gap-1">
+                <Scale size={10} /> Stratejik Durum Analizi — Canlı SWOT
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {SWOT_CELLS.map(({ key, label, color, border, bg }) => (
+                  <div key={key} className={`p-2.5 rounded-md border ${border} ${bg} space-y-1`}>
+                    <div className={`text-[9px] font-mono font-bold ${color}`}>{label}</div>
+                    <ul className="space-y-0.5">
+                      {briefing.swot[key as keyof Briefing["swot"]].map((item, i) => (
+                        <li key={i} className="text-[9px] font-mono text-foreground/80 leading-snug">• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Featured Event Deep Dive: 17. Uluslararası Muğla Yörük Türkmen Toyu Özel Analizi */}
           <div className="p-3 bg-cyan-950/20 border border-cyan-800/30 rounded-md space-y-2">
