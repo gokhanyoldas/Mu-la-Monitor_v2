@@ -47,6 +47,11 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
   }, [minSeverity, maxAlerts, onCritical]);
 
   const dismissAlert = useCallback((id: string) => {
+    // Kapatılan uyarılar localStorage'da kalıcı — yenilemede geri gelmez
+    try {
+      const dismissed = JSON.parse(localStorage.getItem("rta_dismissed") ?? "[]") as string[];
+      localStorage.setItem("rta_dismissed", JSON.stringify([...new Set([...dismissed, id])].slice(-200)));
+    } catch { /* storage doluysa sessiz geç */ }
     setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, dismissed: true } : a));
   }, []);
 
@@ -55,14 +60,19 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
   }, []);
 
   useEffect(() => {
-    // Recent alert history — the feed shouldn't start empty on first paint
+    // Recent alert history — the feed shouldn't start empty on first paint.
+    // Demo Veri kaynaklı uyarılar history'de gösterilmez (kullanıcı tercihi).
     supabase
       .from("alert_events")
       .select("*")
+      .neq("source", "Demo Veri")
       .order("created_at", { ascending: false })
       .limit(20)
       .then(({ data }) => {
+        let dismissed: string[] = [];
+        try { dismissed = JSON.parse(localStorage.getItem("rta_dismissed") ?? "[]"); } catch { /* yoksay */ }
         data?.forEach((row: Record<string, unknown>) => {
+          if (dismissed.includes(`evt_${row.id}`)) return; // kullanıcı bunu kapatmıştı
           addAlert({
             id: `evt_${row.id}`,
             type: (row.type as RealtimeAlert["type"]) ?? "system",
@@ -91,6 +101,7 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
         // Persistent alert feed: written by data-scrape (earthquakes) and
         // anomaly-scan (critical anomalies) on the server side.
         const row = payload.new as Record<string, unknown>;
+        if (row.source === "Demo Veri") return; // demo uyarılar gerçek akışı kirletmez
         addAlert({
           id: `evt_${row.id ?? Date.now()}`,
           type: (row.type as RealtimeAlert["type"]) ?? "system",
