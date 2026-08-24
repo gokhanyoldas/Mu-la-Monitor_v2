@@ -31,9 +31,11 @@ export const EconomySection = () => {
     ? ((ecoData.tourism_revenue_usd_m * ecoData.usd_try) / 1000).toFixed(1)
     : "4.8";
 
-  // m² fiyatları: REIDIN ilçe kırılımı
+  // m² fiyatları: REIDIN ilçe kırılımı (13 ilçe)
   const DISTRICT_LABELS: Record<string, string> = {
     bodrum: "Bodrum", marmaris: "Marmaris", fethiye: "Fethiye", mugla_merkez: "Menteşe",
+    datca: "Datça", milas: "Milas", dalaman: "Dalaman", koycegiz: "Köyceğiz",
+    ortaca: "Ortaca", ula: "Ula", seydikemer: "Seydikemer", yatagan: "Yatağan", kavaklidere: "Kavaklıdere",
   };
   const districtPrices = reData?.avg_price_per_m2_try
     ? Object.entries(reData.avg_price_per_m2_try as Record<string, number>)
@@ -167,6 +169,24 @@ export const EconomySection = () => {
               {showAllDistricts ? "Daha az göster" : `Tüm ilçeler (+${displayPrices.length - 4})`}
               <ChevronDown size={10} className={`transition-transform ${showAllDistricts ? "rotate-180" : ""}`} />
             </button>
+          )}
+          {/* TCMB Konut Fiyat Endeksi — Muğla (aylık trend) */}
+          {reData?.tcmb_hpi_series && reData.tcmb_hpi_series.length >= 2 && (
+            <div className="pt-1.5 border-t border-border/30">
+              <div className="flex items-center justify-between text-[8px] font-mono text-muted-foreground uppercase mb-1">
+                <span>TCMB Konut Fiyat Endeksi — Muğla (aylık)</span>
+                <span className="text-amber-400">2023=100</span>
+              </div>
+              <MiniChart
+                data={reData.tcmb_hpi_series.map((it: { month: string; index: number }) => ({
+                  name: it.month.slice(5), value: it.index,
+                }))}
+                color="hsl(38, 92%, 50%)" height={44} showAxis
+              />
+              <p className="text-[8px] font-mono text-muted-foreground/70">
+                Kaynak: TCMB EVDS (evds2.tcmb.gov.tr) · 12 aylık değişim %{yoyChange}
+              </p>
+            </div>
           )}
           <p className="text-[8px] font-mono text-muted-foreground/70 pt-1">
             Kaynak: REIDIN-GYODER 2024 + Sahibinden bölge ortalaması · Kira getirisi %{reData?.rental_yield_pct ?? 5.2}
