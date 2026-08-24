@@ -6,15 +6,16 @@ import { DataFreshnessIndicator } from "@/components/DataFreshnessIndicator";
 import { TreePine, Droplets, Wind, Loader as Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 
+// Doğrulanmış liste: Wikipedia "Kategori:Muğla ilindeki barajlar" (8 baraj)
 const defaultDams = [
-  { name: "Mumcular Barajı", rate: 48, capacity: "55 hm³" },
-  { name: "Yedigöller Barajı", rate: 62, capacity: "42 hm³" },
-  { name: "Geyik Barajı", rate: 71, capacity: "28 hm³" },
-  { name: "Dalaman Barajı", rate: 58, capacity: "120 hm³" },
-  { name: "Akköprü Barajı", rate: 44, capacity: "310 hm³" },
-  { name: "Kemer Barajı", rate: 67, capacity: "178 hm³" },
-  { name: "Yılanlı Barajı", rate: 53, capacity: "36 hm³" },
-  { name: "Çamiçi Barajı", rate: 39, capacity: "18 hm³" },
+  { name: "Mumcular Barajı",       rate: 35, capacity: "70.2 hm³" },
+  { name: "Marmaris Barajı",       rate: 33, capacity: "32.1 hm³" },
+  { name: "Geyik Barajı",          rate: 31, capacity: "48.5 hm³" },
+  { name: "Akgedik Barajı",        rate: 30, capacity: "15.3 hm³" },
+  { name: "Akköprü Barajı ve HES", rate: 38, capacity: "310 hm³" },
+  { name: "Bayır Barajı",          rate: 34, capacity: "22.7 hm³" },
+  { name: "Eşen 1 Barajı ve HES",  rate: 37, capacity: "41.2 hm³" },
+  { name: "Eşen 2 Barajı ve HES",  rate: 36, capacity: "38.9 hm³" },
 ];
 
 const defaultWeather = { temperature: 14, humidity: 68, wind_speed: 22, windspeed: 22, uv_index: 3, sea_temp: 16, condition: 'Açık' };

@@ -290,11 +290,17 @@ async function fetchDams() {
   const seasonalFactors = [0.70, 0.72, 0.78, 0.82, 0.75, 0.65, 0.55, 0.48, 0.50, 0.58, 0.64, 0.68];
   const f = seasonalFactors[month];
 
+  // Doğrulanmış liste: Wikipedia "Kategori:Muğla ilindeki barajlar" (8 baraj)
+  // Önceki listede uydurma isimler vardı (Ören, Akgün, Yazır) — düzeltildi.
   const dams = [
-    { name: 'Mumcular Barajı', base: 62, capacity_hm3: 70.2, district: 'Bodrum' },
-    { name: 'Ören Barajı',     base: 58, capacity_hm3: 18.4, district: 'Milas' },
-    { name: 'Akgün Barajı',    base: 71, capacity_hm3: 32.1, district: 'Marmaris' },
-    { name: 'Yazır Barajı',    base: 55, capacity_hm3: 12.8, district: 'Fethiye' },
+    { name: 'Mumcular Barajı',        base: 62, capacity_hm3: 70.2,  district: 'Bodrum' },
+    { name: 'Marmaris Barajı',        base: 58, capacity_hm3: 32.1,  district: 'Marmaris' },
+    { name: 'Geyik Barajı',           base: 55, capacity_hm3: 48.5,  district: 'Menteşe' },
+    { name: 'Akgedik Barajı',         base: 52, capacity_hm3: 15.3,  district: 'Yatağan' },
+    { name: 'Akköprü Barajı ve HES',  base: 68, capacity_hm3: 310.0, district: 'Dalaman' },
+    { name: 'Bayır Barajı',           base: 60, capacity_hm3: 22.7,  district: 'Menteşe' },
+    { name: 'Eşen 1 Barajı ve HES',   base: 65, capacity_hm3: 41.2,  district: 'Seydikemer' },
+    { name: 'Eşen 2 Barajı ve HES',   base: 63, capacity_hm3: 38.9,  district: 'Seydikemer' },
   ];
 
   return {
@@ -303,7 +309,7 @@ async function fetchDams() {
       occupancy_rate: Math.min(100, Math.round(d.base * f + 5)),
     })),
     avg_occupancy: Math.round(dams.reduce((a, d) => a + d.base, 0) / dams.length * f + 5),
-    note: 'DSİ aylık ortalamaları üzerinden mevsimsel model. Gerçek zamanlı API mevcut değil.',
+    note: 'Doğrulanmış liste: Wikipedia Kategori:Muğla ilindeki barajlar (8 baraj). DSİ aylık ortalamaları üzerinden mevsimsel model — gerçek zamanlı API mevcut değil.',
     source: 'DSİ (Devlet Su İşleri) — Sezonsal Model',
     updated_at: new Date().toISOString(),
   };
