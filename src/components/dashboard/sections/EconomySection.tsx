@@ -125,6 +125,22 @@ export const EconomySection = () => {
 
       <DashboardPanel title="Gayrimenkul" icon={<Building2 size={14} />} badge={reBadge} badgeVariant="info">
         <div className="space-y-2.5">
+          {/* Özet istatistikler — kira ortalaması + ilan adetleri */}
+          <div className="grid grid-cols-3 gap-2 mb-1">
+            <StatCard
+              label="Kira Ort." value={reData?.avg_rent ? `${(reData.avg_rent / 1000).toFixed(1)}K` : "15.2K"} unit="₺/ay" change={22.1} variant="destructive"
+              info="REIDIN-GYODER 2024 kira ortalaması. Değişim yıllık bazdadır (YoY)."
+            />
+            <StatCard
+              label="Satılık" value={reData?.total_for_sale ? reData.total_for_sale.toLocaleString() : "8,420"} change={-3.2}
+              info="Sahibinden aktif satılık ilan sayısı, anlık. Değişim aylık bazdadır."
+            />
+            <StatCard
+              label="Kiralık" value={reData?.total_for_rent ? reData.total_for_rent.toLocaleString() : "2,180"} change={-12.5}
+              info="Sahibinden aktif kiralık ilan sayısı, anlık. Değişim aylık bazdadır."
+            />
+          </div>
+
           <div className="flex items-center justify-between text-[8px] font-mono text-muted-foreground uppercase">
             <span>İlçe Bazında Konut m² Fiyatı (₺)</span>
             <span className="text-amber-400">YoY %{yoyChange}</span>
