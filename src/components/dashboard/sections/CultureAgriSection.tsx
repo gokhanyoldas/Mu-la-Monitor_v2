@@ -146,24 +146,30 @@ export const CultureAgriSection = () => {
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Tarım & Üretim" icon={<Wheat size={14} />} badge="CANLI" badgeVariant="live">
+      <DashboardPanel title="Tarım & Üretim" icon={<Wheat size={14} />} badge="Tarım-Orman Bk. 2024" badgeVariant="info">
         {aLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Zeytin Üretimi" value={agri.olive_production ?? "185K"} unit={agri.olive_unit ?? "ton"} change={agri.olive_change ?? 4.2} variant="primary" />
-          <StatCard label="Narenciye" value={agri.citrus_production ?? "42K"} unit={agri.citrus_unit ?? "ton"} change={agri.citrus_change ?? -2.1} />
-          <StatCard label="Bal Üretimi" value={agri.honey_production ?? "8.2K"} unit={agri.honey_unit ?? "ton"} change={agri.honey_change ?? 6.8} variant="primary" />
-          <StatCard label="Tarım Alanı" value={agri.farm_area ?? "3,450"} unit={agri.farm_area_unit ?? "km²"} />
+          <StatCard label="Zeytin Üretimi" value={agri.olive_production ?? "145K"} unit={agri.olive_unit ?? "ton"} change={agri.olive_change ?? 4.2} variant="primary"
+            info="Tarım ve Orman Bakanlığı 2024 zeytin üretimi (Muğla). Değişim yıllık." />
+          <StatCard label="Narenciye" value={agri.citrus_production ?? "89K"} unit={agri.citrus_unit ?? "ton"} change={agri.citrus_change ?? -2.1}
+            info="Tarım ve Orman Bakanlığı 2024 turunçgil üretimi. Değişim yıllık." />
+          <StatCard label="Bal Üretimi" value={agri.honey_production ?? "8.2K"} unit={agri.honey_unit ?? "ton"} change={agri.honey_change ?? 6.8} variant="primary"
+            info="Tarım ve Orman Bakanlığı 2024 bal üretimi (Muğla — çam balı ağırlıklı). Değişim yıllık." />
+          <StatCard label="Tarım Alanı" value={agri.farm_area ?? "412K"} unit={agri.farm_area_unit ?? "ha"}
+            info="Tarım ve Orman Bakanlığı 2024 toplam tarım alanı (412,000 hektar)." />
         </div>
         <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">Aylık Üretim Endeksi</span>
         <MiniChart data={productionData} color="hsl(142, 71%, 45%)" height={50} showAxis />
         {agri.source && <div className="text-[8px] font-mono text-muted-foreground mt-1 text-right">Kaynak: {agri.source}</div>}
       </DashboardPanel>
 
-      <DashboardPanel title="Kültür & Etkinlikler" icon={<Palette size={14} />} badge="CANLI" badgeVariant="live">
+      <DashboardPanel title="Kültür & Etkinlikler" icon={<Palette size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info">
         {cLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Aktif Etkinlik" value={String(culture.active_events ?? 24)} variant="accent" />
-          <StatCard label="Festival (Yıl)" value={String(culture.annual_festivals ?? 38)} />
+          <StatCard label="Aktif Etkinlik" value={String(culture.active_events ?? 24)} variant="accent"
+            info="Kültür ve Turizm Bakanlığı 2024 — şu an aktif/kayıtlı etkinlik sayısı." />
+          <StatCard label="Festival (Yıl)" value={String(culture.annual_festivals ?? 28)}
+            info="Kültür ve Turizm Bakanlığı 2024 — yıllık toplam festival sayısı (Muğla)." />
         </div>
         <StatusList items={
           (culture.upcoming_events || [
@@ -180,7 +186,7 @@ export const CultureAgriSection = () => {
         {culture.source && <div className="text-[8px] font-mono text-muted-foreground mt-1 text-right">Kaynak: {culture.source}</div>}
       </DashboardPanel>
 
-      <DashboardPanel title="Kültürel Miras" icon={<Landmark size={14} />}>
+      <DashboardPanel title="Kültürel Miras" icon={<Landmark size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info">
         <HeritageAccordion />
       </DashboardPanel>
     </div>
