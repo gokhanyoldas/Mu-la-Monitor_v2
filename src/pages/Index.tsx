@@ -154,6 +154,9 @@ const Index = () => {
             <SmartCard category="tourism"><TourismSection /></SmartCard>
             <SmartCard category="tourism"><GastronomySection /></SmartCard>
             <SmartCard category="culture"><CultureAgriSection /></SmartCard>
+            {/* Boşluk kapatıcı: 4 öğe 3 sütunda 2. satırda 1 hücre boş kalır;
+                Tarım/Kültür panelleriyle aynı hizada denge sağlar */}
+            <div className="hidden xl:block" aria-hidden="true" />
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
