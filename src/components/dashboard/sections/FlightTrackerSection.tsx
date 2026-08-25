@@ -39,6 +39,7 @@ const statusColors: Record<Flight["status"], string> = {
   departed: "text-muted-foreground bg-muted/30",
   cancelled: "text-destructive bg-destructive/15",
 };
+const statusColor = (s: string) => statusColors[s as Flight["status"]] ?? "text-muted-foreground bg-muted/30";
 
 // Fallback mock data
 const mockAirports: AirportData[] = [
