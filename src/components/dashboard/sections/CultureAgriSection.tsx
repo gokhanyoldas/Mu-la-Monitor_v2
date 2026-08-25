@@ -2,7 +2,6 @@ import { useState } from "react";
 import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { StatusList } from "../StatusList";
-import { MiniChart } from "../MiniChart";
 import { Wheat, Palette, Landmark, ChevronDown, ChevronUp, MapPin, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 
@@ -129,12 +128,7 @@ const HeritageAccordion = () => {
   );
 };
 
-const defaultProductionData = [
-  { name: "Oca", value: 20 }, { name: "Şub", value: 22 }, { name: "Mar", value: 35 },
-  { name: "Nis", value: 48 }, { name: "May", value: 55 }, { name: "Haz", value: 42 },
-  { name: "Tem", value: 38 }, { name: "Ağu", value: 35 }, { name: "Eyl", value: 50 },
-  { name: "Eki", value: 85 }, { name: "Kas", value: 95 }, { name: "Ara", value: 70 },
-];
+
 
 export const CultureAgriSection = () => {
   const { data: agriData, isLoading: aLoading } = useLiveData<any>("agriculture", { refetchInterval: 24 * 60 * 60 * 1000 });
@@ -142,7 +136,6 @@ export const CultureAgriSection = () => {
 
   const agri = agriData || {};
   const culture = cultureData || {};
-  const productionData = agri.monthly_index || defaultProductionData;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
@@ -158,8 +151,6 @@ export const CultureAgriSection = () => {
           <StatCard label="Tarım Alanı" value={agri.farm_area ?? "412K"} unit={agri.farm_area_unit ?? "ha"}
             info="Tarım ve Orman Bakanlığı 2024 toplam tarım alanı (412,000 hektar)." />
         </div>
-        <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">Aylık Üretim Endeksi</span>
-        <MiniChart data={productionData} color="hsl(142, 71%, 45%)" height={50} showAxis />
         {agri.source && <div className="text-[8px] font-mono text-muted-foreground mt-1 text-right">Kaynak: {agri.source}</div>}
       </DashboardPanel>
 

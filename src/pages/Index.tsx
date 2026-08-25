@@ -148,7 +148,7 @@ const Index = () => {
             </div>
           </div>
         ) : activeTab === "turizm" ? (
-          <>
+          <div className="space-y-3">
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
               {/* M9: Forecast first in tourism tab */}
               <TourismForecastPanel />
@@ -157,10 +157,8 @@ const Index = () => {
             </div>
             {/* Tarım & Kültür: ayrı tam genişlikli satır — 3'lü gridin
                 hizalamasını bozmaz, aralarında boşluk kalmaz */}
-            <div className="mt-3">
-              <SmartCard category="culture"><CultureAgriSection /></SmartCard>
-            </div>
-          </>
+            <SmartCard category="culture"><CultureAgriSection /></SmartCard>
+          </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
             {sectionComponents[activeTab as Exclude<DashboardTab, "genel">]?.map((Section, i) => (
