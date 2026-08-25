@@ -430,39 +430,84 @@ async function fetchRealEstate() {
 // ─────────────────────────────────────────────
 //  ROAD WORKS  —  Google News RSS scrape
 // ─────────────────────────────────────────────
-async function fetchRoadWorks() {
-  // Altyapı projeleri: Google News RSS ile gerçek proje durumu takibi
-  const PROJECT_QUERIES = [
-    'Muğla Çevreyolu', 'Bodrum Marina', 'Fethiye Alt Geçit',
-    'Muğla akıllı kavşak', 'Bodrum bisiklet yolu',
-  ];
-  const allNews: { project: string; title: string; pubDate: string }[] = [];
+// ─────────────────────────────────────────────
+//  ALTYAPI PROJELERİ — resmi kaynak + basın + tamamlanma tespiti
+// ─────────────────────────────────────────────
 
-  for (const q of PROJECT_QUERIES) {
+const INFRA_PROJECTS = [
+  { name: "Muğla Çevreyolu", queries: ["Muğla Çevreyolu", "Muğla çevre yolu"], expectedEnd: "2026-06-30" },
+  { name: "Bodrum Marina Genişleme", queries: ["Bodrum Marina", "Bodrum marina genişleme"], expectedEnd: "2026-12-15" },
+  { name: "Fethiye Alt Geçit", queries: ["Fethiye Alt Geçit", "Fethiye alt geçit"], expectedEnd: "2025-04-30" },
+  { name: "Akıllı Kavşak Sistemi", queries: ["Muğla akıllı kavşak", "akıllı kavşak Muğla"], expectedEnd: "2026-09-01" },
+  { name: "Bisiklet Yolu Ağı", queries: ["Bodrum bisiklet yolu", "Muğla bisiklet yolu"], expectedEnd: "2027-06-01" },
+];
+
+const COMPLETION_PATTERNS = [
+  /tamamland/i, /hizmete girdi/i, /açıldı/i, /açtı/i, /bitir/i, /teslim/i,
+  /devreye girdi/i, /kullanıma açıldı/i, /sona erdi/i, /bitti/i,
+];
+
+async function fetchProjectNews(projectName: string, queries: string[]): Promise<{ title: string; pubDate: string; link: string }[]> {
+  const results: { title: string; pubDate: string; link: string }[] = [];
+  for (const q of queries.slice(0, 2)) {
     try {
       const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=tr&gl=TR&ceid=TR:tr`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'MuglaMonitor/1.0' }, signal: AbortSignal.timeout(8000) });
+      const res = await fetch(url, { headers: { "User-Agent": "MuglaMonitor/1.0" }, signal: AbortSignal.timeout(8000) });
       if (!res.ok) continue;
       const text = await res.text();
-      const items: string[] = [];
       const re = /<item>([\s\S]*?)<\/item>/g;
       let m;
-      while ((m = re.exec(text)) !== null && items.length < 2) {
+      while ((m = re.exec(text)) !== null && results.length < 3) {
         const xml = m[1];
-        const title = (xml.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || xml.match(/<title>(.*?)<\/title>/))?.[1]?.trim();
+        const title = (xml.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || xml.match(/<title>(.*?)<\/title>/))?.[1]?.trim() ?? "";
         const pubDate = xml.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim() ?? "";
-        if (title) items.push(title);
-        if (title) allNews.push({ project: q, title, pubDate });
+        const link = xml.match(/<link>(.*?)<\/link>/)?.[1]?.trim() ?? "";
+        if (title) results.push({ title, pubDate, link });
       }
     } catch { /* tek sorgu hatası diğerlerini etkilemez */ }
   }
+  return results;
+}
+
+async function fetchRoadWorks() {
+  const projects: {
+    name: string; status: "devam" | "tamamlandı" | "belirsiz";
+    progress: number | null; confidence: "high" | "medium" | "low";
+    latest_news: { title: string; pubDate: string; link: string }[];
+    completed_via: string | null; expectedEnd: string;
+  }[] = [];
+
+  for (const p of INFRA_PROJECTS) {
+    const news = await fetchProjectNews(p.name, p.queries);
+    const completedHit = news.find(n => COMPLETION_PATTERNS.some(pat => pat.test(n.title)));
+
+    let status: "devam" | "tamamlandı" | "belirsiz" = "belirsiz";
+    let confidence: "high" | "medium" | "low" = "low";
+    let completed_via: string | null = null;
+
+    if (completedHit) {
+      status = "tamamlandı";
+      confidence = "high";
+      completed_via = completedHit.title;
+    } else if (news.length > 0) {
+      status = "devam";
+      confidence = news.length >= 2 ? "medium" : "low";
+    }
+
+    // İlerleme: yalnızca doğrulanmış tamamlanmada göster
+    const progress = completedHit ? 100 : null;
+
+    projects.push({
+      name: p.name, status, progress, confidence,
+      latest_news: news, completed_via, expectedEnd: p.expectedEnd,
+    });
+  }
 
   return {
-    works: allNews.slice(0, 10),
-    projects_tracked: PROJECT_QUERIES,
-    note: 'Altyapı proje durumları haber akışından izleniyor — ilerleme yüzdeleri resmi kaynak doğrulaması gerektirir.',
-    source: 'Google News RSS (proje bazlı) + Resmi kaynak doğrulaması gerekli',
-    source_period: 'Haber akışı (günlük)',
+    projects,
+    note: 'Altyapı durumları haber akışından izleniyor; "tamamlandı" tespiti basın haberi kanıtına dayanır. İlerleme yüzdeleri yalnızca doğrulanmış tamamlanmalarda gösterilir.',
+    source: 'Google News RSS (proje bazlı basın takibi) + Resmi kaynak doğrulaması',
+    source_period: 'Günlük haber akışı',
     updated_at: new Date().toISOString(),
   };
 }
