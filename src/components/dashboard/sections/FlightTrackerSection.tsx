@@ -81,7 +81,7 @@ const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) =>
   <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-muted/10 hover:bg-muted/25 transition-colors text-[10px] font-mono">
     <span className="w-14 font-bold text-foreground">{flight.flightNo}</span>
     <span className="w-16 text-muted-foreground truncate">{flight.airline}</span>
-    <span className="flex-1 text-foreground/80 truncate">{type === "dep" ? `→ ${flight.destination}` : `← ${flight.destination}`}</span>
+    <span className="flex-1 text-foreground/80 truncate">{type === "dep" ? `→ ${flight.destination || "—"}` : `← ${flight.destination || "—"}`}</span>
     <span className="w-10 text-center text-muted-foreground">{flight.scheduled}</span>
     <span className={`w-10 text-center font-semibold ${flight.estimated !== flight.scheduled ? "text-warning" : "text-foreground/60"}`}>
       {flight.estimated}
@@ -107,7 +107,32 @@ export const FlightTrackerSection = () => {
         body: { type: "flights", airports: ["DLM", "BJV"] },
       });
       if (!error && data?.airports?.length) {
-        setAirports(data.airports);
+        // transport-scrape alan adlarını Flight formatına normalize et
+        const normalized = data.airports.map((ap: Record<string, unknown>) => ({
+          code: String(ap.code ?? ""),
+          name: String(ap.name ?? ""),
+          departures: ((ap.departures as Record<string, unknown>[]) ?? []).map((f) => ({
+            flightNo: String(f.flightNo ?? f.flight_no ?? ""),
+            airline: String(f.airline ?? f.carrier ?? ""),
+            destination: String(f.destination ?? f.to ?? ""),
+            scheduled: String(f.scheduled ?? f.std ?? ""),
+            estimated: String(f.estimated ?? f.etd ?? f.scheduled ?? ""),
+            status: String(f.status ?? "on_time"),
+            gate: f.gate ? String(f.gate) : undefined,
+            terminal: f.terminal ? String(f.terminal) : undefined,
+          })),
+          arrivals: ((ap.arrivals as Record<string, unknown>[]) ?? []).map((f) => ({
+            flightNo: String(f.flightNo ?? f.flight_no ?? ""),
+            airline: String(f.airline ?? f.carrier ?? ""),
+            destination: String(f.origin ?? f.from ?? ""),
+            scheduled: String(f.scheduled ?? f.sta ?? ""),
+            estimated: String(f.estimated ?? f.eta ?? f.scheduled ?? ""),
+            status: String(f.status ?? "on_time"),
+            gate: f.gate ? String(f.gate) : undefined,
+            terminal: f.terminal ? String(f.terminal) : undefined,
+          })),
+        }));
+        setAirports(normalized);
         setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
       }
     } catch {
