@@ -431,29 +431,40 @@ async function fetchRealEstate() {
 //  ROAD WORKS  —  Google News RSS scrape
 // ─────────────────────────────────────────────
 async function fetchRoadWorks() {
-  try {
-    const url = `https://news.google.com/rss/search?q=${encodeURIComponent('yol çalışması Muğla')}&hl=tr&gl=TR&ceid=TR:tr`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'MuglaMonitor/1.0' } });
-    if (!res.ok) throw new Error('RSS fetch failed');
-    const text = await res.text();
-    const items: any[] = [];
-    const re = /<item>([\s\S]*?)<\/item>/g;
-    let m;
-    while ((m = re.exec(text)) !== null && items.length < 5) {
-      const xml = m[1];
-      const title = (xml.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || xml.match(/<title>(.*?)<\/title>/))?.[1]?.trim();
-      const pubDate = xml.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim();
-      if (title) items.push({ title, pubDate });
-    }
-    return { works: items, source: 'Google News RSS', updated_at: new Date().toISOString() };
-  } catch (_) {
-    return {
-      works: [],
-      note: 'Haber kaynağına erişilemedi',
-      source: 'Google News RSS',
-      updated_at: new Date().toISOString(),
-    };
+  // Altyapı projeleri: Google News RSS ile gerçek proje durumu takibi
+  const PROJECT_QUERIES = [
+    'Muğla Çevreyolu', 'Bodrum Marina', 'Fethiye Alt Geçit',
+    'Muğla akıllı kavşak', 'Bodrum bisiklet yolu',
+  ];
+  const allNews: { project: string; title: string; pubDate: string }[] = [];
+
+  for (const q of PROJECT_QUERIES) {
+    try {
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=tr&gl=TR&ceid=TR:tr`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'MuglaMonitor/1.0' }, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const text = await res.text();
+      const items: string[] = [];
+      const re = /<item>([\s\S]*?)<\/item>/g;
+      let m;
+      while ((m = re.exec(text)) !== null && items.length < 2) {
+        const xml = m[1];
+        const title = (xml.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || xml.match(/<title>(.*?)<\/title>/))?.[1]?.trim();
+        const pubDate = xml.match(/<pubDate>(.*?)<\/pubDate>/)?.[1]?.trim() ?? "";
+        if (title) items.push(title);
+        if (title) allNews.push({ project: q, title, pubDate });
+      }
+    } catch { /* tek sorgu hatası diğerlerini etkilemez */ }
   }
+
+  return {
+    works: allNews.slice(0, 10),
+    projects_tracked: PROJECT_QUERIES,
+    note: 'Altyapı proje durumları haber akışından izleniyor — ilerleme yüzdeleri resmi kaynak doğrulaması gerektirir.',
+    source: 'Google News RSS (proje bazlı) + Resmi kaynak doğrulaması gerekli',
+    source_period: 'Haber akışı (günlük)',
+    updated_at: new Date().toISOString(),
+  };
 }
 
 // ─────────────────────────────────────────────

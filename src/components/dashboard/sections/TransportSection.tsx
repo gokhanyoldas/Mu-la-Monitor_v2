@@ -63,7 +63,7 @@ export const TransportSection = () => {
         <MiniChart data={airportData} color="hsl(200, 80%, 50%)" height={50} showAxis />
       </DashboardPanel>
 
-      <DashboardPanel title="Altyapı Projeleri" badge="DEVAM" badgeVariant="warning">
+      <DashboardPanel title="Altyapı Projeleri" badge="TAHMİNİ PLAN" badgeVariant="warning">
         <div className="space-y-2">
           {[
             { name: "Muğla Çevreyolu", progress: 78, start: "2024-03-15", end: "2026-06-30", address: "Muğla Merkez — Menteşe-Yatağan Bağlantısı" },
@@ -108,6 +108,10 @@ export const TransportSection = () => {
               </div>
             );
           })}
+          <p className="text-[8px] font-mono text-muted-foreground/70 mt-2 pt-2 border-t border-border/30">
+            Proje takvimleri tahmini plandır — resmi kaynak (Karayolları / Büyükşehir Belediyesi / YİKOB) doğrulaması yapılmamıştır.
+            Proje durumları haber akışından izlenmektedir.
+          </p>
         </div>
       </DashboardPanel>
     </div>
