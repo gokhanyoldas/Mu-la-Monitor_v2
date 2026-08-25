@@ -29,6 +29,7 @@ const statusLabels: Record<Flight["status"], string> = {
   departed: "KALKTI",
   cancelled: "İPTAL",
 };
+const statusLabel = (s: string) => statusLabels[s as Flight["status"]] ?? "BİLİNMİYOR";
 
 const statusColors: Record<Flight["status"], string> = {
   on_time: "text-success bg-success/15",
@@ -85,8 +86,8 @@ const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) =>
       {flight.estimated}
     </span>
     {flight.gate && <span className="w-8 text-center text-accent">{flight.gate}</span>}
-    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColors[flight.status]}`}>
-      {statusLabels[flight.status]}
+    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColor(flight.status)}`}>
+      {statusLabel(flight.status)}
     </span>
   </div>
 );
@@ -208,7 +209,7 @@ export const FlightTrackerSection = () => {
           const count = flights.filter((f) => f.status === s).length;
           return (
             <span key={s} className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${statusColors[s as Flight["status"]]}`}>
-              {statusLabels[s as Flight["status"]]}: {count}
+              {statusLabel(s)}: {count}
             </span>
           );
         })}

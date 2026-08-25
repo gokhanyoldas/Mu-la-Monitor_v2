@@ -160,7 +160,7 @@ const Index = () => {
             <SmartCard category="culture"><CultureAgriSection /></SmartCard>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
             {sectionComponents[activeTab as Exclude<DashboardTab, "genel">]?.map((Section, i) => (
               <div key={i} className="space-y-3">
                 <SmartCard category={activeTab as any}><Section /></SmartCard>
