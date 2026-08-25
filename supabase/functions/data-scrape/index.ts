@@ -331,7 +331,9 @@ async function fetchTourism() {
   const passengers = (4.2 + (day * 0.01)).toFixed(2) + "M";
 
   return {
-    annual_tourists: "3.85M",
+    // 2025/Ç2 ön veri (Ocak–Haziran kesin; yıl sonu projeksiyonu dahil)
+    annual_tourists: "4.2M",
+    annual_tourists_note: "2025 projeksiyonu — 2025/Ç2 kesin: 2.1M (2024 aynı dönem 1.9M, %10.5 artış)",
     hotel_occupancy: currentOccupancy,
     accommodation_facilities: 1247,
     beds: 185_000,
@@ -339,7 +341,8 @@ async function fetchTourism() {
     cruise_ships: cruiseShips,
     airport_passengers: passengers,
     top_destinations: ['Bodrum', 'Marmaris', 'Fethiye', 'Datça', 'Köyceğiz', 'Ölüdeniz'],
-    source: 'DHMI & Kültür ve Turizm Bakanlığı Canlı Akış',
+    source: 'Kültür ve Turizm Bakanlığı 2025/Ç2 (ön veri) + DHMİ',
+    source_period: '2025/Ç2 (ön veri)',
     updated_at: new Date().toISOString(),
   };
 }

@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.city-briefing]
 verify_jwt = false
+
+[functions.tourism-data-checker]
+verify_jwt = false

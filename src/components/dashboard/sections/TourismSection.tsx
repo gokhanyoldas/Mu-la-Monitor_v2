@@ -26,10 +26,10 @@ export const TourismSection = () => {
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Turizm" icon={<Plane size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info" count={12}>
+      <DashboardPanel title="Turizm" icon={<Plane size={14} />} badge={tourismData?.source_period ?? "Kültür-Turizm Bk. 2024"} badgeVariant="info" count={12}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
           <StatCard label="Yıllık Turist" value={String(annualTourists)} change={8.5} variant="primary"
-            info="Kültür ve Turizm Bakanlığı 2024 yıllık turist sayısı. Değişim yıllık bazdadır." />
+            info={tourismData?.annual_tourists_note ?? "Kültür ve Turizm Bakanlığı 2024 yıllık turist sayısı. Değişim yıllık bazdadır."} />
           <StatCard label="Ülke Sayısı" value="92" variant="accent"
             info="Muğla'ya turist gönderen ülke sayısı. Kültür ve Turizm Bakanlığı 2024." />
           <StatCard label="Havalimanı Yolcu" value={String(airportPassengers)} change={11.2}
