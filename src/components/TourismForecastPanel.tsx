@@ -112,6 +112,7 @@ export const TourismForecastPanel = () => {
       icon={<Umbrella size={14} />}
       badge="TAHMİN MODELİ"
       badgeVariant="warning"
+      className="self-start"
     >
       {isLoading ? (
         <div className="flex justify-center py-8">
