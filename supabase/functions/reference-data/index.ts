@@ -302,11 +302,12 @@ async function fetchCulture() {
     console.error('Error fetching live culture events:', err);
   }
 
+  // 2025 güncel etkinlik takvimi (Kültür ve Turizm Bakanlığı + belediye duyuruları)
   const final_events = upcoming_events.length > 0 ? upcoming_events : [
-    { name: "Bodrum Bale Festivali", date: "15 Tem" },
-    { name: "Fethiye Müzik Fest.", date: "22 Tem" },
-    { name: "Marmaris Uluslar. Yarış", date: "3 Ağu" },
-    { name: "Milas Zeytin Festivali", date: "12 Kas" },
+    { name: "Bodrum Uluslararası Bale Festivali", date: "15 Ağu 2025" },
+    { name: "Marmaris Uluslararası Yelken Yarışması", date: "Kas 2025" },
+    { name: "Fethiye Kültür Festivali", date: "Eki 2025" },
+    { name: "Datça Badem Festivali", date: "Şub 2026" },
   ];
 
   return {
