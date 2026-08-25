@@ -145,7 +145,7 @@ export const CultureAgriSection = () => {
   const productionData = agri.monthly_index || defaultProductionData;
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
       <DashboardPanel title="Tarım & Üretim" icon={<Wheat size={14} />} badge="Tarım-Orman Bk. 2024" badgeVariant="info">
         {aLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
