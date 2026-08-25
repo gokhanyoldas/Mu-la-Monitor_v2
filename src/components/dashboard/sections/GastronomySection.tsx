@@ -118,12 +118,15 @@ export const GastronomySection = () => {
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Gastronomi" icon={<UtensilsCrossed size={14} />} badge={isLive ? "CANLI" : "CANLI"} badgeVariant="live">
+      <DashboardPanel title="Gastronomi" icon={<UtensilsCrossed size={14} />} badge="Ticaret Odası 2024" badgeVariant="info">
         {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <StatCard label="Toplam Restoran" value={String(totalRestaurants)} variant="primary" />
-          <StatCard label="Michelin" value={String(michelinCount)} variant="accent" />
-          <StatCard label="Ort. Puan" value={avgRating} variant="warning" />
+          <StatCard label="Toplam Restoran" value={String(totalRestaurants)} variant="primary"
+            info="Kayıtlı restoran sayısı. Kaynak: Muğla Ticaret ve Sanayi Odası + Kültür ve Turizm Bakanlığı 2024. Yıllık güncellenir." />
+          <StatCard label="Michelin" value={String(michelinCount)} variant="accent"
+            info="Michelin Guide Türkiye 2024 listesindeki Muğla restoranları (⭐ + Bib Gourmand)." />
+          <StatCard label="Ort. Puan" value={avgRating} variant="warning"
+            info="Listelenen restoranların ortalama puanı (5 üzerinden). Kaynak: kullanıcı değerlendirmeleri." />
         </div>
         {gastroData?.source && <div className="text-[8px] font-mono text-muted-foreground text-right">Kaynak: {gastroData.source}</div>}
       </DashboardPanel>

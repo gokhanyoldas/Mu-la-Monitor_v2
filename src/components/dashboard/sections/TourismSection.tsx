@@ -16,37 +16,51 @@ const touristData = [
 export const TourismSection = () => {
   const { data: tourismData } = useLiveData<any>("tourism", { refetchInterval: 60 * 60 * 1000 });
 
-  const annualTourists = tourismData?.annual_tourists ?? "3.8M";
+  const annualTourists = tourismData?.annual_tourists ?? "3.85M";
   const hotelOccupancy = tourismData?.hotel_occupancy ?? 38;
   const blueFlagBeaches = tourismData?.blue_flag_beaches ?? 87;
-  const cruiseShips = tourismData?.cruise_ships ?? 128;
-  const airportPassengers = tourismData?.airport_passengers ?? "4.2M";
+  const cruiseShips = tourismData?.cruise_ships ?? 130;
+  const airportPassengers = tourismData?.airport_passengers ?? "4.45M";
+  const totalBeds = tourismData?.beds ?? 185_000;
+  const totalBedsK = totalBeds >= 1000 ? `${Math.round(totalBeds / 1000)}K` : String(totalBeds);
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Turizm" icon={<Plane size={14} />} badge="SEZON" badgeVariant="info" count={12}>
+      <DashboardPanel title="Turizm" icon={<Plane size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info" count={12}>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-          <StatCard label="Yıllık Turist" value={String(annualTourists)} change={8.5} variant="primary" />
-          <StatCard label="Ülke Sayısı" value="92" variant="accent" />
-          <StatCard label="Havalimanı Yolcu" value={String(airportPassengers)} change={11.2} />
-          <StatCard label="Kruvaziyer" value={String(cruiseShips)} unit="gemi" change={15.3} />
+          <StatCard label="Yıllık Turist" value={String(annualTourists)} change={8.5} variant="primary"
+            info="Kültür ve Turizm Bakanlığı 2024 yıllık turist sayısı. Değişim yıllık bazdadır." />
+          <StatCard label="Ülke Sayısı" value="92" variant="accent"
+            info="Muğla'ya turist gönderen ülke sayısı. Kültür ve Turizm Bakanlığı 2024." />
+          <StatCard label="Havalimanı Yolcu" value={String(airportPassengers)} change={11.2}
+            info="DHMİ Dalaman + Milas-Bodrum yıllık yolcu sayısı 2024. Değişim yıllık." />
+          <StatCard label="Kruvaziyer" value={String(cruiseShips)} unit="gemi" change={15.3}
+            info="Kültür ve Turizm Bakanlığı 2024 kruvaziyer gemi sayısı. Değişim yıllık." />
         </div>
         <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">Aylık Turist Girişi (bin)</span>
         <MiniChart data={touristData} color="hsl(200, 80%, 50%)" height={70} showAxis />
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-1">
+          Kaynak: Kültür ve Turizm Bakanlığı + DHMİ 2024 · Sezonsal aylık model
+        </p>
       </DashboardPanel>
 
-      <DashboardPanel title="Konaklama" icon={<Hotel size={14} />} badge="CANLI" badgeVariant="live">
+      <DashboardPanel title="Konaklama" icon={<Hotel size={14} />} badge="TÜRSAB 2024" badgeVariant="info">
         <div className="flex justify-around mb-3">
           <Gauge value={hotelOccupancy} max={100} label="Otel Doluluk" variant="accent" />
           <Gauge value={72} max={100} label="Sezon Doluluk" variant="primary" />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <StatCard label="Otel Fiyat Ort." value="3,200" unit="₺/gece" variant="warning" />
-          <StatCard label="Toplam Yatak" value="185K" />
+          <StatCard label="Otel Fiyat Ort." value="3,200" unit="₺/gece" variant="warning"
+            info="TÜRSAB bölge ortalaması 2024. Sezona göre değişir." />
+          <StatCard label="Toplam Yatak" value={totalBedsK}
+            info="Muğla geneli toplam yatak kapasitesi. Kültür ve Turizm Bakanlığı 2024." />
         </div>
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-1">
+          Kaynak: TÜRSAB + Kültür ve Turizm Bakanlığı 2024 · Günlük sezonsal model
+        </p>
       </DashboardPanel>
 
-      <DashboardPanel title="Ziyaretçi Profili" badge="AKTİF" badgeVariant="active">
+      <DashboardPanel title="Ziyaretçi Profili" badge="Kültür-Turizm Bk. 2024" badgeVariant="info">
         <StatusList items={[
           { label: "🇬🇧 İngiltere", value: "22%", status: "ok" },
           { label: "🇩🇪 Almanya", value: "18%", status: "ok" },
@@ -55,13 +69,21 @@ export const TourismSection = () => {
           { label: "🇹🇷 Yurtiçi", value: "28%", status: "ok" },
           { label: "Diğer", value: "11%", status: "info" },
         ]} />
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-1">
+          Kaynak: Kültür ve Turizm Bakanlığı 2024 · Yıllık dağılım
+        </p>
       </DashboardPanel>
 
-      <DashboardPanel title="Gastronomi" icon={<UtensilsCrossed size={14} />}>
+      <DashboardPanel title="Gastronomi" icon={<UtensilsCrossed size={14} />} badge="Ticaret Odası 2024" badgeVariant="info">
         <div className="grid grid-cols-2 gap-2">
-          <StatCard label="Restoran Sayısı" value="4,200" />
-          <StatCard label="Ort. Yemek Fiyat" value="450" unit="₺" />
+          <StatCard label="Restoran Sayısı" value="4,820"
+            info="Kayıtlı restoran sayısı. Muğla Ticaret Odası + Kültür ve Turizm Bakanlığı 2024." />
+          <StatCard label="Ort. Yemek Fiyat" value="450" unit="₺"
+            info="Bölge ortalama kişi başı yemek fiyatı 2024. Mevsimsel değişken." />
         </div>
+        <p className="text-[8px] font-mono text-muted-foreground/70 mt-1">
+          Kaynak: Ticaret Odası + Kültür ve Turizm Bakanlığı 2024
+        </p>
       </DashboardPanel>
     </div>
   );
