@@ -122,7 +122,7 @@ export const FlightTrackerSection = () => {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("transport-scrape", {
-        body: { type: "flights", airports: ["DLM", "BJV"] },
+        body: {},
       });
       if (!error && data?.airports?.length) {
         // transport-scrape alan adlarını Flight formatına normalize et
@@ -145,21 +145,26 @@ export const FlightTrackerSection = () => {
             origin_country: typeof f.origin_country === "string" ? f.origin_country : undefined,
           })),
           arrivals: ((ap.arrivals as Record<string, unknown>[]) ?? []).map((f) => ({
-            flightNo: String(f.flightNo ?? f.flight_no ?? ""),
-            airline: String(f.airline ?? f.carrier ?? ""),
+            flightNo: String(f.flightNo ?? f.flight_no ?? f.callsign ?? ""),
+            airline: String(f.airline ?? f.carrier ?? f.origin_country ?? ""),
             destination: String(f.origin ?? f.from ?? ""),
             scheduled: String(f.scheduled ?? f.sta ?? ""),
             estimated: String(f.estimated ?? f.eta ?? f.scheduled ?? ""),
-            status: String(f.status ?? "on_time"),
+            status: String(f.status ?? (f.on_ground === false ? "en_route" : "on_time")),
             gate: f.gate ? String(f.gate) : undefined,
             terminal: f.terminal ? String(f.terminal) : undefined,
+            altitude: typeof f.altitude === "number" ? f.altitude : undefined,
+            velocity: typeof f.velocity === "number" ? f.velocity : undefined,
+            distance_km: typeof f.distance_km === "number" ? f.distance_km : undefined,
+            aircraft_type: typeof f.aircraft_type === "string" ? f.aircraft_type : undefined,
+            origin_country: typeof f.origin_country === "string" ? f.origin_country : undefined,
           })),
         }));
         setAirports(normalized);
         setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
       }
-    } catch {
-      // keep mock data
+    } catch (err) {
+      console.warn("[FlightTracker] transport-scrape erişilemedi, mock veriyle devam:", err);
     } finally {
       setLoading(false);
     }
