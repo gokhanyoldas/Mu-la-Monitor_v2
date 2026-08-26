@@ -9,9 +9,15 @@ type Flight = {
   destination: string;
   scheduled: string;
   estimated: string;
-  status: "on_time" | "delayed" | "landed" | "boarding" | "departed" | "cancelled";
+  status: "on_time" | "delayed" | "landed" | "boarding" | "departed" | "cancelled" | "en_route" | "approach";
   gate?: string;
   terminal?: string;
+  // ADS-B canlı alanları (varsa)
+  altitude?: number;
+  velocity?: number;
+  distance_km?: number;
+  aircraft_type?: string;
+  origin_country?: string;
 };
 
 type AirportData = {
@@ -28,6 +34,8 @@ const statusLabels: Record<Flight["status"], string> = {
   boarding: "BİNİŞ",
   departed: "KALKTI",
   cancelled: "İPTAL",
+  en_route: "HAVADA",
+  approach: "İNİŞTE",
 };
 const statusLabel = (s: string) => statusLabels[s as Flight["status"]] ?? "BİLİNMİYOR";
 
@@ -38,6 +46,8 @@ const statusColors: Record<Flight["status"], string> = {
   boarding: "text-accent bg-accent/15",
   departed: "text-muted-foreground bg-muted/30",
   cancelled: "text-destructive bg-destructive/15",
+  en_route: "text-cyan-400 bg-cyan-500/15",
+  approach: "text-violet-400 bg-violet-500/15",
 };
 const statusColor = (s: string) => statusColors[s as Flight["status"]] ?? "text-muted-foreground bg-muted/30";
 
@@ -77,11 +87,18 @@ const mockAirports: AirportData[] = [
   },
 ];
 
-const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) => (
+const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) => {
+  // ADS-B canlı uçak: callsign + ülke + tip + irtifa/hız/mesafe
+  const isLiveAircraft = flight.altitude !== undefined || flight.distance_km !== undefined;
+  const detailLine = isLiveAircraft
+    ? `${flight.aircraft_type ?? ""} · ${flight.altitude ? `${flight.altitude.toLocaleString()} ft` : ""} · ${flight.velocity ? `${flight.velocity} km/h` : ""}${flight.distance_km ? ` · ${flight.distance_km} km` : ""}`
+    : (type === "dep" ? `→ ${flight.destination || "—"}` : `← ${flight.destination || "—"}`);
+
+  return (
   <div className="flex items-center gap-2 px-2 py-1.5 rounded bg-muted/10 hover:bg-muted/25 transition-colors text-[10px] font-mono">
     <span className="w-14 font-bold text-foreground">{flight.flightNo}</span>
     <span className="w-16 text-muted-foreground truncate">{flight.airline}</span>
-    <span className="flex-1 text-foreground/80 truncate">{type === "dep" ? `→ ${flight.destination || "—"}` : `← ${flight.destination || "—"}`}</span>
+    <span className="flex-1 text-foreground/80 truncate" title={detailLine}>{detailLine}</span>
     <span className="w-10 text-center text-muted-foreground">{flight.scheduled}</span>
     <span className={`w-10 text-center font-semibold ${flight.estimated !== flight.scheduled ? "text-warning" : "text-foreground/60"}`}>
       {flight.estimated}
@@ -91,7 +108,8 @@ const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) =>
       {statusLabel(flight.status)}
     </span>
   </div>
-);
+  );
+};
 
 export const FlightTrackerSection = () => {
   const [airports, setAirports] = useState<AirportData[]>(mockAirports);
@@ -112,14 +130,19 @@ export const FlightTrackerSection = () => {
           code: String(ap.code ?? ""),
           name: String(ap.name ?? ""),
           departures: ((ap.departures as Record<string, unknown>[]) ?? []).map((f) => ({
-            flightNo: String(f.flightNo ?? f.flight_no ?? ""),
-            airline: String(f.airline ?? f.carrier ?? ""),
+            flightNo: String(f.flightNo ?? f.flight_no ?? f.callsign ?? ""),
+            airline: String(f.airline ?? f.carrier ?? f.origin_country ?? ""),
             destination: String(f.destination ?? f.to ?? ""),
             scheduled: String(f.scheduled ?? f.std ?? ""),
             estimated: String(f.estimated ?? f.etd ?? f.scheduled ?? ""),
-            status: String(f.status ?? "on_time"),
+            status: String(f.status ?? (f.on_ground === false ? "en_route" : "on_time")),
             gate: f.gate ? String(f.gate) : undefined,
             terminal: f.terminal ? String(f.terminal) : undefined,
+            altitude: typeof f.altitude === "number" ? f.altitude : undefined,
+            velocity: typeof f.velocity === "number" ? f.velocity : undefined,
+            distance_km: typeof f.distance_km === "number" ? f.distance_km : undefined,
+            aircraft_type: typeof f.aircraft_type === "string" ? f.aircraft_type : undefined,
+            origin_country: typeof f.origin_country === "string" ? f.origin_country : undefined,
           })),
           arrivals: ((ap.arrivals as Record<string, unknown>[]) ?? []).map((f) => ({
             flightNo: String(f.flightNo ?? f.flight_no ?? ""),
