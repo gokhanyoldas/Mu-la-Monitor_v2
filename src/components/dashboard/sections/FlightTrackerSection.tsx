@@ -9,7 +9,7 @@ type Flight = {
   destination: string;
   scheduled: string;
   estimated: string;
-  status: "on_time" | "delayed" | "landed" | "boarding" | "departed" | "cancelled" | "en_route" | "approach";
+  status: "on_time" | "delayed" | "landed" | "boarding" | "departed" | "cancelled" | "en_route" | "approach" | "transit";
   gate?: string;
   terminal?: string;
   // ADS-B canlı alanları (varsa)
@@ -18,6 +18,8 @@ type Flight = {
   distance_km?: number;
   aircraft_type?: string;
   origin_country?: string;
+  /** distance_km > 60 ise havalimanına inmiyor/kalkmıyor, sadece üstten geçiyor */
+  is_transit?: boolean;
 };
 
 type AirportData = {
@@ -36,6 +38,7 @@ const statusLabels: Record<Flight["status"], string> = {
   cancelled: "İPTAL",
   en_route: "HAVADA",
   approach: "İNİŞTE",
+  transit: "GEÇİŞ",
 };
 const statusLabel = (s: string) => statusLabels[s as Flight["status"]] ?? "BİLİNMİYOR";
 
@@ -48,6 +51,7 @@ const statusColors: Record<Flight["status"], string> = {
   cancelled: "text-destructive bg-destructive/15",
   en_route: "text-cyan-400 bg-cyan-500/15",
   approach: "text-violet-400 bg-violet-500/15",
+  transit: "text-slate-400 bg-slate-500/15",
 };
 const statusColor = (s: string) => statusColors[s as Flight["status"]] ?? "text-muted-foreground bg-muted/30";
 
@@ -90,6 +94,7 @@ const mockAirports: AirportData[] = [
 const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) => {
   // ADS-B canlı uçak: callsign + ülke + tip + irtifa/hız/mesafe
   const isLiveAircraft = flight.altitude !== undefined || flight.distance_km !== undefined;
+  const displayStatus = flight.is_transit ? "transit" : flight.status;
   const detailLine = isLiveAircraft
     ? `${flight.aircraft_type ?? ""} · ${flight.altitude ? `${flight.altitude.toLocaleString()} ft` : ""} · ${flight.velocity ? `${flight.velocity} km/h` : ""}${flight.distance_km ? ` · ${flight.distance_km} km` : ""}`
     : (type === "dep" ? `→ ${flight.destination || "—"}` : `← ${flight.destination || "—"}`);
@@ -104,8 +109,8 @@ const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) =>
       {flight.estimated}
     </span>
     {flight.gate && <span className="w-8 text-center text-accent">{flight.gate}</span>}
-    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColor(flight.status)}`}>
-      {statusLabel(flight.status)}
+    <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColor(displayStatus)}`}>
+      {statusLabel(displayStatus)}
     </span>
   </div>
   );
@@ -143,6 +148,7 @@ export const FlightTrackerSection = () => {
             distance_km: typeof f.distance_km === "number" ? f.distance_km : undefined,
             aircraft_type: typeof f.aircraft_type === "string" ? f.aircraft_type : undefined,
             origin_country: typeof f.origin_country === "string" ? f.origin_country : undefined,
+            is_transit: typeof f.distance_km === "number" ? f.distance_km > 60 : false,
           })),
           arrivals: ((ap.arrivals as Record<string, unknown>[]) ?? []).map((f) => ({
             flightNo: String(f.flightNo ?? f.flight_no ?? f.callsign ?? ""),
@@ -158,6 +164,7 @@ export const FlightTrackerSection = () => {
             distance_km: typeof f.distance_km === "number" ? f.distance_km : undefined,
             aircraft_type: typeof f.aircraft_type === "string" ? f.aircraft_type : undefined,
             origin_country: typeof f.origin_country === "string" ? f.origin_country : undefined,
+            is_transit: typeof f.distance_km === "number" ? f.distance_km > 60 : false,
           })),
         }));
         setAirports(normalized);
