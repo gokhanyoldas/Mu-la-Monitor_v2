@@ -94,7 +94,7 @@ const mockAirports: AirportData[] = [
 const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) => {
   // ADS-B canlı uçak: callsign + ülke + tip + irtifa/hız/mesafe
   const isLiveAircraft = flight.altitude !== undefined || flight.distance_km !== undefined;
-  const displayStatus = flight.is_transit ? "transit" : flight.status;
+  const displayStatus = flight.status;
   const detailLine = isLiveAircraft
     ? `${flight.aircraft_type ?? ""} · ${flight.altitude ? `${flight.altitude.toLocaleString()} ft` : ""} · ${flight.velocity ? `${flight.velocity} km/h` : ""}${flight.distance_km ? ` · ${flight.distance_km} km` : ""}`
     : (type === "dep" ? `→ ${flight.destination || "—"}` : `← ${flight.destination || "—"}`);
@@ -184,7 +184,9 @@ export const FlightTrackerSection = () => {
   }, [fetchLiveData]);
 
   const airport = airports[selectedAirport];
-  const flights = viewMode === "dep" ? airport.departures : airport.arrivals;
+  const flightsRaw = viewMode === "dep" ? airport.departures : airport.arrivals;
+  // Yalnızca havalimanına gerçekten inen/kalkan uçaklar — transit (üstten geçen) elenir
+  const flights = flightsRaw.filter(f => !f.is_transit);
 
   return (
     <DashboardPanel
@@ -262,6 +264,11 @@ export const FlightTrackerSection = () => {
         {flights.map((f) => (
           <FlightRow key={f.flightNo} flight={f} type={viewMode} />
         ))}
+        {flights.length === 0 && (
+          <p className="text-[10px] font-mono text-muted-foreground text-center py-4">
+            Şu an bu havalimanına iniş/kalkış yapan uçak yok (transit uçaklar hariç)
+          </p>
+        )}
       </div>
 
       {/* Stats bar */}
