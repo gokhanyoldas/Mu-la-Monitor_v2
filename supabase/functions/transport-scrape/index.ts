@@ -82,7 +82,8 @@ serve(async (req) => {
     const { type, airports } = await req.json();
     const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
 
-    if (!apiKey) {
+    // Yalnızca flights için Firecrawl gerekli; bus MUTTAŞ sayfalarından doğrudan okunur
+    if (type === "flights" && !apiKey) {
       return new Response(JSON.stringify({ error: "FIRECRAWL_API_KEY not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -133,8 +134,44 @@ serve(async (req) => {
     }
 
     if (type === "bus") {
-      const routes = await scrapeBusSchedules(apiKey);
-      return new Response(JSON.stringify({ routes, scraped_at: new Date().toISOString() }), {
+      // MUTTAŞ resmi hat sayfalarından canlı otobüs saatleri çek
+      const MUTTAS_LINES = [
+        { line: "48-7", from: "Menteşe", to: "Marmaris", url: "https://ulasim.muttas.com.tr/hat/48-7-mentese-marmaris-226" },
+        { line: "48-2", from: "Menteşe", to: "Bodrum", url: "https://ulasim.muttas.com.tr/hat/48-2-mentese-bodrum-226" },
+        { line: "48-3", from: "Menteşe", to: "Fethiye", url: "https://ulasim.muttas.com.tr/hat/48-3-mentese-fethiye-226" },
+        { line: "48-4", from: "Menteşe", to: "Dalaman", url: "https://ulasim.muttas.com.tr/hat/48-4-mentese-dalaman-226" },
+        { line: "48-5", from: "Menteşe", to: "Milas", url: "https://ulasim.muttas.com.tr/hat/48-5-mentese-milas-226" },
+        { line: "48-6", from: "Menteşe", to: "Datça", url: "https://ulasim.muttas.com.tr/hat/48-6-mentese-datca-226" },
+        { line: "48-8", from: "Menteşe", to: "Köyceğiz", url: "https://ulasim.muttas.com.tr/hat/48-8-mentese-koycegiz-226" },
+      ];
+
+      const routes: {
+        line: string; from: string; to: string;
+        weekday: string[]; saturday: string[]; sunday: string[];
+        carrier: string; source: string;
+      }[] = [];
+
+      for (const l of MUTTAS_LINES) {
+        try {
+          const res = await fetch(l.url, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(10000) });
+          if (!res.ok) continue;
+          const html = await res.text();
+          const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+          const times = Array.from(new Set(text.match(/\b\d{2}:\d{2}\b/g) ?? [])).sort();
+          routes.push({
+            line: l.line, from: l.from, to: l.to,
+            weekday: times, saturday: times, sunday: times,
+            carrier: "MUTTAŞ", source: l.url,
+          });
+        } catch { /* tek hat hatası diğerlerini etkilemez */ }
+      }
+
+      return new Response(JSON.stringify({
+        routes,
+        source: "MUTTAŞ resmi hat sayfaları (canlı)",
+        source_period: "Güncel hat saatleri",
+        scraped_at: new Date().toISOString(),
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
