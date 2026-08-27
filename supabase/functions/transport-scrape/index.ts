@@ -148,6 +148,9 @@ serve(async (req) => {
       const routes: {
         line: string; from: string; to: string;
         weekday: string[]; saturday: string[]; sunday: string[];
+        // Gidiş (from kalkış) ve Dönüş (to kalkış) ayrı listeler
+        outbound_weekday: string[]; outbound_saturday: string[]; outbound_sunday: string[];
+        return_weekday: string[]; return_saturday: string[]; return_sunday: string[];
         carrier: string; source: string;
       }[] = [];
 
@@ -157,10 +160,28 @@ serve(async (req) => {
           if (!res.ok) continue;
           const html = await res.text();
           const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-          const times = Array.from(new Set(text.match(/\b\d{2}:\d{2}\b/g) ?? [])).sort();
+
+          // İki kalkış bloğunu ayır: "<From> Kalkış" ve "<To> Kalkış"
+          const fromKalkis = new RegExp(`${l.from}\\s+Kalkış`, "i");
+          const toKalkis = new RegExp(`${l.to}\\s+Kalkış`, "i");
+          const parts = text.split(/(?=Menteşe\s+Kalkış|Marmaris\s+Kalkış|Bodrum\s+Kalkış|Fethiye\s+Kalkış|Dalaman\s+Kalkış|Milas\s+Kalkış|Datça\s+Kalkış|Köyceğiz\s+Kalkış)/i);
+
+          const extractTimes = (block: string) =>
+            Array.from(new Set(block.match(/\b\d{2}:\d{2}\b/g) ?? [])).sort();
+
+          // İlk blok = from kalkış (gidiş), ikinci = to kalkış (dönüş)
+          const outbound = parts.find(p => fromKalkis.test(p)) ?? text;
+          const ret = parts.find(p => toKalkis.test(p)) ?? "";
+          const outboundTimes = extractTimes(outbound);
+          const returnTimes = extractTimes(ret);
+
+          // Dönüş bloğu bulunamadıysa outbound'u dönüş olarak kullan (çift yönlü simetrik hatlar)
+          const finalReturn = returnTimes.length > 0 ? returnTimes : outboundTimes;
           routes.push({
             line: l.line, from: l.from, to: l.to,
-            weekday: times, saturday: times, sunday: times,
+            weekday: outboundTimes, saturday: outboundTimes, sunday: outboundTimes,
+            outbound_weekday: outboundTimes, outbound_saturday: outboundTimes, outbound_sunday: outboundTimes,
+            return_weekday: finalReturn, return_saturday: finalReturn, return_sunday: finalReturn,
             carrier: "MUTTAŞ", source: l.url,
           });
         } catch { /* tek hat hatası diğerlerini etkilemez */ }

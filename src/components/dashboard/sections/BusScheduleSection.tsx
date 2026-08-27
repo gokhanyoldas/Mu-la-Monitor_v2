@@ -16,6 +16,9 @@ type BusRoute = {
   weekday?: string[];
   saturday?: string[];
   sunday?: string[];
+  // Gidiş (from kalkış) ve Dönüş (to kalkış) ayrı listeler
+  outbound_weekday?: string[]; outbound_saturday?: string[]; outbound_sunday?: string[];
+  return_weekday?: string[]; return_saturday?: string[]; return_sunday?: string[];
   source?: string;
 };
 
@@ -45,6 +48,7 @@ const getNextDeparture = (departures: string[]) => {
 export const BusScheduleSection = () => {
   const [routes, setRoutes] = useState<BusRoute[]>(mockRoutes);
   const [filter, setFilter] = useState<"all" | "ilçe" | "şehirlerarası">("all");
+  const [direction, setDirection] = useState<"gidiş" | "dönüş">("gidiş");
   const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
 
@@ -68,6 +72,12 @@ export const BusScheduleSection = () => {
             type: (String(r.type ?? "ilçe") === "şehirlerarası" ? "şehirlerarası" : "ilçe") as BusRoute["type"],
             line: r.line ? String(r.line) : undefined,
             weekday, saturday: (r.saturday as string[]) ?? [], sunday: (r.sunday as string[]) ?? [],
+            outbound_weekday: (r.outbound_weekday as string[]) ?? weekday,
+            outbound_saturday: (r.outbound_saturday as string[]) ?? weekday,
+            outbound_sunday: (r.outbound_sunday as string[]) ?? weekday,
+            return_weekday: (r.return_weekday as string[]) ?? [],
+            return_saturday: (r.return_saturday as string[]) ?? [],
+            return_sunday: (r.return_sunday as string[]) ?? [],
             source: r.source ? String(r.source) : undefined,
           };
         });
@@ -97,9 +107,25 @@ export const BusScheduleSection = () => {
       badgeVariant="active"
       count={filtered.length}
     >
-      {/* Filters */}
+      {/* Filters + Direction toggle */}
       <div className="flex items-center justify-between mb-2">
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          {/* Gidiş / Dönüş toggle */}
+          <div className="flex gap-0.5 mr-2 p-0.5 bg-muted/30 rounded">
+            {(["gidiş", "dönüş"] as const).map((dir) => (
+              <button
+                key={dir}
+                onClick={() => setDirection(dir)}
+                className={`text-[9px] font-mono px-2 py-0.5 rounded transition-colors ${
+                  direction === dir
+                    ? "bg-primary/20 text-primary border border-primary/30 font-bold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {dir === "gidiş" ? "→ Gidiş" : "← Dönüş"}
+              </button>
+            ))}
+          </div>
           {([["all", "Tümü"], ["ilçe", "İlçe"], ["şehirlerarası", "Şehirlerarası"]] as const).map(([val, label]) => (
             <button
               key={val}
@@ -129,12 +155,15 @@ export const BusScheduleSection = () => {
       {/* Routes */}
       <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
         {filtered.map((route, i) => {
-          const next = getNextDeparture(route.departures);
+          const times = direction === "gidiş" ? (route.outbound_weekday ?? route.departures) : (route.return_weekday ?? route.departures);
+          const next = getNextDeparture(times.length > 0 ? times : route.departures);
           return (
             <div key={i} className="px-2.5 py-2 rounded bg-muted/10 hover:bg-muted/25 transition-colors">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold text-foreground">{route.from} → {route.to}</span>
+                  <span className="text-[10px] font-mono font-bold text-foreground">
+                    {direction === "gidiş" ? `${route.from} → ${route.to}` : `${route.to} → ${route.from}`}
+                  </span>
                   <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
                     route.type === "ilçe" ? "bg-accent/15 text-accent" : "bg-primary/15 text-primary"
                   }`}>
