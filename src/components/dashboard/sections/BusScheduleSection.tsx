@@ -11,6 +11,12 @@ type BusRoute = {
   duration: string;
   price: string;
   type: "şehirlerarası" | "ilçe";
+  // MUTTAŞ resmi hat verisi (varsa)
+  line?: string;
+  weekday?: string[];
+  saturday?: string[];
+  sunday?: string[];
+  source?: string;
 };
 
 const mockRoutes: BusRoute[] = [
@@ -49,7 +55,23 @@ export const BusScheduleSection = () => {
         body: { type: "bus" },
       });
       if (!error && data?.routes?.length) {
-        setRoutes(data.routes);
+        // MUTTAŞ hat verisini UI formatına normalize et
+        const normalized = data.routes.map((r: Record<string, unknown>) => {
+          const weekday = (r.weekday as string[]) ?? (r.departures as string[]) ?? [];
+          return {
+            carrier: String(r.carrier ?? "MUTTAŞ"),
+            from: String(r.from ?? "Muğla"),
+            to: String(r.to ?? ""),
+            departures: weekday.length > 0 ? weekday : ["—"],
+            duration: String(r.duration ?? "—"),
+            price: String(r.price ?? "—"),
+            type: (String(r.type ?? "ilçe") === "şehirlerarası" ? "şehirlerarası" : "ilçe") as BusRoute["type"],
+            line: r.line ? String(r.line) : undefined,
+            weekday, saturday: (r.saturday as string[]) ?? [], sunday: (r.sunday as string[]) ?? [],
+            source: r.source ? String(r.source) : undefined,
+          };
+        });
+        setRoutes(normalized);
         setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
       }
     } catch {
