@@ -65,12 +65,12 @@ OpenHands: `https://work-1-zwbiqdduqptktlmq.prod-runtime.all-hands.dev/` (port 1
 Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 
 ## 🚦 Canlı Trafik (TomTom)
-- `reference-data` → `fetchTrafficDensity`, TomTom Flow Segment API ile **gerçek zamanlı** ilçe yoğunlukları üretir (30 sn tazeleme, TTL 5 dk)
+- `reference-data` → `fetchTrafficDensity`, TomTom Flow Segment API ile **gerçek zamanlı** ilçe yoğunlukları üretir (segment 30 sn tazeleme, edge cache TTL 5 dk)
 - `TOMTOM_API_KEY` secret'ı gerekli (edge function'da `Deno.env.get("TOMTOM_API_KEY")`); API key son kullanıcıya sızmaz
-- `TRAFFIC_POINTS` (12 nokta: ilçe merkezleri + D-400/D-550 girişleri); yoğunluk = 1 − currentSpeed/freeFlowSpeed
-- Frontend `TrafficDensityMap.tsx` backend'in `hotspots` alanını okur (`zones` eski şema), hover'da anlık hız gösterir
-- `Günlük Araç 285K` sabit bir il geneli referanstır — TomTom araç sayısı vermez
+- `TRAFFIC_POINTS` = **Muğla'nın 13 ilçesi** (Bodrum, Datça, Marmaris, Fethiye, Milas, Menteşe, Dalaman, Ortaca, Köyceğiz, Yatağan, Ula, Seydikemer, Kavaklıdere); yoğunluk = 1 − currentSpeed/freeFlowSpeed
+- **Otomatik güncelleme:** pg_cron job `refresh-traffic-live` her 5 dk `reference-data` traffic_density'yi çağırır → `live_data_cache` arka planda tazelenir, frontend Realtime/poll ile güncel veriyi alır
+- Frontend `TrafficDensityMap.tsx` backend'in `hotspots` alanını okur (`zones` eski şema), hover'da anlık hız gösterir; kartlar: Ort. Yoğunluk / En Yoğun Bölge / Kritik Bölge
 
 ## 📅 Son Güncelleme
-2026-08-28 — TomTom canlı trafik entegrasyonu (gerçek zamanlı ilçe yoğunlukları), obilet.com şehirlerarası otobüs
+2026-08-28 — TomTom canlı trafik: 13 ilçe + 5dk otomatik tazeleme (pg_cron refresh-traffic-live), obilet.com şehirlerarası otobüs
 2026-08-27 — Uçuş takip ADS-B + transit filtre, MUTTAŞ gidiş/dönüş, turizm 2025/Ç2, altyapı haber takibi
