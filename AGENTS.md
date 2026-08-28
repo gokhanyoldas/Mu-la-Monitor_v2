@@ -49,11 +49,13 @@
 - Uçuş: transit (distance_km>60) filtrelenir, sadece gerçek iniş/kalkış
 - Gemini model: `gemini-3.5-flash-lite` (1.5/2.5 yeni hesaplarda çalışmaz)
 - Turizm: 2025/Ç2 ön veri (kesin yıl sonu Şubat-Mart 2026'da)
+- Şehirlerarası otobüs: `transport-scrape` obilet.com statik mikrodata'sından çeker
+  (`obilet-parser.ts` modülü; Firecrawl gerekmez). 12 rota paralel, ~700ms.
 
 ## 🔧 Komutlar
 - `npm run dev` — Vite dev (port 8080)
 - `npm run build` — production build
-- `npm test` — vitest (9 test)
+- `npm test` — vitest (12 test)
 - `npm run seed:live` — ilk veri dolumu (news-scrape → mock-data-injector → executive-report)
 - `npx supabase functions deploy <name> --project-ref wivooargsmcwbiokpklu`
 - `npx supabase db push` — migrasyonları uygula
@@ -63,4 +65,5 @@ OpenHands: `https://work-1-zwbiqdduqptktlmq.prod-runtime.all-hands.dev/` (port 1
 Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 
 ## 📅 Son Güncelleme
+2026-08-28 — Şehirlerarası otobüs seferleri canlı (obilet.com, 12 rota), parser testleri
 2026-08-27 — Uçuş takip ADS-B + transit filtre, MUTTAŞ gidiş/dönüş, turizm 2025/Ç2, altyapı haber takibi
