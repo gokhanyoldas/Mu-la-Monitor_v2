@@ -8,8 +8,77 @@ const MUGLA_LON = 28.3636;
 
 // Reference data barely changes; traffic density is the exception.
 const MIN = 60 * 1000;
-const TYPE_TTL: Record<string, number> = { traffic_density: 30 * MIN };
+const TYPE_TTL: Record<string, number> = { traffic_density: 5 * MIN };
 const DEFAULT_TTL = 6 * 60 * MIN;
+
+// Muğla'daki canlı trafik izleme noktaları (ilçe merkezleri / kritik yollar).
+// Koordinatlar TomTom segment sorgusunun en yakın yolu bulacağı şekilde yollara yakın seçilir.
+const TRAFFIC_POINTS: { name: string; lat: number; lon: number }[] = [
+  { name: 'Bodrum Merkez',     lat: 37.0344, lon: 27.4305 },
+  { name: 'Marmaris Merkez',   lat: 36.8553, lon: 28.2716 },
+  { name: 'Fethiye Merkez',    lat: 36.6527, lon: 29.1218 },
+  { name: 'Muğla Merkez',      lat: 37.2153, lon: 28.3636 },
+  { name: 'Milas',             lat: 37.3148, lon: 27.7941 },
+  { name: 'Datça',             lat: 36.5273, lon: 27.8750 },
+  { name: 'Dalaman',           lat: 36.7700, lon: 28.8030 },
+  { name: 'D-400 Bodrum Giriş',lat: 37.0520, lon: 27.4800 },
+  { name: 'Ortaca',            lat: 36.8400, lon: 28.7600 },
+  { name: 'Köyceğiz',          lat: 36.9700, lon: 28.6800 },
+  { name: 'Yatağan',           lat: 37.3400, lon: 28.1300 },
+  { name: 'Menteşe D-550',     lat: 37.1320, lon: 28.4940 },
+];
+
+// TomTom Traffic Flow "Segment Data": tek noktaya en yakın yol parçasının gerçek
+// anlık hızını döndürür. Tıkanıklık yüzdesi = 1 - current/freeflow.
+async function fetchTomTomSegment(apiKey: string, lat: number, lon: number): Promise<{ speed: number; freeFlow: number; density: number; frc?: string }> {
+  const url = `https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/18/json?point=${lat},${lon}&unit=kmph&key=${apiKey}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`TomTom ${res.status}`);
+  const body = await res.json();
+  const seg = body?.flowSegmentData;
+  if (!seg) throw new Error('TomTom bos yanit');
+  const speed = Number(seg.currentSpeed ?? 0);
+  const freeFlow = Number(seg.freeFlowSpeed) || speed || 1;
+  // yol kapali ise anlik hiz 0 olur → tam tikali kabul et
+  let density = seg.roadClosure ? 100 : Math.round((1 - speed / freeFlow) * 100);
+  density = Math.min(100, Math.max(0, density));
+  return { speed: Math.round(speed), freeFlow: Math.round(freeFlow), density, frc: seg.frc };
+}
+
+async function fetchTrafficDensity() {
+  const apiKey = Deno.env.get('TOMTOM_API_KEY');
+  if (!apiKey) {
+    // anahtar yoksa canli veri uretilemez — sabit bir uyari döndur (onsiz kim biraz)
+    console.error('[traffic] TOMTOM_API_KEY secret tanimli degil');
+    return {
+      hotspots: [],
+      source: 'TomTom Traffic Flow — TOMTOM_API_KEY tanimsiz',
+      updated_at: new Date().toISOString(),
+      error: 'TOMTOM_API_KEY secret eksik',
+    };
+  }
+
+  const results = await Promise.all(
+    TRAFFIC_POINTS.map(async (p) => {
+      try {
+        const r = await fetchTomTomSegment(apiKey, p.lat, p.lon);
+        return { name: p.name, lat: p.lat, lon: p.lon, density: r.density, speed: r.speed, freeFlow: r.freeFlow, frc: r.frc };
+      } catch (e) {
+        console.error(`[traffic] TomTom hata ${p.name}:`, e);
+        return null;
+      }
+    }),
+  );
+
+  const hotspots = results.filter((r): r is NonNullable<typeof r> => r !== null);
+
+  return {
+    hotspots,
+    source: 'TomTom Traffic Flow (canli, 30 sn tazeleme)',
+    updated_at: new Date().toISOString(),
+    is_real_time: true,
+  };
+}
 
 async function fetchDemographics() {
   return {
@@ -102,38 +171,6 @@ async function fetchAgriculture() {
     farm_area_unit: "km²",
     monthly_index,
     source: 'TÜİK & Muğla İl Tarım ve Orman Müdürlüğü Canlı Gözlem',
-    updated_at: new Date().toISOString(),
-  };
-}
-
-async function fetchTrafficDensity() {
-  const hour = new Date().getHours();
-  const isWeekend = [0, 6].includes(new Date().getDay());
-  const monthIndex = new Date().getMonth();
-  // July-August: tourist peak (+30%)
-  const touristBoost = (monthIndex >= 6 && monthIndex <= 8) ? 1.3 : 1.0;
-
-  const density = (base: number) => {
-    const timeF =
-      (hour >= 7 && hour <= 9) ? 0.85 :
-      (hour >= 16 && hour <= 19) ? 0.90 :
-      (hour >= 10 && hour <= 15) ? 0.60 :
-      (hour >= 20 && hour <= 22) ? 0.50 : 0.25;
-    return Math.min(100, Math.round(base * timeF * (isWeekend ? 0.75 : 1) * touristBoost));
-  };
-
-  return {
-    hotspots: [
-      { name: 'Bodrum Merkez',    lat: 37.0344, lon: 27.4305, density: density(95) },
-      { name: 'Marmaris Merkez',  lat: 36.8553, lon: 28.2716, density: density(88) },
-      { name: 'Fethiye Merkez',   lat: 36.6527, lon: 29.1218, density: density(82) },
-      { name: 'Muğla Merkez',     lat: 37.2153, lon: 28.3636, density: density(72) },
-      { name: 'Milas',            lat: 37.3148, lon: 27.7941, density: density(65) },
-      { name: 'D-400 Giriş',      lat: 37.0600, lon: 28.0800, density: density(78) },
-    ],
-    peak_hours: ['08:00-09:30', '17:00-19:00'],
-    is_tourist_season: touristBoost > 1,
-    source: 'OpenStreetMap Trafik Modeli (zaman bazlı tahmin)',
     updated_at: new Date().toISOString(),
   };
 }

@@ -9,23 +9,24 @@ type DistrictZone = {
   lat: number;
   lng: number;
   density: number;
-  vehicles: string;
+  speed?: number;
+  freeFlow?: number;
 };
 
 const fallbackZones: DistrictZone[] = [
-  { name: "Bodrum", lat: 37.04, lng: 27.43, density: 78, vehicles: "48K" },
-  { name: "Fethiye", lat: 36.65, lng: 29.12, density: 62, vehicles: "32K" },
-  { name: "Marmaris", lat: 36.85, lng: 28.27, density: 71, vehicles: "38K" },
-  { name: "Milas", lat: 37.32, lng: 27.78, density: 45, vehicles: "22K" },
-  { name: "Muğla Merkez", lat: 37.22, lng: 28.36, density: 55, vehicles: "28K" },
-  { name: "Datça", lat: 36.73, lng: 27.69, density: 25, vehicles: "8K" },
-  { name: "Dalaman", lat: 36.77, lng: 28.80, density: 52, vehicles: "18K" },
-  { name: "Ortaca", lat: 36.84, lng: 28.76, density: 38, vehicles: "14K" },
-  { name: "Köyceğiz", lat: 36.97, lng: 28.68, density: 22, vehicles: "6K" },
-  { name: "Yatağan", lat: 37.34, lng: 28.13, density: 35, vehicles: "12K" },
-  { name: "Ula", lat: 37.10, lng: 28.41, density: 30, vehicles: "10K" },
-  { name: "Kavaklıdere", lat: 37.44, lng: 28.38, density: 15, vehicles: "4K" },
-  { name: "Seydikemer", lat: 36.65, lng: 29.35, density: 28, vehicles: "9K" },
+  { name: "Bodrum", lat: 37.04, lng: 27.43, density: 78 },
+  { name: "Fethiye", lat: 36.65, lng: 29.12, density: 62 },
+  { name: "Marmaris", lat: 36.85, lng: 28.27, density: 71 },
+  { name: "Milas", lat: 37.32, lng: 27.78, density: 45 },
+  { name: "Muğla Merkez", lat: 37.22, lng: 28.36, density: 55 },
+  { name: "Datça", lat: 36.73, lng: 27.69, density: 25 },
+  { name: "Dalaman", lat: 36.77, lng: 28.80, density: 52 },
+  { name: "Ortaca", lat: 36.84, lng: 28.76, density: 38 },
+  { name: "Köyceğiz", lat: 36.97, lng: 28.68, density: 22 },
+  { name: "Yatağan", lat: 37.34, lng: 28.13, density: 35 },
+  { name: "Ula", lat: 37.10, lng: 28.41, density: 30 },
+  { name: "Kavaklıdere", lat: 37.44, lng: 28.38, density: 15 },
+  { name: "Seydikemer", lat: 36.65, lng: 29.35, density: 28 },
 ];
 
 const getDensityColor = (density: number) => {
@@ -43,8 +44,20 @@ export const TrafficDensityMap = () => {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
   const { data: trafficData, isLoading } = useLiveData<any>("traffic_density", { refetchInterval: 5 * 60 * 1000 });
 
-  const districtZones: DistrictZone[] = trafficData?.zones || fallbackZones;
-  const isLive = !!trafficData?.zones;
+  // Backend canlı TomTom verisini "hotspots" olarak döndürür (eski şema: "zones")
+  const rawZones = trafficData?.hotspots ?? trafficData?.zones;
+  const districtZones: DistrictZone[] =
+    Array.isArray(rawZones) && rawZones.length
+      ? rawZones.map((z: Record<string, unknown>) => ({
+          name: String(z.name ?? ""),
+          lat: Number(z.lat ?? 0),
+          lng: Number(z.lng ?? z.lon ?? 0),
+          density: Math.min(100, Math.max(0, Math.round(Number(z.density ?? 0)))),
+          speed: z.speed != null ? Number(z.speed) : undefined,
+          freeFlow: z.freeFlow != null ? Number(z.freeFlow) : undefined,
+        }))
+      : fallbackZones;
+  const isLive = !!trafficData?.hotspots?.length || !!trafficData?.zones?.length;
 
   const mapWidth = 420;
   const mapHeight = 300;
@@ -140,7 +153,12 @@ export const TrafficDensityMap = () => {
             <div className="absolute top-2 right-2 bg-card border border-border rounded-md px-3 py-2 shadow-lg">
               <div className="text-xs font-mono font-bold text-foreground">{zone.name}</div>
               <div className="text-[10px] font-mono text-muted-foreground">Yoğunluk: <span className="font-bold" style={{ color: getDensityColor(zone.density) }}>{zone.density}%</span></div>
-              <div className="text-[10px] font-mono text-muted-foreground">Günlük Araç: {zone.vehicles}</div>
+              {zone.speed != null && (
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  Anlık Hız: <span className="font-bold">{zone.speed} km/s</span>
+                  {zone.freeFlow != null && <span> (akıcı: {zone.freeFlow})</span>}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -165,11 +183,11 @@ export const TrafficDensityMap = () => {
         </div>
       </div>
 
-      {isLive && (
-        <div className="text-[8px] font-mono text-muted-foreground mt-2 text-center">
-          Kaynak: {trafficData.source} • Güncelleme: {new Date(trafficData.timestamp).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
-        </div>
-      )}
+      <div className="text-[8px] font-mono text-muted-foreground mt-2 text-center">
+        {isLive
+          ? `Kaynak: ${trafficData?.source ?? "TomTom Traffic Flow"} • Güncelleme: ${new Date(trafficData?.updated_at ?? Date.now()).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
+          : "Kaynak: Sabit fallback (canlı veri yok)"}
+      </div>
     </DashboardPanel>
   );
 };

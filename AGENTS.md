@@ -64,6 +64,13 @@
 OpenHands: `https://work-1-zwbiqdduqptktlmq.prod-runtime.all-hands.dev/` (port 12000)
 Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 
+## 🚦 Canlı Trafik (TomTom)
+- `reference-data` → `fetchTrafficDensity`, TomTom Flow Segment API ile **gerçek zamanlı** ilçe yoğunlukları üretir (30 sn tazeleme, TTL 5 dk)
+- `TOMTOM_API_KEY` secret'ı gerekli (edge function'da `Deno.env.get("TOMTOM_API_KEY")`); API key son kullanıcıya sızmaz
+- `TRAFFIC_POINTS` (12 nokta: ilçe merkezleri + D-400/D-550 girişleri); yoğunluk = 1 − currentSpeed/freeFlowSpeed
+- Frontend `TrafficDensityMap.tsx` backend'in `hotspots` alanını okur (`zones` eski şema), hover'da anlık hız gösterir
+- `Günlük Araç 285K` sabit bir il geneli referanstır — TomTom araç sayısı vermez
+
 ## 📅 Son Güncelleme
-2026-08-28 — Şehirlerarası otobüs seferleri canlı (obilet.com, 12 rota), parser testleri
+2026-08-28 — TomTom canlı trafik entegrasyonu (gerçek zamanlı ilçe yoğunlukları), obilet.com şehirlerarası otobüs
 2026-08-27 — Uçuş takip ADS-B + transit filtre, MUTTAŞ gidiş/dönüş, turizm 2025/Ç2, altyapı haber takibi
