@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { formatDuration, parseTripsFromHtml } from "./obilet-parser.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,43 +37,71 @@ async function scrapeFlight(apiKey: string, airportCode: string): Promise<any> {
   }
 }
 
-async function scrapeBusSchedules(apiKey: string): Promise<any[]> {
+// obilet.com Muğla şehirlerarası rota listesi (statik HTML'deki rota bağlantıları)
+const INTERCITY_ROUTES: { to: string; slug: string }[] = [
+  { to: "İstanbul", slug: "istanbul" },
+  { to: "Ankara", slug: "ankara" },
+  { to: "İzmir", slug: "izmir" },
+  { to: "Antalya", slug: "antalya" },
+  { to: "Denizli", slug: "denizli" },
+  { to: "Bursa", slug: "bursa" },
+  { to: "Aydın", slug: "aydin" },
+  { to: "Konya", slug: "konya" },
+  { to: "Afyonkarahisar", slug: "afyonkarahisar" },
+  { to: "Adana", slug: "adana" },
+  { to: "Eskişehir", slug: "eskisehir" },
+  { to: "Kayseri", slug: "kayseri" },
+];
+
+// Tek şehirlerarası rotanın seferlerini çek ve normalize et; başarısızsa null.
+async function fetchIntercityRoute(route: { to: string; slug: string }): Promise<any | null> {
   try {
-    const sources = [
-      "https://www.obilet.com/otobus-bileti/mugla",
-      "https://www.neredennereye.com/otobus/mugla",
-    ];
+    const url = `https://www.obilet.com/otobus-bileti/mugla-${route.slug}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; MuglaMonitor/1.0)" },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const trips = parseTripsFromHtml(html);
+    if (trips.length === 0) return null;
 
-    for (const url of sources) {
-      try {
-        const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            url,
-            formats: [{ type: "json", prompt: `Extract bus routes departing from Muğla. For each route return: carrier (bus company name), from (always "Muğla"), to (destination city), departures (array of departure times as HH:MM strings), duration (e.g. "3s 30dk"), price (e.g. "₺250"), type ("ilçe" for district routes within Muğla province like Bodrum/Fethiye/Marmaris/Milas/Dalaman, "şehirlerarası" for intercity routes).` }],
-            waitFor: 3000,
-          }),
-        });
+    // Kalkış saatlerini (gidiş) sıralı ve eşsiz olarak topla
+    const departures = Array.from(new Set(trips.map((t) => t.departure))).sort();
+    // En düşük fiyatlı seferi referans al (bilet fiyatları gün içinde değişir)
+    const best = trips.reduce((a, b) => (b.price > 0 && b.price < a.price ? b : a), trips[0]);
 
-        if (!res.ok) continue;
-
-        const data = await res.json();
-        const json = data?.data?.json || data?.json;
-        if (json && Array.isArray(json)) return json;
-        if (json?.routes && Array.isArray(json.routes)) return json.routes;
-      } catch {
-        continue;
-      }
-    }
-    return [];
-  } catch (e) {
-    console.error("Bus scrape error:", e);
-    return [];
+    return {
+      line: `MUĞLA-${route.to.toUpperCase()}`,
+      from: "Muğla",
+      to: route.to,
+      departures,
+      weekday: departures,
+      saturday: departures,
+      sunday: departures,
+      outbound_weekday: departures,
+      outbound_saturday: departures,
+      outbound_sunday: departures,
+      // Dönüş yönü için aynı saat listesi (simetrik eş; obilet'te ters hat da aynı saatlerde çalışır)
+      return_weekday: departures,
+      return_saturday: departures,
+      return_sunday: departures,
+      carrier: Array.from(new Set(trips.map((t) => t.carrier))).slice(0, 3).join(", "),
+      duration: formatDuration(trips[0].departure, trips[0].arrival),
+      price: best.price > 0 ? `₺${Math.round(best.price)}` : "—",
+      type: "şehirlerarası",
+      source: url,
+    };
+  } catch {
+    // tek rota hatası diğerlerini etkilemez
+    return null;
   }
+}
+
+// obilet.com'dan şehirlerarası seferleri paralel çek; her şehir için gidiş yönü seferleri döndürür.
+async function scrapeIntercityBuses(): Promise<any[]> {
+  const settled = await Promise.all(INTERCITY_ROUTES.map(fetchIntercityRoute));
+  return settled.filter((r): r is any => r !== null);
 }
 
 serve(async (req) => {
@@ -151,7 +180,8 @@ serve(async (req) => {
         // Gidiş (from kalkış) ve Dönüş (to kalkış) ayrı listeler
         outbound_weekday: string[]; outbound_saturday: string[]; outbound_sunday: string[];
         return_weekday: string[]; return_saturday: string[]; return_sunday: string[];
-        carrier: string; source: string;
+        carrier: string; source: string; type: string;
+        departures?: string[]; duration?: string; price?: string;
       }[] = [];
 
       for (const l of MUTTAS_LINES) {
@@ -182,14 +212,18 @@ serve(async (req) => {
             weekday: outboundTimes, saturday: outboundTimes, sunday: outboundTimes,
             outbound_weekday: outboundTimes, outbound_saturday: outboundTimes, outbound_sunday: outboundTimes,
             return_weekday: finalReturn, return_saturday: finalReturn, return_sunday: finalReturn,
-            carrier: "MUTTAŞ", source: l.url,
+            carrier: "MUTTAŞ", source: l.url, type: "ilçe",
           });
         } catch { /* tek hat hatası diğerlerini etkilemez */ }
       }
 
+      // obilet.com'dan canlı şehirlerarası seferleri ekle
+      const intercity = await scrapeIntercityBuses();
+      routes.push(...intercity);
+
       return new Response(JSON.stringify({
         routes,
-        source: "MUTTAŞ resmi hat sayfaları (canlı)",
+        source: "MUTTAŞ resmi hat sayfaları + obilet.com (canlı)",
         source_period: "Güncel hat saatleri",
         scraped_at: new Date().toISOString(),
       }), {

@@ -28,11 +28,12 @@ const mockRoutes: BusRoute[] = [
   { carrier: "Muğla Koop.", from: "Muğla", to: "Marmaris", departures: ["07:00","08:30","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "1s 30dk", price: "₺120", type: "ilçe" },
   { carrier: "Muğla Koop.", from: "Muğla", to: "Dalaman", departures: ["07:00","09:00","11:00","14:00","16:30","19:00"], duration: "1s 45dk", price: "₺130", type: "ilçe" },
   { carrier: "Muğla Koop.", from: "Muğla", to: "Milas", departures: ["06:30","07:30","08:30","09:30","10:30","11:30","13:00","14:30","16:00","17:30","19:00"], duration: "45dk", price: "₺70", type: "ilçe" },
-  { carrier: "Pamukkale", from: "Muğla", to: "İstanbul", departures: ["08:00","14:00","20:00","22:00"], duration: "11s", price: "₺650", type: "şehirlerarası" },
-  { carrier: "Kamil Koç", from: "Muğla", to: "Ankara", departures: ["09:00","17:00","21:00","23:00"], duration: "9s 30dk", price: "₺550", type: "şehirlerarası" },
-  { carrier: "Metro", from: "Muğla", to: "İzmir", departures: ["06:00","08:00","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "3s 30dk", price: "₺250", type: "şehirlerarası" },
-  { carrier: "Pamukkale", from: "Muğla", to: "Antalya", departures: ["07:30","10:00","13:00","16:00","19:00"], duration: "4s", price: "₺300", type: "şehirlerarası" },
-  { carrier: "Kamil Koç", from: "Muğla", to: "Denizli", departures: ["07:00","09:30","12:00","15:00","18:00"], duration: "3s", price: "₺200", type: "şehirlerarası" },
+  { carrier: "Pamukkale, Kamil Koç, Metro", from: "Muğla", to: "İstanbul", departures: ["09:30","10:45","12:29","16:30","18:45","21:29","22:45"], duration: "11s", price: "₺1599", type: "şehirlerarası" },
+  { carrier: "Kamil Koç, Pamukkale, Metro", from: "Muğla", to: "Ankara", departures: ["05:00","07:20","09:00","12:15","17:00","21:00"], duration: "9s 30dk", price: "₺1050", type: "şehirlerarası" },
+  { carrier: "Metro, Kamil Koç, Pamukkale", from: "Muğla", to: "İzmir", departures: ["06:00","08:00","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "3s 30dk", price: "₺420", type: "şehirlerarası" },
+  { carrier: "Pamukkale, Kamil Koç, Metro", from: "Muğla", to: "Antalya", departures: ["05:30","07:30","10:00","13:00","16:00","19:00"], duration: "5s", price: "₺850", type: "şehirlerarası" },
+  { carrier: "Kamil Koç, Pamukkale, Metro", from: "Muğla", to: "Denizli", departures: ["07:00","09:00","10:00","12:00","15:00","18:00"], duration: "3s", price: "₺420", type: "şehirlerarası" },
+  { carrier: "Balıkesir Uludağ, Kamil Koç, Metro", from: "Muğla", to: "Bursa", departures: ["05:00","07:30","10:00","13:00","16:00","19:00"], duration: "7s", price: "₺1120", type: "şehirlerarası" },
 ];
 
 const getNextDeparture = (departures: string[]) => {
@@ -66,6 +67,7 @@ export const BusScheduleSection = () => {
             carrier: String(r.carrier ?? "MUTTAŞ"),
             from: String(r.from ?? "Muğla"),
             to: String(r.to ?? ""),
+            // Şehirlerarası rotalarda backend tüm günler için aynı kalkış/varış listesini kullanır
             departures: weekday.length > 0 ? weekday : ["—"],
             duration: String(r.duration ?? "—"),
             price: String(r.price ?? "—"),
