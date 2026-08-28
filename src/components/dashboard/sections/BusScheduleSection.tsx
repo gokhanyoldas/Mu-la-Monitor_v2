@@ -83,7 +83,13 @@ export const BusScheduleSection = () => {
             source: r.source ? String(r.source) : undefined,
           };
         });
-        setRoutes(normalized);
+        // Backend şehirlerarası döndürmediyse (henüz deploy edilmemiş olabilir),
+        // mockRoutes'taki şehirlerarası rotaları koru — panel boş görünmesin.
+        const hasIntercity = normalized.some((r) => r.type === "şehirlerarası");
+        const merged = hasIntercity
+          ? normalized
+          : [...normalized, ...mockRoutes.filter((r) => r.type === "şehirlerarası")];
+        setRoutes(merged);
         setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
       }
     } catch {
