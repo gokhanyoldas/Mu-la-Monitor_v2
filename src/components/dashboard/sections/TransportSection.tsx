@@ -2,7 +2,7 @@ import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { StatusList } from "../StatusList";
 import { MiniChart } from "../MiniChart";
-import { Car, PlaneTakeoff, Ship, Loader2 } from "lucide-react";
+import { Car, PlaneTakeoff, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 
 const airportData = [
@@ -12,46 +12,90 @@ const airportData = [
   { name: "Eki", value: 280 }, { name: "Kas", value: 150 }, { name: "Ara", value: 110 },
 ];
 
-const defaultRoads = [
-  { label: "Muğla-Bodrum Yolu", value: "NORMAL", status: "ok" as const },
-  { label: "Muğla-Fethiye Yolu", value: "YOĞUN", status: "warning" as const },
-  { label: "Muğla-Marmaris Yolu", value: "NORMAL", status: "ok" as const },
-  { label: "Otobüs Seferleri", value: "124/gün", status: "ok" as const },
-  { label: "Feribot Seferleri", value: "18/gün", status: "ok" as const },
-];
+type RoadWorksProject = {
+  name: string;
+  status: "devam" | "tamamlandı" | "belirsiz";
+  progress: number | null;
+  confidence: "high" | "medium" | "low";
+  expectedEnd: string;
+};
 
 export const TransportSection = () => {
   const { data: trafficData, isLoading: tLoading } = useLiveData<any>("traffic_density", { refetchInterval: 10 * 60 * 1000 });
-  const { data: roadWorks, isLoading: rLoading } = useLiveData<any[]>("road_works", { refetchInterval: 15 * 60 * 1000 });
+  const { data: roadWorks, isLoading: rLoading } = useLiveData<any>("road_works", { refetchInterval: 15 * 60 * 1000 });
 
-  const zones = trafficData?.zones || [];
-  const avgDensity = zones.length > 0
-    ? Math.round(zones.reduce((a: number, z: any) => a + z.density, 0) / zones.length)
-    : 42;
-  const totalVehicles = zones.length > 0 ? "285K" : "285K";
-  const accidents = 128;
+  // Backend artık hotspots şemasını dönüyor (eski "zones" yalnızca geriye dönük)
+  const hotspots = trafficData?.hotspots ?? trafficData?.zones ?? [];
+  const avgDensity = Array.isArray(hotspots) && hotspots.length > 0
+    ? Math.round(hotspots.reduce((a: number, z: any) => a + Number(z.density ?? 0), 0) / hotspots.length)
+    : null;
+  const worstZone = Array.isArray(hotspots) && hotspots.length > 0
+    ? hotspots.reduce((a: any, z: any) => (Number(z.density ?? 0) > Number(a.density ?? 0) ? z : a), hotspots[0])
+    : null;
 
-  // Build road status from live road_works data
-  const roadItems = roadWorks && roadWorks.length > 0
-    ? roadWorks.slice(0, 5).map((rw: any) => ({
-        label: rw.title || rw.road || "",
-        value: rw.status || "BİLGİ",
-        status: (rw.type === "closed" ? "critical" : rw.type === "open" ? "ok" : "warning") as "ok" | "warning" | "critical" | "info",
+  // road_works.backend çıktısı: { projects: [...] } (haber akışından izlenen altyapı)
+  const projects: RoadWorksProject[] =
+    (roadWorks && Array.isArray(roadWorks.projects) ? roadWorks.projects : []) as RoadWorksProject[];
+
+  const roadItems = projects.length > 0
+    ? projects.slice(0, 5).map((p) => ({
+        label: p.name,
+        value: p.status === "tamamlandı" ? "TAMAMLANDI" : p.status === "devam" ? "DEVAM" : "İZLENİYOR",
+        status: (p.status === "tamamlandı" ? "ok" : p.status === "devam" ? "warning" : "info") as "ok" | "warning" | "critical" | "info",
       }))
-    : defaultRoads;
+    : [];
 
-  const isLive = zones.length > 0 || (roadWorks && roadWorks.length > 0);
+  const hasLiveTraffic = Array.isArray(hotspots) && hotspots.length > 0;
+  const hasRoadWorks = projects.length > 0;
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Ulaşım" icon={<Car size={14} />} badge={isLive ? "CANLI" : "CANLI"} badgeVariant="live" count={6}>
+      <DashboardPanel
+        title="Ulaşım"
+        icon={<Car size={14} />}
+        badge={hasLiveTraffic || hasRoadWorks ? "CANLI" : "BEKLEYEN"}
+        badgeVariant={hasLiveTraffic || hasRoadWorks ? "live" : "warning"}
+        count={(hasLiveTraffic ? 1 : 0) + (hasRoadWorks ? projects.length : 0)}
+      >
         {(tLoading || rLoading) && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
-          <StatCard label="Trafik Yoğunluk" value={String(avgDensity)} unit="%" variant="primary" />
-          <StatCard label="Günlük Araç" value={totalVehicles} />
-          <StatCard label="Kaza (Ay)" value={String(accidents)} variant="warning" />
+          <StatCard
+            label="Ort. Trafik Yoğunluğu"
+            value={avgDensity !== null ? String(avgDensity) : "—"}
+            unit="%"
+            variant="primary"
+            info={hasLiveTraffic ? "TomTom canlı akışından (13 ilçe ortalaması)" : "Canlı veri yok; panoya bağlanamadı"}
+          />
+          <StatCard
+            label="İzlenen İlçe"
+            value={hasLiveTraffic ? String(hotspots.length) : "—"}
+            unit="ilçe"
+            info="TomTom izleme noktası sayısı (Muğla'nın 13 ilçesi)"
+          />
+          {worstZone && (
+            <StatCard
+              label="En Yoğun İlçe"
+              value={String(worstZone.name ?? "—")}
+              unit={worstZone.density != null ? `%${Math.round(Number(worstZone.density))}` : ""}
+              variant={Number(worstZone.density ?? 0) >= 50 ? "warning" : "primary"}
+              info="Şu an en tıkalı izleme noktası"
+            />
+          )}
         </div>
-        <StatusList items={roadItems} />
+
+        {roadItems.length > 0 ? (
+          <>
+            <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">Altyapı / Yol Durumu (basın takibi)</span>
+            <StatusList items={roadItems} />
+            <p className="text-[8px] font-mono text-muted-foreground/70 mt-1">
+              Durumlar Google News RSS'ten proje bazlı izlenir; "tamamlandı" yalnızca basın kanıtıyla işaretlenir.
+            </p>
+          </>
+        ) : (
+          <p className="text-[9px] font-mono text-muted-foreground/80 py-1">
+            Canlı yol/altyapı duyurusu bekleniyor — haber akışı tazelenince burada görünür.
+          </p>
+        )}
       </DashboardPanel>
 
       <DashboardPanel title="Havalimanları" icon={<PlaneTakeoff size={14} />} badge="AKTİF" badgeVariant="active">

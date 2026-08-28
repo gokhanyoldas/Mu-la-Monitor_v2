@@ -70,6 +70,7 @@ Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 - `TRAFFIC_POINTS` = **Muğla'nın 13 ilçesi** (Bodrum, Datça, Marmaris, Fethiye, Milas, Menteşe, Dalaman, Ortaca, Köyceğiz, Yatağan, Ula, Seydikemer, Kavaklıdere); yoğunluk = 1 − currentSpeed/freeFlowSpeed
 - **Otomatik güncelleme:** pg_cron job `refresh-traffic-live` her 5 dk `reference-data` traffic_density'yi çağırır → `live_data_cache` arka planda tazelenir, frontend Realtime/poll ile güncel veriyi alır
 - Frontend `TrafficDensityMap.tsx` backend'in `hotspots` alanını okur (`zones` eski şema), hover'da anlık hız + veri güvenirliği (%) gösterir; kartlar: Ort. Yoğunluk / En Yoğun Bölge / Kritik Bölge
+- `TransportSection.tsx` (Ulaşım sekmesi özet paneli): gerçek `hotspots` verisinden Ort. Yoğunluk / İzlenen İlçe (13) / En Yoğun İlçe gösterir; "Günlük Araç 285K" ve "Kaza 128" gibi statik metrikler KALDIRILDI (uydurmaydı); yol durumu listesi `road_works.projects`'ten (haber takibi) gelir, veri yoksa "belki bekleniyor" notu
 
 ### ✅ Teyit katmanı (traffic-teyit)
 - `traffic-teyit` edge function: son 24 saat haberleri (social_posts, trafik anahtar kelimeleri) ile TomTom tıkanıklığını AI destekli çapraz doğrular
