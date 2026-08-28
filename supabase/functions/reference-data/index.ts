@@ -11,21 +11,23 @@ const MIN = 60 * 1000;
 const TYPE_TTL: Record<string, number> = { traffic_density: 5 * MIN };
 const DEFAULT_TTL = 6 * 60 * MIN;
 
-// Muğla'daki canlı trafik izleme noktaları (ilçe merkezleri / kritik yollar).
-// Koordinatlar TomTom segment sorgusunun en yakın yolu bulacağı şekilde yollara yakın seçilir.
+// Muğla'nın 13 ilçesi için canlı trafik izleme noktaları.
+// Koordinatlar TomTom segment sorgusunun en yakın yol parçasını bulacağı şekilde
+// ilçe merkez/kritik yol yakınına seçilir (TomTom'da test edildi — 13/13 yanıt verir).
 const TRAFFIC_POINTS: { name: string; lat: number; lon: number }[] = [
-  { name: 'Bodrum Merkez',     lat: 37.0344, lon: 27.4305 },
-  { name: 'Marmaris Merkez',   lat: 36.8553, lon: 28.2716 },
-  { name: 'Fethiye Merkez',    lat: 36.6527, lon: 29.1218 },
-  { name: 'Muğla Merkez',      lat: 37.2153, lon: 28.3636 },
-  { name: 'Milas',             lat: 37.3148, lon: 27.7941 },
-  { name: 'Datça',             lat: 36.5273, lon: 27.8750 },
-  { name: 'Dalaman',           lat: 36.7700, lon: 28.8030 },
-  { name: 'D-400 Bodrum Giriş',lat: 37.0520, lon: 27.4800 },
-  { name: 'Ortaca',            lat: 36.8400, lon: 28.7600 },
-  { name: 'Köyceğiz',          lat: 36.9700, lon: 28.6800 },
-  { name: 'Yatağan',           lat: 37.3400, lon: 28.1300 },
-  { name: 'Menteşe D-550',     lat: 37.1320, lon: 28.4940 },
+  { name: 'Bodrum',       lat: 37.0343, lon: 27.4304 },
+  { name: 'Datça',        lat: 36.7318, lon: 27.7414 },
+  { name: 'Marmaris',     lat: 36.8550, lon: 28.2740 },
+  { name: 'Fethiye',      lat: 36.6519, lon: 29.1200 },
+  { name: 'Milas',        lat: 37.3166, lon: 27.8199 },
+  { name: 'Menteşe',      lat: 37.2153, lon: 28.3636 },
+  { name: 'Dalaman',      lat: 36.7660, lon: 28.8028 },
+  { name: 'Ortaca',       lat: 36.8390, lon: 28.7639 },
+  { name: 'Köyceğiz',     lat: 36.9687, lon: 28.6815 },
+  { name: 'Yatağan',      lat: 37.3409, lon: 28.1279 },
+  { name: 'Ula',          lat: 37.1031, lon: 28.4169 },
+  { name: 'Seydikemer',   lat: 36.6900, lon: 29.3500 },
+  { name: 'Kavaklıdere',  lat: 37.4800, lon: 28.3400 },
 ];
 
 // TomTom Traffic Flow "Segment Data": tek noktaya en yakın yol parçasının gerçek
