@@ -68,15 +68,16 @@ export const TrafficDensityMap = () => {
   const toY = (lat: number) => ((maxLat - lat) / (maxLat - minLat)) * (mapHeight - 40) + 20;
 
   const avgDensity = Math.round(districtZones.reduce((a, z) => a + z.density, 0) / districtZones.length);
-  const totalVehicles = "285K";
+  // En tıkalı nokta (gerçek canlı veri) — sabit "günlük araç" gösteriminin yerine
+  const worstZone = districtZones.reduce((a, z) => (z.density > a.density ? z : a), districtZones[0]);
 
   return (
     <DashboardPanel title="Trafik Yoğunluk Haritası" icon={<Map size={14} />} badge="CANLI" badgeVariant="live">
       {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <StatCard label="Ort. Yoğunluk" value={`${avgDensity}`} unit="%" variant="primary" />
-        <StatCard label="Günlük Araç" value={totalVehicles} />
-        <StatCard label="Kritik Bölge" value={String(districtZones.filter(z => z.density >= 70).length)} variant="destructive" />
+        <StatCard label="Ort. Yoğunluk" value={`${avgDensity}`} unit="%" variant="primary" info="TomTom canlı trafik akışından hesaplanır (5 dk tazeleme)" />
+        <StatCard label="En Yoğun Bölge" value={worstZone?.name ?? "—"} unit={worstZone ? `%${worstZone.density}` : ""} info="Şu an en tıkalı izleme noktası (gerçek anlık hız)" />
+        <StatCard label="Kritik Bölge" value={String(districtZones.filter(z => z.density >= 70).length)} variant="destructive" info="Yoğunluğu %70+ olan nokta sayısı" />
       </div>
 
       <div className="relative w-full">
