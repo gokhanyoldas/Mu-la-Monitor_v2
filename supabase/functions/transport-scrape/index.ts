@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { formatDuration, parseTripsFromHtml } from "./obilet-parser.ts";
+import { readLiveCache, writeLiveCache } from "../_shared/cache.ts";
+
+const BUS_CACHE_TYPE = "bus_schedule";
+const BUS_CACHE_TTL = 30 * 60 * 1000; // 30 dk — panel canlı olduğundan sık tazeleme gerekmez
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -163,6 +167,19 @@ serve(async (req) => {
     }
 
     if (type === "bus") {
+      // Önce kalıcı cache'i oku; tazeyse obilet/MUTTAŞ'a istek atma.
+      // (Cron her 30 dk'da cache'i tazeler; frontend de bu cache'ten hızlı okur.)
+      const cached = await readLiveCache<{ routes: unknown[] }>(BUS_CACHE_TYPE, BUS_CACHE_TTL);
+      if (cached) {
+        return new Response(JSON.stringify({
+          routes: cached.data.routes,
+          source: "Kalıcı cache (MUTTAŞ + obilet.com)",
+          source_period: "30 dk tazeleme",
+          cached_at: cached.fetched_at,
+          scraped_at: cached.fetched_at,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       // MUTTAŞ resmi hat sayfalarından canlı otobüs saatleri çek
       const MUTTAS_LINES = [
         { line: "48-7", from: "Menteşe", to: "Marmaris", url: "https://ulasim.muttas.com.tr/hat/48-7-mentese-marmaris-226" },
@@ -220,6 +237,11 @@ serve(async (req) => {
       // obilet.com'dan canlı şehirlerarası seferleri ekle
       const intercity = await scrapeIntercityBuses();
       routes.push(...intercity);
+
+      // Kalıcı cache'e yaz — cron bu veriyi arka planda güncel tutar,
+      // frontend her açılışta obilet'e istek atmaz ve sunucu yeniden başlasa
+      // bile en son canlı veri mock'a düşmeden gösterilir.
+      await writeLiveCache(BUS_CACHE_TYPE, { routes, scraped_at: new Date().toISOString() }, BUS_CACHE_TTL, "MUTTAŞ + obilet.com");
 
       return new Response(JSON.stringify({
         routes,

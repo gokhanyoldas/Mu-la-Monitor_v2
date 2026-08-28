@@ -91,6 +91,38 @@ export const BusScheduleSection = () => {
           : [...normalized, ...mockRoutes.filter((r) => r.type === "şehirlerarası")];
         setRoutes(merged);
         setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
+      } else {
+        // Edge çağrısı boş/başarısız — kalıcı cache'ten son-bilinen veriyi oku
+        // (mockRoutes'a düşmek yerine en son canlı snapshot gösterilir).
+        const { data: cache } = await supabase.from("live_data_cache")
+          .select("data").eq("data_type", "bus_schedule").maybeSingle();
+        const cached = cache?.data as { routes?: Record<string, unknown>[] } | null;
+        if (cached?.routes?.length) {
+          const normalized = cached.routes.map((r: Record<string, unknown>) => {
+            const weekday = (r.weekday as string[]) ?? (r.departures as string[]) ?? [];
+            return {
+              carrier: String(r.carrier ?? "MUTTAŞ"),
+              from: String(r.from ?? "Muğla"),
+              to: String(r.to ?? ""),
+              departures: weekday.length > 0 ? weekday : ["—"],
+              duration: String(r.duration ?? "—"),
+              price: String(r.price ?? "—"),
+              type: (String(r.type ?? "ilçe") === "şehirlerarası" ? "şehirlerarası" : "ilçe") as BusRoute["type"],
+              weekday, saturday: (r.saturday as string[]) ?? [], sunday: (r.sunday as string[]) ?? [],
+              outbound_weekday: (r.outbound_weekday as string[]) ?? weekday,
+              outbound_saturday: (r.outbound_saturday as string[]) ?? weekday,
+              outbound_sunday: (r.outbound_sunday as string[]) ?? weekday,
+              return_weekday: (r.return_weekday as string[]) ?? [],
+              return_saturday: (r.return_saturday as string[]) ?? [],
+              return_sunday: (r.return_sunday as string[]) ?? [],
+              source: r.source ? String(r.source) : undefined,
+            };
+          });
+          if (normalized.length) {
+            setRoutes(normalized);
+            setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
+          }
+        }
       }
     } catch {
       // keep mock

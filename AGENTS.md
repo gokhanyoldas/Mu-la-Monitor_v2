@@ -49,8 +49,8 @@
 - Uçuş: transit (distance_km>60) filtrelenir, sadece gerçek iniş/kalkış
 - Gemini model: `gemini-3.5-flash-lite` (1.5/2.5 yeni hesaplarda çalışmaz)
 - Turizm: 2025/Ç2 ön veri (kesin yıl sonu Şubat-Mart 2026'da)
-- Şehirlerarası otobüs: `transport-scrape` obilet.com statik mikrodata'sından çeker
-  (`obilet-parser.ts` modülü; Firecrawl gerekmez). 12 rota paralel, ~700ms.
+- Şehirlerarası otobüs: `transport-scrape` obilet.com statik mikrodata'sından çeker; sonuç `live_data_cache(bus_schedule)` içinde 30 dk TTL tutulur, pg_cron `refresh-bus` her 30 dk tazeler, frontend hata olursa cache'ten son-bilinen veriyi gösterir (mock'a düşmez)
+  (`obilet-parser.ts` modülü; Firecrawl gerekmez). 12 rota paralel, cache sayesinde obilet'e sık istek atılmaz.
 
 ## 🔧 Komutlar
 - `npm run dev` — Vite dev (port 8080)
@@ -80,5 +80,5 @@ Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 - Not: Muğla kırsal ilçelerinde TomTom probe verisi zayıftır → %0 değerleri "sakin" ya da "ölçülemiyor" olabilir; bu yüzden teyit katmanı değerlidir
 
 ## 📅 Son Güncelleme
-2026-08-28 — TomTom canlı trafik: 13 ilçe + 5dk otomatik tazeleme (pg_cron refresh-traffic-live) + AI/basın teyit katmanı (traffic-teyit, 15 dk), confidence anomali flagleri
+2026-08-28 — TomTom canlı trafik: 13 ilçe + 5dk otomatik tazeleme (pg_cron refresh-traffic-live) + AI/basın teyit katmanı (traffic-teyit, 15 dk), confidence anomali flagleri; otobüs verisi kalıcı cache (bus_schedule + refresh-bus cron 30 dk)
 2026-08-27 — Uçuş takip ADS-B + transit filtre, MUTTAŞ gidiş/dönüş, turizm 2025/Ç2, altyapı haber takibi
