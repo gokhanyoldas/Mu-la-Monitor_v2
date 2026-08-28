@@ -32,7 +32,7 @@ const TRAFFIC_POINTS: { name: string; lat: number; lon: number }[] = [
 
 // TomTom Traffic Flow "Segment Data": tek noktaya en yakın yol parçasının gerçek
 // anlık hızını döndürür. Tıkanıklık yüzdesi = 1 - current/freeflow.
-async function fetchTomTomSegment(apiKey: string, lat: number, lon: number): Promise<{ speed: number; freeFlow: number; density: number; frc?: string }> {
+async function fetchTomTomSegment(apiKey: string, lat: number, lon: number): Promise<{ speed: number; freeFlow: number; density: number; frc?: string; confidence?: number }> {
   const url = `https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/18/json?point=${lat},${lon}&unit=kmph&key=${apiKey}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`TomTom ${res.status}`);
@@ -44,7 +44,7 @@ async function fetchTomTomSegment(apiKey: string, lat: number, lon: number): Pro
   // yol kapali ise anlik hiz 0 olur → tam tikali kabul et
   let density = seg.roadClosure ? 100 : Math.round((1 - speed / freeFlow) * 100);
   density = Math.min(100, Math.max(0, density));
-  return { speed: Math.round(speed), freeFlow: Math.round(freeFlow), density, frc: seg.frc };
+  return { speed: Math.round(speed), freeFlow: Math.round(freeFlow), density, frc: seg.frc, confidence: seg.confidence };
 }
 
 async function fetchTrafficDensity() {
@@ -64,7 +64,13 @@ async function fetchTrafficDensity() {
     TRAFFIC_POINTS.map(async (p) => {
       try {
         const r = await fetchTomTomSegment(apiKey, p.lat, p.lon);
-        return { name: p.name, lat: p.lat, lon: p.lon, density: r.density, speed: r.speed, freeFlow: r.freeFlow, frc: r.frc };
+        return {
+          name: p.name, lat: p.lat, lon: p.lon,
+          density: r.density, speed: r.speed, freeFlow: r.freeFlow,
+          frc: r.frc, confidence: r.confidence,
+          // tıkanıklık ≥ %50 ise anomali olarak işaretle (spike-scan / teyit katmanı kullanır)
+          anomaly: r.density >= 50,
+        };
       } catch (e) {
         console.error(`[traffic] TomTom hata ${p.name}:`, e);
         return null;

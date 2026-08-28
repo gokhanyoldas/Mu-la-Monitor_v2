@@ -1,5 +1,5 @@
 -- Canlı trafik otomatik tazeleme: TomTom verisi 30 saniyede güncellenir ve
--- reference-data'traffic_density TTL'i 5 dk'dır. Bu cron her 5 dakikada bir
+-- reference-data traffic_density TTL'i 5 dk'dır. Bu cron her 5 dakikada bir
 -- TomTom'tan güncel segment hızlarını çekip live_data_cache tablosunu günceller;
 -- böylece panel, tarayıcı açık olmasa bile en güncel trafik yoğunluklarını gösterir
 -- (frontend Realtime/poll ile bu cache'ten taze veriyi alır).

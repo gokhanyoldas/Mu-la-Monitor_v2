@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { Map, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
+import { supabase } from "@/integrations/supabase/client";
 
 type DistrictZone = {
   name: string;
@@ -11,6 +12,7 @@ type DistrictZone = {
   density: number;
   speed?: number;
   freeFlow?: number;
+  confidence?: number;
 };
 
 const fallbackZones: DistrictZone[] = [
@@ -55,9 +57,22 @@ export const TrafficDensityMap = () => {
           density: Math.min(100, Math.max(0, Math.round(Number(z.density ?? 0)))),
           speed: z.speed != null ? Number(z.speed) : undefined,
           freeFlow: z.freeFlow != null ? Number(z.freeFlow) : undefined,
+          confidence: z.confidence != null ? Number(z.confidence) : undefined,
         }))
       : fallbackZones;
   const isLive = !!trafficData?.hotspots?.length || !!trafficData?.zones?.length;
+
+  // AI teyit özeti: traffic-teyit fonksiyonu ai_summaries(type='traffic_verification')
+  // içine "İlçe: %doy (kaynak: basın) | (yalnızca TomTom)" gibi satırlar yazar.
+  const [verification, setVerification] = useState<string | null>(null);
+  useEffect(() => {
+    const today = new Date().toISOString().split("T")[0];
+    supabase.from("ai_summaries")
+      .select("summary").eq("type", "traffic_verification").eq("date", today)
+      .maybeSingle()
+      .then(({ data }) => setVerification(data?.summary ?? null))
+      .catch(() => setVerification(null));
+  }, []);
 
   const mapWidth = 420;
   const mapHeight = 300;
@@ -160,6 +175,11 @@ export const TrafficDensityMap = () => {
                   {zone.freeFlow != null && <span> (akıcı: {zone.freeFlow})</span>}
                 </div>
               )}
+              {zone.confidence != null && (
+                <div className="text-[9px] font-mono text-muted-foreground">
+                  Veri güvenirliği: %{Math.round(zone.confidence * 100)}
+                </div>
+              )}
             </div>
           );
         })()}
@@ -189,6 +209,15 @@ export const TrafficDensityMap = () => {
           ? `Kaynak: ${trafficData?.source ?? "TomTom Traffic Flow"} • Güncelleme: ${new Date(trafficData?.updated_at ?? Date.now()).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
           : "Kaynak: Sabit fallback (canlı veri yok)"}
       </div>
+
+      {verification && (
+        <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+          <div className="text-[9px] font-mono font-bold uppercase tracking-wide text-primary mb-1 flex items-center gap-1">
+            ✅ Basın teyidi (AI)
+          </div>
+          <pre className="whitespace-pre-wrap text-[9px] font-mono text-muted-foreground leading-relaxed m-0">{verification}</pre>
+        </div>
+      )}
     </DashboardPanel>
   );
 };

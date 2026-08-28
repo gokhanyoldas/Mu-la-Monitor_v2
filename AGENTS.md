@@ -69,8 +69,16 @@ Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 - `TOMTOM_API_KEY` secret'ı gerekli (edge function'da `Deno.env.get("TOMTOM_API_KEY")`); API key son kullanıcıya sızmaz
 - `TRAFFIC_POINTS` = **Muğla'nın 13 ilçesi** (Bodrum, Datça, Marmaris, Fethiye, Milas, Menteşe, Dalaman, Ortaca, Köyceğiz, Yatağan, Ula, Seydikemer, Kavaklıdere); yoğunluk = 1 − currentSpeed/freeFlowSpeed
 - **Otomatik güncelleme:** pg_cron job `refresh-traffic-live` her 5 dk `reference-data` traffic_density'yi çağırır → `live_data_cache` arka planda tazelenir, frontend Realtime/poll ile güncel veriyi alır
-- Frontend `TrafficDensityMap.tsx` backend'in `hotspots` alanını okur (`zones` eski şema), hover'da anlık hız gösterir; kartlar: Ort. Yoğunluk / En Yoğun Bölge / Kritik Bölge
+- Frontend `TrafficDensityMap.tsx` backend'in `hotspots` alanını okur (`zones` eski şema), hover'da anlık hız + veri güvenirliği (%) gösterir; kartlar: Ort. Yoğunluk / En Yoğun Bölge / Kritik Bölge
+
+### ✅ Teyit katmanı (traffic-teyit)
+- `traffic-teyit` edge function: son 24 saat haberleri (social_posts, trafik anahtar kelimeleri) ile TomTom tıkanıklığını AI destekli çapraz doğrular
+- Sonuç `ai_summaries(type='traffic_verification')` içine yazılır → panel altında "✅ Basın teyidi (AI)" kutusu
+- Kritik (≥%50) tıkanıklıklar `anomaly_alerts` + `alert_events`'e gider; bir önceki değerden ani artış (δ≥30, ≥%40) spike alarmı üretir
+- Cron: `refresh-traffic-live` (5 dk, TomTom) + `traffic-verify` (15 dk, AI teyidi) — AI maliyeti sınırlı
+- `TOMTOM_API_KEY` secret'ı gerekli; `GEMINI_API_KEY` zaten mevcut
+- Not: Muğla kırsal ilçelerinde TomTom probe verisi zayıftır → %0 değerleri "sakin" ya da "ölçülemiyor" olabilir; bu yüzden teyit katmanı değerlidir
 
 ## 📅 Son Güncelleme
-2026-08-28 — TomTom canlı trafik: 13 ilçe + 5dk otomatik tazeleme (pg_cron refresh-traffic-live), obilet.com şehirlerarası otobüs
+2026-08-28 — TomTom canlı trafik: 13 ilçe + 5dk otomatik tazeleme (pg_cron refresh-traffic-live) + AI/basın teyit katmanı (traffic-teyit, 15 dk), confidence anomali flagleri
 2026-08-27 — Uçuş takip ADS-B + transit filtre, MUTTAŞ gidiş/dönüş, turizm 2025/Ç2, altyapı haber takibi
