@@ -108,14 +108,75 @@ async function scrapeIntercityBuses(): Promise<any[]> {
   return settled.filter((r): r is any => r !== null);
 }
 
+// adsb.fi open-data API: havalimanı merkezli canlı uçaklar (Firecrawl key gerektirmez).
+const ADS_B_AC_CENTERS: Record<string, { lat: number; lon: number; name: string }> = {
+  DLM: { lat: 36.7167, lon: 28.7833, name: "Dalaman Havalimanı" },
+  BJV: { lat: 37.2529, lon: 27.6643, name: "Milas-Bodrum Havalimanı" },
+};
+
+async function scrapeAdsbAirports(codes: string[]): Promise<any> {
+  const airports = await Promise.all(codes.map(async (code) => {
+    const center = ADS_B_AC_CENTERS[code];
+    if (!center) {
+      return { code, name: code, departures: [], arrivals: [], source: "adsb.fi" };
+    }
+    try {
+      const res = await fetch(
+        `https://opendata.adsb.fi/api/v3/lat/${center.lat}/lon/${center.lon}/dist/40`,
+        { headers: { "User-Agent": "MuglaMonitor/1.0" }, signal: AbortSignal.timeout(12000) },
+      );
+      if (!res.ok) return { code, name: center.name, departures: [], arrivals: [], source: "adsb.fi" };
+      const json = await res.json();
+      const ac: any[] = json?.ac ?? [];
+
+      // Havalimanı merkezine mesafe: 40 NM yarıçap içindeyken; 25 km'den uzaksa "geçiş" (transit).
+      const km = (a: any) => {
+        const dLat = (a.lat - center.lat) * 111.32;
+        const dLon = (a.lon - center.lon) * 111.32 * Math.cos((center.lat * Math.PI) / 180);
+        return Math.round(Math.sqrt(dLat * dLat + dLon * dLon));
+      };
+
+      const flights = ac.map((a: any) => ({
+        flightNo: String(a.flight ?? a.callsign ?? "").trim(),
+        airline: a.airline || a.desc || "",
+        destination: a.hex ?? "",
+        scheduled: "",
+        estimated: "",
+        status: "en_route",
+        altitude: Number.isFinite(a.alt_baro) ? a.alt_baro : (a.alt_geom ?? undefined),
+        velocity: a.gs ?? undefined,
+        distance_km: km(a),
+        aircraft_type: a.t || "",
+        is_transit: (a.distance_k_export ?? km(a)) > 25,
+      }));
+
+      return { code, name: center.name, departures: flights, arrivals: [], source: "adsb.fi" };
+    } catch {
+      return { code, name: center.name, departures: [], arrivals: [], source: "adsb.fi" };
+    }
+  }));
+  return airports;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  try {
-    const { type, airports } = await req.json();
-    const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
+  const { type, airports, source } = await req.json();
+  const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
 
-    // Yalnızca flights için Firecrawl gerekli; bus MUTTAŞ sayfalarından doğrudan okunur
+  try {
+    if (type === "flights" && source === "adsb") {
+      // adsb.fi açık verisi — Firecrawl key gerektirmeden canlı/havada uçak sayısı.
+      const codes: string[] = airports || ["DLM", "BJV"];
+      const airportData = await scrapeAdsbAirports(codes);
+      return new Response(JSON.stringify({
+        airports: airportData,
+        source: "adsb.fi (ADS-B, canlı)",
+        scraped_at: new Date().toISOString(),
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Yalnızca Firecrawl tabanlı flights için gerekli; bus/adsb doğrudan okunur
     if (type === "flights" && !apiKey) {
       return new Response(JSON.stringify({ error: "FIRECRAWL_API_KEY not configured" }), {
         status: 500,

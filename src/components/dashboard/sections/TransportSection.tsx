@@ -1,16 +1,10 @@
 import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { StatusList } from "../StatusList";
-import { MiniChart } from "../MiniChart";
 import { Car, PlaneTakeoff, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useLiveData } from "@/hooks/useLiveData";
-
-const airportData = [
-  { name: "Oca", value: 120 }, { name: "Şub", value: 135 }, { name: "Mar", value: 180 },
-  { name: "Nis", value: 280 }, { name: "May", value: 420 }, { name: "Haz", value: 580 },
-  { name: "Tem", value: 720 }, { name: "Ağu", value: 750 }, { name: "Eyl", value: 480 },
-  { name: "Eki", value: 280 }, { name: "Kas", value: 150 }, { name: "Ara", value: 110 },
-];
+import { supabase } from "@/integrations/supabase/client";
 
 type RoadWorksProject = {
   name: string;
@@ -18,7 +12,10 @@ type RoadWorksProject = {
   progress: number | null;
   confidence: "high" | "medium" | "low";
   expectedEnd: string;
+  latest_news?: { title: string; pubDate: string; link: string }[];
 };
+
+const confidenceLabel = { high: "YÜKSEK", medium: "ORTA", low: "DÜŞÜK" } as const;
 
 export const TransportSection = () => {
   const { data: trafficData, isLoading: tLoading } = useLiveData<any>("traffic_density", { refetchInterval: 10 * 60 * 1000 });
@@ -47,6 +44,43 @@ export const TransportSection = () => {
 
   const hasLiveTraffic = Array.isArray(hotspots) && hotspots.length > 0;
   const hasRoadWorks = projects.length > 0;
+
+  // Canlı uçuş verisi (transport-scrape type=flights): DLM/BJV bugünkü sefer sayısı
+  const [flightStats, setFlightStats] = useState<{
+    dlm: number; bjv: number; dlmDep: number; dlmArr: number; bjvDep: number; bjvArr: number;
+  } | null>(null);
+  const [flightLoading, setFlightLoading] = useState(false);
+  const [flightError, setFlightError] = useState(false);
+
+  const fetchFlights = async () => {
+    try {
+      setFlightLoading(true);
+      const { data, error } = await supabase.functions.invoke("transport-scrape", { body: { type: "flights", source: "adsb" } });
+      if (error || !data?.airports?.length) { setFlightError(true); return; }
+      const dlm = data.airports.find((a: any) => a.code === "DLM");
+      const bjv = data.airports.find((a: any) => a.code === "BJV");
+      setFlightStats({
+        dlm: dlm?.departures?.length ?? 0,
+        bjv: bjv?.departures?.length ?? 0,
+        dlmDep: dlm?.departures?.length ?? 0,
+        dlmArr: dlm?.arrivals?.length ?? 0,
+        bjvDep: bjv?.departures?.length ?? 0,
+        bjvArr: bjv?.arrivals?.length ?? 0,
+      });
+      setFlightError(false);
+    } catch {
+      setFlightError(true);
+    } finally {
+      setFlightLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFlights();
+    const interval = setInterval(fetchFlights, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-3">
@@ -98,65 +132,101 @@ export const TransportSection = () => {
         )}
       </DashboardPanel>
 
-      <DashboardPanel title="Havalimanları" icon={<PlaneTakeoff size={14} />} badge="AKTİF" badgeVariant="active">
+      <DashboardPanel
+        title="Havalimanları"
+        icon={<PlaneTakeoff size={14} />}
+        badge={flightStats ? "CANLI" : flightError ? "BEKLEYEN" : "AKTİF"}
+        badgeVariant={flightStats ? "live" : flightError ? "warning" : "active"}
+        count={flightStats ? 2 : undefined}
+      >
+        {flightLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="DLM Havalimanı" value="2.8M" unit="yolcu/yıl" variant="accent" />
-          <StatCard label="BJV Havalimanı" value="1.4M" unit="yolcu/yıl" variant="accent" />
+          {flightStats ? (
+            <>
+              <StatCard
+                label="DLM Havalimanı"
+                value={String(flightStats.dlm)}
+                unit="uçak (şu an)"
+                variant="accent"
+                info="adsb.fi canlı: DLM 40 NM yarıçapında şu an tespit edilen uçaklar (kalkış/iniş/havada)"
+              />
+              <StatCard
+                label="BJV Havalimanı"
+                value={String(flightStats.bjv)}
+                unit="uçak (şu an)"
+                variant="accent"
+                info="adsb.fi canlı: BJV 40 NM yarıçapında şu an tespit edilen uçaklar (kalkış/iniş/havada)"
+              />
+            </>
+          ) : (
+            <>
+              <StatCard label="DLM Havalimanı" value={flightError ? "—" : "…"} unit={flightError ? "veri yok" : "yükleniyor"} variant="accent" />
+              <StatCard label="BJV Havalimanı" value={flightError ? "—" : "…"} unit={flightError ? "veri yok" : "yükleniyor"} variant="accent" />
+            </>
+          )}
         </div>
-        <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">Aylık Yolcu (bin)</span>
-        <MiniChart data={airportData} color="hsl(200, 80%, 50%)" height={50} showAxis />
+        <div className="flex justify-end">
+          <button
+            onClick={fetchFlights}
+            disabled={flightLoading}
+            className="text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
+          >
+            {flightLoading ? "Yükleniyor…" : "↻ Canlı uçuşları yenile"}
+          </button>
+        </div>
+        {flightError && (
+          <p className="text-[8px] font-mono text-destructive/80 mt-1">
+            Canlı uçuş verisi alınamadı — uçak takibi ayrı sekmede (Havalimanları detay) görülebilir.
+          </p>
+        )}
       </DashboardPanel>
 
-      <DashboardPanel title="Altyapı Projeleri" badge="TAHMİNİ PLAN" badgeVariant="warning">
-        <div className="space-y-2">
-          {[
-            { name: "Muğla Çevreyolu", progress: 78, start: "2024-03-15", end: "2026-06-30", address: "Muğla Merkez — Menteşe-Yatağan Bağlantısı" },
-            { name: "Bodrum Marina Genişleme", progress: 45, start: "2024-09-01", end: "2026-12-15", address: "Bodrum Merkez, İçmeler Mevkii" },
-            { name: "Fethiye Alt Geçit", progress: 92, start: "2024-01-10", end: "2025-04-30", address: "Fethiye Çarşı Kavşağı, D400 altı" },
-            { name: "Akıllı Kavşak Sistemi", progress: 33, start: "2025-01-01", end: "2026-09-01", address: "İl Geneli — 24 Kavşak Noktası" },
-            { name: "Bisiklet Yolu Ağı", progress: 15, start: "2025-02-15", end: "2027-06-01", address: "Bodrum-Turgutreis Sahil Şeridi" },
-          ].map((project, i) => {
-            const now = new Date();
-            const endDate = new Date(project.end);
-            const diffMs = endDate.getTime() - now.getTime();
-            const daysLeft = Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
-
-            return (
-              <div key={i} className="px-2.5 py-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-mono font-semibold text-foreground/90">{project.name}</span>
-                  <span className={`text-[10px] font-mono font-bold ${
-                    project.progress >= 80 ? "text-success" : project.progress >= 40 ? "text-warning" : "text-destructive"
-                  }`}>{project.progress}%</span>
+      <DashboardPanel
+        title="Altyapı Projeleri"
+        badge={projects.length > 0 ? "HABER TAKİBİ" : "BEKLEYEN"}
+        badgeVariant={projects.length > 0 ? "info" : "warning"}
+        count={projects.length > 0 ? projects.length : undefined}
+      >
+        {rLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
+        {projects.length > 0 ? (
+          <div className="space-y-2">
+            {projects.map((p, i) => {
+              const newsCount = p.latest_news?.length ?? 0;
+              const endRaw = p.expectedEnd ? new Date(p.expectedEnd) : null;
+              const validEnd = endRaw && !isNaN(endRaw.getTime());
+              const daysLeft = validEnd ? Math.ceil((endRaw.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+              const isDone = p.status === "tamamlandı";
+              return (
+                <div key={i} className="px-2.5 py-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-mono font-semibold text-foreground/90">{p.name}</span>
+                    <span className={`text-[10px] font-mono font-bold ${
+                      isDone ? "text-success" : p.status === "devam" ? "text-warning" : "text-muted-foreground"
+                    }`}>
+                      {isDone ? "TAMAMLANDI" : p.status === "devam" ? "DEVAM EDİYOR" : "İZLENİYOR"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-[9px] text-muted-foreground">
+                      Güven: <b className="text-foreground/70">{confidenceLabel[p.confidence] ?? "—"}</b>
+                      {daysLeft !== null && <span className="ml-2">Bitiş: <b className="text-foreground/70">{daysLeft < 0 ? "belirsiz" : `${daysLeft} gün`}</b></span>}
+                    </span>
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-accent/15 text-accent">
+                      {newsCount} haber
+                    </span>
+                  </div>
                 </div>
-                <div className="h-1.5 bg-muted rounded-full overflow-hidden mb-1.5">
-                  <div
-                    className={`h-full rounded-full transition-all ${
-                      project.progress >= 80 ? "bg-success" : project.progress >= 40 ? "bg-warning" : "bg-destructive"
-                    }`}
-                    style={{ width: `${project.progress}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-muted-foreground">{project.address}</span>
-                  <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                    daysLeft <= 90 ? "bg-success/20 text-success" : daysLeft <= 365 ? "bg-warning/20 text-warning" : "bg-accent/20 text-accent"
-                  }`}>
-                    {daysLeft === 0 ? "TAMAMLANDI" : `${daysLeft} gün kaldı`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[8px] font-mono text-muted-foreground">Başlangıç: {project.start}</span>
-                  <span className="text-[8px] font-mono text-muted-foreground">Bitiş: {project.end}</span>
-                </div>
-              </div>
-            );
-          })}
-          <p className="text-[8px] font-mono text-muted-foreground/70 mt-2 pt-2 border-t border-border/30">
-            Proje takvimleri tahmini plandır — resmi kaynak (Karayolları / Büyükşehir Belediyesi / YİKOB) doğrulaması yapılmamıştır.
-            Proje durumları haber akışından izlenmektedir.
+              );
+            })}
+            <p className="text-[8px] font-mono text-muted-foreground/70 mt-2 pt-2 border-t border-border/30">
+              {String(roadWorks?.note ?? "Durumlar Google News RSS'ten proje bazlı izlenir; ilerleme yüzdeleri yalnızca doğrulanmış tamamlanmalarda gösterilir.")}
+            </p>
+          </div>
+        ) : (
+          <p className="text-[9px] font-mono text-muted-foreground/80 py-1">
+            Altyapı projeleri için haber akışı bekleniyor — basın verisi toplanınca burada görünür.
           </p>
-        </div>
+        )}
       </DashboardPanel>
     </div>
   );

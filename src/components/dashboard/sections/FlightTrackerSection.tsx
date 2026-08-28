@@ -55,48 +55,12 @@ const statusColors: Record<Flight["status"], string> = {
 };
 const statusColor = (s: string) => statusColors[s as Flight["status"]] ?? "text-muted-foreground bg-muted/30";
 
-// Fallback mock data
-const mockAirports: AirportData[] = [
-  {
-    code: "DLM",
-    name: "Dalaman Havalimanı",
-    departures: [
-      { flightNo: "TK2846", airline: "THY", destination: "İstanbul (IST)", scheduled: "08:30", estimated: "08:30", status: "departed", gate: "A4", terminal: "İç" },
-      { flightNo: "PC2234", airline: "Pegasus", destination: "İstanbul (SAW)", scheduled: "10:15", estimated: "10:40", status: "delayed", gate: "B2", terminal: "İç" },
-      { flightNo: "XQ882", airline: "SunExpress", destination: "Düsseldorf", scheduled: "11:00", estimated: "11:00", status: "boarding", gate: "C1", terminal: "Dış" },
-      { flightNo: "TK2850", airline: "THY", destination: "Ankara (ESB)", scheduled: "13:45", estimated: "13:45", status: "on_time", gate: "A2", terminal: "İç" },
-      { flightNo: "EW9544", airline: "Eurowings", destination: "Köln", scheduled: "14:30", estimated: "14:30", status: "on_time", gate: "C3", terminal: "Dış" },
-    ],
-    arrivals: [
-      { flightNo: "TK2845", airline: "THY", destination: "İstanbul (IST)", scheduled: "07:50", estimated: "07:45", status: "landed", terminal: "İç" },
-      { flightNo: "XQ881", airline: "SunExpress", destination: "Düsseldorf", scheduled: "09:20", estimated: "09:35", status: "delayed", terminal: "Dış" },
-      { flightNo: "PC2233", airline: "Pegasus", destination: "İstanbul (SAW)", scheduled: "11:45", estimated: "11:45", status: "on_time", terminal: "İç" },
-      { flightNo: "LH1752", airline: "Lufthansa", destination: "Frankfurt", scheduled: "15:10", estimated: "15:10", status: "on_time", terminal: "Dış" },
-    ],
-  },
-  {
-    code: "BJV",
-    name: "Milas-Bodrum Havalimanı",
-    departures: [
-      { flightNo: "TK2872", airline: "THY", destination: "İstanbul (IST)", scheduled: "07:00", estimated: "07:00", status: "departed", gate: "1", terminal: "İç" },
-      { flightNo: "XQ502", airline: "SunExpress", destination: "Antalya", scheduled: "09:30", estimated: "09:30", status: "boarding", gate: "3", terminal: "İç" },
-      { flightNo: "BA2800", airline: "British Airways", destination: "Londra (LGW)", scheduled: "12:00", estimated: "12:25", status: "delayed", gate: "5", terminal: "Dış" },
-      { flightNo: "PC2286", airline: "Pegasus", destination: "İstanbul (SAW)", scheduled: "14:00", estimated: "14:00", status: "on_time", gate: "2", terminal: "İç" },
-    ],
-    arrivals: [
-      { flightNo: "TK2871", airline: "THY", destination: "İstanbul (IST)", scheduled: "06:15", estimated: "06:10", status: "landed", terminal: "İç" },
-      { flightNo: "BA2799", airline: "British Airways", destination: "Londra (LGW)", scheduled: "10:30", estimated: "10:55", status: "delayed", terminal: "Dış" },
-      { flightNo: "XQ501", airline: "SunExpress", destination: "Antalya", scheduled: "13:00", estimated: "13:00", status: "on_time", terminal: "İç" },
-    ],
-  },
-];
-
 const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) => {
-  // ADS-B canlı uçak: callsign + ülke + tip + irtifa/hız/mesafe
+  // ADS-B canlı uçak: callsign + tip + irtifa/hız/mesafe
   const isLiveAircraft = flight.altitude !== undefined || flight.distance_km !== undefined;
   const displayStatus = flight.status;
   const detailLine = isLiveAircraft
-    ? `${flight.aircraft_type ?? ""} · ${flight.altitude ? `${flight.altitude.toLocaleString()} ft` : ""} · ${flight.velocity ? `${flight.velocity} km/h` : ""}${flight.distance_km ? ` · ${flight.distance_km} km` : ""}`
+    ? `${flight.aircraft_type ?? ""} · ${flight.altitude ? `${Number(flight.altitude).toLocaleString()} ft` : ""} · ${flight.velocity ? `${flight.velocity} km/h` : ""}${flight.distance_km ? ` · ${flight.distance_km} km` : ""}`
     : (type === "dep" ? `→ ${flight.destination || "—"}` : `← ${flight.destination || "—"}`);
 
   return (
@@ -117,7 +81,7 @@ const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) =>
 };
 
 export const FlightTrackerSection = () => {
-  const [airports, setAirports] = useState<AirportData[]>(mockAirports);
+  const [airports, setAirports] = useState<AirportData[]>([]);
   const [selectedAirport, setSelectedAirport] = useState(0);
   const [viewMode, setViewMode] = useState<"dep" | "arr">("dep");
   const [loading, setLoading] = useState(false);
@@ -127,7 +91,7 @@ export const FlightTrackerSection = () => {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("transport-scrape", {
-        body: {},
+        body: { type: "flights", source: "adsb" },
       });
       if (!error && data?.airports?.length) {
         // transport-scrape alan adlarını Flight formatına normalize et
@@ -184,16 +148,47 @@ export const FlightTrackerSection = () => {
   }, [fetchLiveData]);
 
   const airport = airports[selectedAirport];
-  const flightsRaw = viewMode === "dep" ? airport.departures : airport.arrivals;
-  // Yalnızca havalimanına gerçekten inen/kalkan uçaklar — transit (üstten geçen) elenir
-  const flights = flightsRaw.filter(f => !f.is_transit);
+  // ADS-B tek "tespit edilen uçak" havuzu (departures) döndürür; iniş sekmesinde de
+  // aynı liste gösterilir (kalkış/iniş ayrımı ADS-B'de mevcut değil).
+  const pool = airport?.arrivals?.length > 0 && viewMode === "arr" ? airport.arrivals : (airport?.departures ?? []);
+  // transit (üstten geçen, havalimanına inmeyen) uçaklar elenir
+  const flights = pool.filter(f => !f.is_transit);
+  const hasLive = (airport?.departures?.length ?? 0) > 0 || (airport?.arrivals?.length ?? 0) > 0;
+
+  if (!airport) {
+    return (
+      <DashboardPanel
+        title="Uçuş Takip"
+        icon={<PlaneTakeoff size={14} />}
+        badge={loading ? "YÜKLENİYOR" : "BEKLEYEN"}
+        badgeVariant="warning"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex gap-1">
+            <button disabled className="text-[10px] font-mono px-2 py-1 rounded bg-muted/30 text-muted-foreground">DLM</button>
+            <button disabled className="text-[10px] font-mono px-2 py-1 rounded bg-muted/30 text-muted-foreground">BJV</button>
+          </div>
+          <button
+            onClick={fetchLiveData}
+            disabled={loading}
+            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          </button>
+        </div>
+        <p className="text-[10px] font-mono text-muted-foreground text-center py-4">
+          {loading ? "Canlı uçuş verisi yükleniyor (adsb.fi)…" : "Canlı uçuş verisi alınamadı — adsb.fi'ye erişim hatası."}
+        </p>
+      </DashboardPanel>
+    );
+  }
 
   return (
     <DashboardPanel
       title="Uçuş Takip"
       icon={<PlaneTakeoff size={14} />}
-      badge="CANLI"
-      badgeVariant="live"
+      badge={hasLive ? "CANLI" : "BEKLEYEN"}
+      badgeVariant={hasLive ? "live" : "warning"}
       count={flights.length}
     >
       {/* Airport selector + controls */}
@@ -252,7 +247,7 @@ export const FlightTrackerSection = () => {
       <div className="flex items-center gap-2 px-2 py-1 text-[8px] font-mono text-muted-foreground uppercase tracking-wider border-b border-border/50 mb-1">
         <span className="w-14">Uçuş</span>
         <span className="w-16">Havayolu</span>
-        <span className="flex-1">{viewMode === "dep" ? "Varış" : "Kalkış"}</span>
+        <span className="flex-1">Rota / Uçak</span>
         <span className="w-10 text-center">Plan</span>
         <span className="w-10 text-center">Tahmin</span>
         <span className="w-8 text-center">Kapı</span>

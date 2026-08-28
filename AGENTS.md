@@ -50,7 +50,7 @@
 - Gemini model: `gemini-3.5-flash-lite` (1.5/2.5 yeni hesaplarda çalışmaz)
 - Turizm: 2025/Ç2 ön veri (kesin yıl sonu Şubat-Mart 2026'da)
 - Şehirlerarası otobüs: `transport-scrape` obilet.com statik mikrodata'sından çeker; sonuç `live_data_cache(bus_schedule)` içinde 30 dk TTL tutulur, pg_cron `refresh-bus` her 30 dk tazeler, frontend hata olursa cache'ten son-bilinen veriyi gösterir (mock'a düşmez)
-  (`obilet-parser.ts` modülü; Firecrawl gerekmez). 12 rota paralel, cache sayesinde obilet'e sık istek atılmaz.
+- Uçuş: `transport-scrape?type=flights&source=adsb` — adsb.fi `opendata.adsb.fi/api/v3/lat/lon/dist` (DLM 36.7167/28.7833, BJV 37.2529/27.6643, 40NM). Firecrawl key GEREKMEZ; Havalimanları özet paneli + FlightTrackerSection buradan canlı uçak sayısı gösterir (Firecrawl tabanlı type=flights yalnızca key varken çalışır)
 
 ## 🔧 Komutlar
 - `npm run dev` — Vite dev (port 8080)
