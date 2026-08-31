@@ -5,6 +5,8 @@ import { componentTagger } from "lovable-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // GitHub Pages alt dizininde yayınlanacağı için base yol
+  base: "/Mu-la-Monitor_v2/",
   server: {
     host: "::",
     port: 8080,
