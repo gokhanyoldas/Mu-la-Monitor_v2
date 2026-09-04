@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 type RoadWorksProject = {
   name: string;
+  type?: string;
   status: "devam" | "tamamlandı" | "belirsiz";
   progress: number | null;
   confidence: "high" | "medium" | "low";
@@ -16,6 +17,11 @@ type RoadWorksProject = {
 };
 
 const confidenceLabel = { high: "YÜKSEK", medium: "ORTA", low: "DÜŞÜK" } as const;
+
+const typeLabel: Record<string, string> = {
+  yol: "YOL", kavşak: "KAVŞAK", tünel: "TÜNEL", marina: "MARİNA",
+  köprü: "KÖPRÜ", "bisiklet yolu": "BİSİKLET", "akıllı kavşak": "AKILLI KAVŞAK",
+};
 
 export const TransportSection = () => {
   const { data: trafficData, isLoading: tLoading } = useLiveData<any>("traffic_density", { refetchInterval: 10 * 60 * 1000 });
@@ -196,30 +202,57 @@ export const TransportSection = () => {
               const validEnd = endRaw && !isNaN(endRaw.getTime());
               const daysLeft = validEnd ? Math.ceil((endRaw.getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
               const isDone = p.status === "tamamlandı";
+              const type = p.type ? typeLabel[p.type] ?? p.type.toUpperCase() : null;
               return (
                 <div key={i} className="px-2.5 py-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-mono font-semibold text-foreground/90">{p.name}</span>
-                    <span className={`text-[10px] font-mono font-bold ${
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-xs font-mono font-semibold text-foreground/90 leading-tight">{p.name}</span>
+                    <span className={`shrink-0 text-[10px] font-mono font-bold ${
                       isDone ? "text-success" : p.status === "devam" ? "text-warning" : "text-muted-foreground"
                     }`}>
                       {isDone ? "TAMAMLANDI" : p.status === "devam" ? "DEVAM EDİYOR" : "İZLENİYOR"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between mt-0.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                    {type && (
+                      <span className="text-[8px] font-mono font-bold px-1 py-px rounded bg-primary/10 text-primary/80 uppercase">
+                        {type}
+                      </span>
+                    )}
                     <span className="text-[9px] text-muted-foreground">
                       Güven: <b className="text-foreground/70">{confidenceLabel[p.confidence] ?? "—"}</b>
-                      {daysLeft !== null && <span className="ml-2">Bitiş: <b className="text-foreground/70">{daysLeft < 0 ? "belirsiz" : `${daysLeft} gün`}</b></span>}
+                      {daysLeft !== null && <span className="ml-1.5">Bitiş: <b className="text-foreground/70">{daysLeft < 0 ? "belirsiz" : `${daysLeft} gün`}</b></span>}
                     </span>
-                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-accent/15 text-accent">
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-accent/15 text-accent ml-auto">
                       {newsCount} haber
                     </span>
                   </div>
+                  {p.latest_news && p.latest_news.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {p.latest_news.slice(0, 2).map((n, j) => (
+                        <a
+                          key={j}
+                          href={n.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block text-[9px] leading-snug text-muted-foreground hover:text-foreground hover:underline truncate"
+                          title={n.title}
+                        >
+                          • {n.title}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
             <p className="text-[8px] font-mono text-muted-foreground/70 mt-2 pt-2 border-t border-border/30">
               {String(roadWorks?.note ?? "Durumlar Google News RSS'ten proje bazlı izlenir; ilerleme yüzdeleri yalnızca doğrulanmış tamamlanmalarda gösterilir.")}
+              {roadWorks?.updated_at && (
+                <span className="block mt-0.5 text-muted-foreground/60">
+                  Son güncelleme: {new Date(roadWorks.updated_at).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
             </p>
           </div>
         ) : (

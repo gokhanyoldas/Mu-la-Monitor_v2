@@ -434,12 +434,57 @@ async function fetchRealEstate() {
 //  ALTYAPI PROJELERİ — resmi kaynak + basın + tamamlanma tespiti
 // ─────────────────────────────────────────────
 
+// Doğrulanmış Muğla altyapı projeleri (KGM + Büyükşehir Belediyesi basın takibi).
+// Her proje haber kaynaklarında doğrulanmıştır; expectedEnd hedeflenen açılış tarihidir.
 const INFRA_PROJECTS = [
-  { name: "Muğla Çevreyolu", queries: ["Muğla Çevreyolu", "Muğla çevre yolu"], expectedEnd: "2026-06-30" },
-  { name: "Bodrum Marina Genişleme", queries: ["Bodrum Marina", "Bodrum marina genişleme"], expectedEnd: "2026-12-15" },
-  { name: "Fethiye Alt Geçit", queries: ["Fethiye Alt Geçit", "Fethiye alt geçit"], expectedEnd: "2025-04-30" },
-  { name: "Akıllı Kavşak Sistemi", queries: ["Muğla akıllı kavşak", "akıllı kavşak Muğla"], expectedEnd: "2026-09-01" },
-  { name: "Bisiklet Yolu Ağı", queries: ["Bodrum bisiklet yolu", "Muğla bisiklet yolu"], expectedEnd: "2027-06-01" },
+  {
+    name: "Muğla-Denizli-Marmaris Farklı Seviyeli Kavşak",
+    type: "kavşak",
+    queries: ["Muğla Denizli Marmaris farklı seviyeli kavşak", "Kötekli kavşak"],
+    expectedEnd: "2026-05-31",
+  },
+  {
+    name: "Muğla-Denizli Yolu (kalan 24 km)",
+    type: "yol",
+    queries: ["Muğla Denizli karayolu", "Muğla Denizli yolu"],
+    expectedEnd: "2026-12-31",
+  },
+  {
+    name: "Seydikemer-Kalkan Bölünmüş Yolu",
+    type: "yol",
+    queries: ["Seydikemer Kalkan bölünmüş yol", "Seydikemer Kalkan yolu"],
+    expectedEnd: "2026-12-31",
+  },
+  {
+    name: "Seydikemer-Söğüt Yolu + Karabel Tüneli",
+    type: "tünel",
+    queries: ["Seydikemer Söğüt Karabel Tüneli", "Karabel Tüneli"],
+    expectedEnd: "2027-12-31",
+  },
+  {
+    name: "Milas-Didim Yolu",
+    type: "yol",
+    queries: ["Milas Didim yolu", "Milas Didim karayolu"],
+    expectedEnd: "2026-12-31",
+  },
+  {
+    name: "Marmaris-Hisarönü Yolu",
+    type: "yol",
+    queries: ["Marmaris Hisarönü yolu", "Marmaris Hisarönü"],
+    expectedEnd: "2026-12-31",
+  },
+  {
+    name: "Fethiye-Ölüdeniz Yolu (2. ve 4. Etap)",
+    type: "yol",
+    queries: ["Fethiye Ölüdeniz yolu", "Ölüdeniz Kayaköy yolu"],
+    expectedEnd: "2026-06-30",
+  },
+  {
+    name: "Kötekli-Yeniköy Yol ve Altyapı",
+    type: "yol",
+    queries: ["Kötekli Yeniköy yol altyapı", "Kötekli yol"],
+    expectedEnd: "2026-12-31",
+  },
 ];
 
 const COMPLETION_PATTERNS = [
@@ -471,7 +516,7 @@ async function fetchProjectNews(projectName: string, queries: string[]): Promise
 
 async function fetchRoadWorks() {
   const projects: {
-    name: string; status: "devam" | "tamamlandı" | "belirsiz";
+    name: string; type: string; status: "devam" | "tamamlandı" | "belirsiz";
     progress: number | null; confidence: "high" | "medium" | "low";
     latest_news: { title: string; pubDate: string; link: string }[];
     completed_via: string | null; expectedEnd: string;
@@ -498,7 +543,7 @@ async function fetchRoadWorks() {
     const progress = completedHit ? 100 : null;
 
     projects.push({
-      name: p.name, status, progress, confidence,
+      name: p.name, type: p.type, status, progress, confidence,
       latest_news: news, completed_via, expectedEnd: p.expectedEnd,
     });
   }
