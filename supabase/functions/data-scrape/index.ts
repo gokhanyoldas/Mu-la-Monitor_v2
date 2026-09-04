@@ -485,6 +485,42 @@ const INFRA_PROJECTS = [
     queries: ["Kötekli Yeniköy yol altyapı", "Kötekli yol"],
     expectedEnd: "2026-12-31",
   },
+  {
+    name: "Bodrum Çevre Yolu (YİD)",
+    type: "yol",
+    queries: ["Bodrum Çevre Yolu", "Bodrum çevre yolu YİD"],
+    expectedEnd: "2028-12-31",
+  },
+  {
+    name: "Milas Ören Karayolu",
+    type: "yol",
+    queries: ["Milas Ören yolu", "Milas Ören karayolu"],
+    expectedEnd: "2027-12-31",
+  },
+  {
+    name: "Marmaris-Selimiye Yolu",
+    type: "yol",
+    queries: ["Marmaris Selimiye yolu", "Marmaris Selimiye"],
+    expectedEnd: "2027-06-30",
+  },
+  {
+    name: "Muğla-Denizli-Kale Yolu",
+    type: "yol",
+    queries: ["Muğla Denizli Kale yolu", "Muğla Kale karayolu"],
+    expectedEnd: "2026-12-31",
+  },
+  {
+    name: "Milas Hastane Kavşağı",
+    type: "kavşak",
+    queries: ["Milas Hastane kavşağı", "Milas hastane kavşak"],
+    expectedEnd: "2026-12-31",
+  },
+  {
+    name: "Datça Yarımada Yolu",
+    type: "yol",
+    queries: ["Datça yarımada yolu", "Datça yol yatırımı"],
+    expectedEnd: "2027-12-31",
+  },
 ];
 
 const COMPLETION_PATTERNS = [
@@ -514,13 +550,118 @@ async function fetchProjectNews(projectName: string, queries: string[]): Promise
   return results;
 }
 
+// Geniş keşif sorguları: yeni başlayan / planlanan projeleri yakalamak için.
+// Bunlar tek tek projeye bağlı değildir; "yaşayan kent" envanterini büyütür.
+const DISCOVERY_QUERIES = [
+  "Muğla temel atma töreni",
+  "Muğla ihale yatırım programı",
+  "Muğla inşaatına başlandı",
+  "Muğla proje yatırım programına alındı",
+  "Muğla altyapı çalışması başladı",
+  "Muğla yol yapımı başladı",
+];
+
+// Keşfedilen projelerin adına eşleşip eşleşmediğini kontrol etmek için normalizasyon.
+function normalizeName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9çğıöşü\s]/gi, "").replace(/\s+/g, " ").trim();
+}
+
+// Gemini'den haber başlıklarından yeni proje adı + tür çıkarır. Başarısızsa null.
+// Model: gemini-3.5-flash-lite (yeni hesaplarda 1.5/2.5 çalışmaz — AGENTS.md notu).
+async function discoverProjectsViaGemini(
+  titles: string[],
+  existingNames: string[],
+): Promise<{ name: string; type: string }[]> {
+  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!geminiKey || titles.length === 0) return [];
+
+  const existing = existingNames.map(normalizeName);
+  const prompt = `Sen Muğla'daki altyapı yatırımlarını izleyen bir analistsin.
+Aşağıdaki haber başlıklarından, Muğla'da YENİ başlayan veya planlanan altyapı/yol projelerini çıkar.
+SADECE açıkça bir proje/çalışma adı içeren başlıkları listele. Genel haberleri (kaza, hava, spor vb.) atla.
+Zaten listede olan projeleri TEKRARLAMA: ${existingNames.join("; ")}
+Her proje için kısa bir ad (maks 60 karakter) ve tür (yol|kavşak|tünel|köprü|marina|bisiklet yolu|liman|diğer) ver.
+Çıktıyı her satırda "AD | TÜR" formatında ver. Proje yoksa boş döndür.
+
+Başlıklar:
+${titles.join("\n")}`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
+        }),
+      },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const out: { name: string; type: string }[] = [];
+    for (const line of text.split("\n")) {
+      const m = line.match(/^\s*(.+?)\s*\|\s*(.+?)\s*$/);
+      if (!m) continue;
+      const name = m[1].trim();
+      const type = m[2].trim().toLowerCase();
+      if (!name || name.length < 4) continue;
+      const norm = normalizeName(name);
+      if (existing.includes(norm)) continue; // zaten listede
+      if (out.some((o) => normalizeName(o.name) === norm)) continue; // aynı turda tekrar
+      out.push({ name, type });
+    }
+    return out.slice(0, 6); // her turda en fazla 6 yeni proje
+  } catch {
+    return [];
+  }
+}
+
 async function fetchRoadWorks() {
   const projects: {
     name: string; type: string; status: "devam" | "tamamlandı" | "belirsiz";
     progress: number | null; confidence: "high" | "medium" | "low";
     latest_news: { title: string; pubDate: string; link: string }[];
     completed_via: string | null; expectedEnd: string;
+    discovered?: boolean; started_at?: string | null;
   }[] = [];
+
+  // Kademe 2: geniş keşif sorgularından haber başlıklarını topla
+  const discoveryTitles: string[] = [];
+  for (const q of DISCOVERY_QUERIES) {
+    const news = await fetchProjectNews(q, [q]);
+    for (const n of news) {
+      if (!discoveryTitles.includes(n.title)) discoveryTitles.push(n.title);
+    }
+  }
+
+  // Gemini ile yeni proje adları çıkar (mevcut listede olmayanlar)
+  const discovered = await discoverProjectsViaGemini(
+    discoveryTitles.slice(0, 30),
+    INFRA_PROJECTS.map((p) => p.name),
+  );
+
+  // Keşfedilen projeler için haber başlıklarını eşleştir (ad geçenler)
+  const discoveredProjects = discovered.map((d) => {
+    const related = discoveryTitles
+      .filter((t) => normalizeName(t).includes(normalizeName(d.name)))
+      .slice(0, 2)
+      .map((t) => ({ title: t, pubDate: new Date().toISOString(), link: "" }));
+    return {
+      name: d.name,
+      type: d.type,
+      status: "devam" as const,
+      progress: null,
+      confidence: "low" as const,
+      latest_news: related,
+      completed_via: null,
+      expectedEnd: "",
+      discovered: true,
+      started_at: related[0]?.pubDate ?? null,
+    };
+  });
 
   for (const p of INFRA_PROJECTS) {
     const news = await fetchProjectNews(p.name, p.queries);
@@ -548,10 +689,13 @@ async function fetchRoadWorks() {
     });
   }
 
+  // Keşfedilenleri listenin başına ekle (YENİ rozetiyle öne çıksın)
+  projects.unshift(...discoveredProjects);
+
   return {
     projects,
-    note: 'Altyapı durumları haber akışından izleniyor; "tamamlandı" tespiti basın haberi kanıtına dayanır. İlerleme yüzdeleri yalnızca doğrulanmış tamamlanmalarda gösterilir.',
-    source: 'Google News RSS (proje bazlı basın takibi) + Resmi kaynak doğrulaması',
+    note: 'Altyapı durumları haber akışından izleniyor; "tamamlandı" tespiti basın haberi kanıtına dayanır. İlerleme yüzdeleri yalnızca doğrulanmış tamamlanmalarda gösterilir. Yeni başlayan projeler otomatik keşfedilir (AI destekli).',
+    source: 'Google News RSS (proje bazlı basın takibi) + Resmi kaynak doğrulaması + AI keşfi',
     source_period: 'Günlük haber akışı',
     updated_at: new Date().toISOString(),
   };

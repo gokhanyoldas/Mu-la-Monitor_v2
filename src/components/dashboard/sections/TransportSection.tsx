@@ -14,6 +14,8 @@ type RoadWorksProject = {
   confidence: "high" | "medium" | "low";
   expectedEnd: string;
   latest_news?: { title: string; pubDate: string; link: string }[];
+  discovered?: boolean;
+  started_at?: string | null;
 };
 
 const confidenceLabel = { high: "YÜKSEK", medium: "ORTA", low: "DÜŞÜK" } as const;
@@ -214,6 +216,11 @@ export const TransportSection = () => {
                     </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                    {p.discovered && (
+                      <span className="text-[8px] font-mono font-bold px-1 py-px rounded bg-success/15 text-success uppercase">
+                        YENİ
+                      </span>
+                    )}
                     {type && (
                       <span className="text-[8px] font-mono font-bold px-1 py-px rounded bg-primary/10 text-primary/80 uppercase">
                         {type}
