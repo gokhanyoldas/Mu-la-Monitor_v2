@@ -51,6 +51,7 @@
 - Turizm: 2025/Ç2 ön veri (kesin yıl sonu Şubat-Mart 2026'da)
 - Şehirlerarası otobüs: `transport-scrape` obilet.com statik mikrodata'sından çeker; sonuç `live_data_cache(bus_schedule)` içinde 30 dk TTL tutulur, pg_cron `refresh-bus` her 30 dk tazeler, frontend hata olursa cache'ten son-bilinen veriyi gösterir (mock'a düşmez)
 - Uçuş: `transport-scrape?type=flights&source=adsb` — adsb.fi `opendata.adsb.fi/api/v3/lat/lon/dist` (DLM 36.7167/28.7833, BJV 37.2529/27.6643, 40NM). Firecrawl key GEREKMEZ; Havalimanları özet paneli + FlightTrackerSection buradan canlı uçak sayısı gösterir (Firecrawl tabanlı type=flights yalnızca key varken çalışır)
+- Altyapı Projeleri: `data-scrape?type=road_works` — INFRA_PROJECTS = KGM/Büyükşehir doğrulamalı 8 gerçek proje (MUĞLA-DENİZLİ-MARMARİS farklı seviyeli kavşak ~2026-05, Muğla-Denizli 24km, Seydikemer-Kalkan, Seydikemer-Söğüt+Karabel Tüneli ~2027, Milas-Didim, Marmaris-Hisarönü, Fethiye-Ölüdeniz 2&4 etap, Kötekli-Yeniköy). Her proje Google News RSS proje bazlı izlenir; `type` alanı (yol/kavşak/tünel) proje türü rozeti için; `latest_news` başlıkları panelde tıklanabilir link; `updated_at` son güncelleme satırı. Uydurma projeler (Ören/Akgün Yazır vb.) EKLENMEZ.
 
 ## 🔧 Komutlar
 - `npm run dev` — Vite dev (port 8080)
