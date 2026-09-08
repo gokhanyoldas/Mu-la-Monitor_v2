@@ -19,6 +19,7 @@ type BusRoute = {
   // Gidiş (from kalkış) ve Dönüş (to kalkış) ayrı listeler
   outbound_weekday?: string[]; outbound_saturday?: string[]; outbound_sunday?: string[];
   return_weekday?: string[]; return_saturday?: string[]; return_sunday?: string[];
+  return_price?: string;
   source?: string;
 };
 
@@ -80,6 +81,7 @@ export const BusScheduleSection = () => {
             return_weekday: (r.return_weekday as string[]) ?? [],
             return_saturday: (r.return_saturday as string[]) ?? [],
             return_sunday: (r.return_sunday as string[]) ?? [],
+            return_price: r.return_price ? String(r.return_price) : undefined,
             source: r.source ? String(r.source) : undefined,
           };
         });
@@ -115,6 +117,7 @@ export const BusScheduleSection = () => {
               return_weekday: (r.return_weekday as string[]) ?? [],
               return_saturday: (r.return_saturday as string[]) ?? [],
               return_sunday: (r.return_sunday as string[]) ?? [],
+              return_price: r.return_price ? String(r.return_price) : undefined,
               source: r.source ? String(r.source) : undefined,
             };
           });
@@ -195,14 +198,19 @@ export const BusScheduleSection = () => {
       {/* Routes */}
       <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
         {filtered.map((route, i) => {
-          const times = direction === "gidiş" ? (route.outbound_weekday ?? route.departures) : (route.return_weekday ?? route.departures);
-          const next = getNextDeparture(times.length > 0 ? times : route.departures);
+          const isReturn = direction === "dönüş";
+          const times = isReturn
+            ? (route.return_weekday ?? route.departures)
+            : (route.outbound_weekday ?? route.departures);
+          const displayTimes = times.length > 0 ? times : route.departures;
+          const next = getNextDeparture(displayTimes);
+          const displayPrice = isReturn ? (route.return_price ?? route.price) : route.price;
           return (
             <div key={i} className="px-2.5 py-2 rounded bg-muted/10 hover:bg-muted/25 transition-colors">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono font-bold text-foreground">
-                    {direction === "gidiş" ? `${route.from} → ${route.to}` : `${route.to} → ${route.from}`}
+                    {isReturn ? `${route.to} → ${route.from}` : `${route.from} → ${route.to}`}
                   </span>
                   <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
                     route.type === "ilçe" ? "bg-accent/15 text-accent" : "bg-primary/15 text-primary"
@@ -210,7 +218,7 @@ export const BusScheduleSection = () => {
                     {route.type === "ilçe" ? "İLÇE" : "ŞEHİRLERARASI"}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono font-bold text-accent">{route.price}</span>
+                <span className="text-[10px] font-mono font-bold text-accent">{displayPrice}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
@@ -226,7 +234,7 @@ export const BusScheduleSection = () => {
                 </div>
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
-                {route.departures.map((d) => {
+                {displayTimes.map((d) => {
                   const isNext = d === next;
                   return (
                     <span
@@ -249,7 +257,12 @@ export const BusScheduleSection = () => {
       <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 text-[9px] font-mono text-muted-foreground">
         <span>Toplam: {filtered.length} hat</span>
         <span>•</span>
-        <span>Günlük sefer: {filtered.reduce((s, r) => s + r.departures.length, 0)}</span>
+        <span>{direction === "dönüş" ? "Dönüş" : "Gidiş"} sefer: {filtered.reduce((s, r) => {
+          const t = direction === "dönüş"
+            ? (r.return_weekday ?? r.departures)
+            : (r.outbound_weekday ?? r.departures);
+          return s + (t.length > 0 ? t.length : r.departures.length);
+        }, 0)}</span>
       </div>
     </DashboardPanel>
   );

@@ -57,10 +57,10 @@ const INTERCITY_ROUTES: { to: string; slug: string }[] = [
   { to: "Kayseri", slug: "kayseri" },
 ];
 
-// Tek şehirlerarası rotanın seferlerini çek ve normalize et; başarısızsa null.
-async function fetchIntercityRoute(route: { to: string; slug: string }): Promise<any | null> {
+// obilet.com'dan tek yönlü bir rotanın seferlerini çek; başarısızsa null.
+async function fetchObiletTrips(fromSlug: string, toSlug: string): Promise<any[] | null> {
   try {
-    const url = `https://www.obilet.com/otobus-bileti/mugla-${route.slug}`;
+    const url = `https://www.obilet.com/otobus-bileti/${fromSlug}-${toSlug}`;
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; MuglaMonitor/1.0)" },
       signal: AbortSignal.timeout(12000),
@@ -68,38 +68,56 @@ async function fetchIntercityRoute(route: { to: string; slug: string }): Promise
     if (!res.ok) return null;
     const html = await res.text();
     const trips = parseTripsFromHtml(html);
-    if (trips.length === 0) return null;
-
-    // Kalkış saatlerini (gidiş) sıralı ve eşsiz olarak topla
-    const departures = Array.from(new Set(trips.map((t) => t.departure))).sort();
-    // En düşük fiyatlı seferi referans al (bilet fiyatları gün içinde değişir)
-    const best = trips.reduce((a, b) => (b.price > 0 && b.price < a.price ? b : a), trips[0]);
-
-    return {
-      line: `MUĞLA-${route.to.toUpperCase()}`,
-      from: "Muğla",
-      to: route.to,
-      departures,
-      weekday: departures,
-      saturday: departures,
-      sunday: departures,
-      outbound_weekday: departures,
-      outbound_saturday: departures,
-      outbound_sunday: departures,
-      // Dönüş yönü için aynı saat listesi (simetrik eş; obilet'te ters hat da aynı saatlerde çalışır)
-      return_weekday: departures,
-      return_saturday: departures,
-      return_sunday: departures,
-      carrier: Array.from(new Set(trips.map((t) => t.carrier))).slice(0, 3).join(", "),
-      duration: formatDuration(trips[0].departure, trips[0].arrival),
-      price: best.price > 0 ? `₺${Math.round(best.price)}` : "—",
-      type: "şehirlerarası",
-      source: url,
-    };
+    return trips.length > 0 ? trips : null;
   } catch {
-    // tek rota hatası diğerlerini etkilemez
     return null;
   }
+}
+
+// Tek şehirlerarası rotanın seferlerini çek ve normalize et; başarısızsa null.
+// Hem gidiş (Muğla → şehir) hem dönüş (şehir → Muğla) yönü ayrı sayfalardan çekilir.
+async function fetchIntercityRoute(route: { to: string; slug: string }): Promise<any | null> {
+  // Gidiş yönü: Muğla → şehir
+  const outboundTrips = await fetchObiletTrips("mugla", route.slug);
+  if (!outboundTrips) return null;
+
+  // Dönüş yönü: şehir → Muğla (gerçek veri; çekilemezse gidiş saatlerine düşer)
+  const returnTrips = await fetchObiletTrips(route.slug, "mugla");
+
+  // Kalkış saatlerini sıralı ve eşsiz olarak topla
+  const departures = Array.from(new Set(outboundTrips.map((t) => t.departure))).sort();
+  const returnDepartures = returnTrips
+    ? Array.from(new Set(returnTrips.map((t) => t.departure))).sort()
+    : departures;
+
+  // En düşük fiyatlı seferi referans al (bilet fiyatları gün içinde değişir)
+  const best = outboundTrips.reduce((a, b) => (b.price > 0 && b.price < a.price ? b : a), outboundTrips[0]);
+  const bestReturn = returnTrips
+    ? returnTrips.reduce((a, b) => (b.price > 0 && b.price < a.price ? b : a), returnTrips[0])
+    : best;
+
+  return {
+    line: `MUĞLA-${route.to.toUpperCase()}`,
+    from: "Muğla",
+    to: route.to,
+    departures,
+    weekday: departures,
+    saturday: departures,
+    sunday: departures,
+    outbound_weekday: departures,
+    outbound_saturday: departures,
+    outbound_sunday: departures,
+    // Dönüş yönü gerçek obilet sayfasından çekilir (şehir → Muğla kalkışları)
+    return_weekday: returnDepartures,
+    return_saturday: returnDepartures,
+    return_sunday: returnDepartures,
+    return_price: bestReturn.price > 0 ? `₺${Math.round(bestReturn.price)}` : "—",
+    carrier: Array.from(new Set(outboundTrips.map((t) => t.carrier))).slice(0, 3).join(", "),
+    duration: formatDuration(outboundTrips[0].departure, outboundTrips[0].arrival),
+    price: best.price > 0 ? `₺${Math.round(best.price)}` : "—",
+    type: "şehirlerarası",
+    source: `https://www.obilet.com/otobus-bileti/mugla-${route.slug}`,
+  };
 }
 
 // obilet.com'dan şehirlerarası seferleri paralel çek; her şehir için gidiş yönü seferleri döndürür.
