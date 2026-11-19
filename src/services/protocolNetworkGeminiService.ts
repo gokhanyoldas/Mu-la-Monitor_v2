@@ -2,7 +2,7 @@
 // Seçili düğümün bağlı olduğu ilçeler ve kurumlarla koordinasyon/gündem özetini
 // merkezi ENV (VITE_GEMINI_API_KEY / process.env.GEMINI_API_KEY) üzerinden 3 maddede üretir.
 
-import { ENV } from "@/config/env";
+import { runClientGeminiProtocolNode } from "@/services/clientGeminiFallback";
 import {
   NODE_GROUP_META,
   type ProtocolGraphNode,
@@ -68,9 +68,8 @@ export async function analyzeProtocolNodeWithGemini(
 ): Promise<ProtocolGeminiAnalysisResult> {
   const generatedAt = new Date().toISOString();
   const allowExternalApi = options?.allowExternalApi ?? true;
-  const apiKey = allowExternalApi ? ENV.VITE_GEMINI_API_KEY : "";
 
-  if (!apiKey) {
+  if (!allowExternalApi) {
     return {
       nodeId: node.id,
       bullets: buildLocalFallbackBullets(node, connections),
@@ -80,75 +79,7 @@ export async function analyzeProtocolNodeWithGemini(
   }
 
   try {
-    const neighborSummary = connections
-      .map(
-        (c) =>
-          `- ${c.node.label} [${NODE_GROUP_META[c.node.group].shortLabel}] (${c.link.relation}, Ağırlık: ${c.link.weight}/5)`
-      )
-      .join("\n");
-
-    const prompt = `
-Sen Muğla Valiliği ve Büyükşehir düzeyinde çalışan kıdemli bir Protokol, Kriz ve OSINT Ağ Analistisin.
-Aşağıdaki düğüm ve 1. derece bağlantıları hakkında kısa, somut ve kurumsal bir koordinasyon/gündem özeti yaz.
-
-SEÇİLİ DÜĞÜM:
-- Adı: ${node.label}
-- Grubu: ${NODE_GROUP_META[node.group].label}
-- Rolü: ${node.role}
-- Gündem/Etkinlik Sayısı: ${node.eventCount}
-
-DOĞRUDAN BAĞLI OLDUĞU DÜĞÜMLER (${connections.length} adet):
-${neighborSummary || "Henüz bağlantı yok."}
-
-GÖREV:
-Bu düğümün bağlı olduğu ilçeler ve kurumlarla olan koordinasyonunu, saha denetimlerini ve gündem baskısını tam olarak 3 kısa Türkçe madde halinde özetle.
-Yalnızca şu JSON formatında yanıt ver:
-{
-  "bullets": [
-    "1. madde metni",
-    "2. madde metni",
-    "3. madde metni"
-  ]
-}
-`;
-
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 12000) : null;
-
-    let resp: Response;
-    try {
-      resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: "application/json" },
-          }),
-          signal: controller?.signal,
-        }
-      );
-    } finally {
-      if (timeoutId !== null) clearTimeout(timeoutId);
-    }
-
-    if (!resp.ok) {
-      return {
-        nodeId: node.id,
-        bullets: buildLocalFallbackBullets(node, connections),
-        source: "local-topology-fallback",
-        generatedAt,
-      };
-    }
-
-    const json = await resp.json();
-    const rawText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      throw new Error("Boş Gemini yanıtı");
-    }
-
-    const parsed = JSON.parse(rawText);
+    const parsed = await runClientGeminiProtocolNode({ node, connections });
     const bullets = Array.isArray(parsed?.bullets)
       ? parsed.bullets.map(String).filter((b: string) => b.trim().length > 0).slice(0, 3)
       : [];

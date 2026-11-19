@@ -21,7 +21,6 @@ export class RootErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // eslint-disable-next-line no-console
     console.error('[RootErrorBoundary] Yakalanan hata:', error, errorInfo);
   }
 

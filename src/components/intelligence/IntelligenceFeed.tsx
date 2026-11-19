@@ -30,6 +30,8 @@ export const IntelligenceFeed = () => {
 
   useEffect(() => {
     applyFilters();
+    // Filtering is driven by the explicit items/filters state dependencies above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, filters]);
 
   const loadIntelligence = () => {

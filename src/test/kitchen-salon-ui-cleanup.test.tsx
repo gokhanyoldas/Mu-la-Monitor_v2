@@ -38,12 +38,31 @@ vi.mock("@/integrations/supabase/client", () => ({
       chain.select = vi.fn(() => chain);
       chain.eq = vi.fn(() => chain);
       chain.gte = vi.fn(() => chain);
+      chain.gt = vi.fn(() => chain);
+      chain.lt = vi.fn(() => chain);
+      chain.or = vi.fn(() => chain);
+      chain.ilike = vi.fn(() => chain);
       chain.limit = vi.fn(() => chain);
-      chain.order = vi.fn().mockResolvedValue({ data: [], error: null });
-      chain.upsert = vi.fn().mockResolvedValue({ data: null, error: null });
-      chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+      chain.order = vi.fn(() => chain);
+      chain.insert = vi.fn(() => chain);
+      chain.update = vi.fn(() => chain);
+      chain.delete = vi.fn(() => chain);
+      chain.upsert = vi.fn(() => chain);
+      chain.single = vi.fn(() => chain);
+      chain.maybeSingle = vi.fn(() => chain);
+      chain.then = vi.fn((resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+        Promise.resolve({ data: [], error: null }).then(resolve, reject));
+      chain.catch = vi.fn((reject: (reason: unknown) => unknown) =>
+        Promise.resolve({ data: [], error: null }).catch(reject));
+      chain.finally = vi.fn((onFinally: () => void) =>
+        Promise.resolve({ data: [], error: null }).finally(onFinally));
       return chain;
     }),
+    channel: vi.fn(() => {
+      const channel = { on: vi.fn(() => channel), subscribe: vi.fn(() => channel) };
+      return channel;
+    }),
+    removeChannel: vi.fn(),
     functions: {
       invoke: vi.fn().mockResolvedValue({ data: null, error: null }),
     },

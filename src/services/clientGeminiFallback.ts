@@ -1,32 +1,27 @@
-// src/services/clientGeminiFallback.ts
-// Tier 2 Smart Fallback: Eğer /api/intel/* rotasından 404 veya ağ hatası dönerse
-// ve istemcide VITE_GEMINI_API_KEY (veya process.env.GEMINI_API_KEY) tanımlıysa
-// doğrudan @google/genai SDK üzerinden multimodal analiz & Google Search Grounding çalıştırır.
+// Server-side Gemini proxy istemcisi.
+// Tarayıcı hiçbir zaman GEMINI_API_KEY taşımaz; tüm çağrılar /api/intel/* üzerinden yapılır.
 
-import { ENV } from "@/config/env";
+async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+  if (typeof fetch !== "function") return null;
 
-const CLIENT_GEMINI_MODEL = "gemini-4-hydrogen";
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 15_000) : null;
 
-function extractJsonFromText<T = unknown>(raw: string): T | null {
-  if (!raw) return null;
-  const cleaned = raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
   try {
-    return JSON.parse(cleaned) as T;
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller?.signal,
+    });
+
+    if (!response.ok) return null;
+    const payload = (await response.json()) as T & { ok?: boolean };
+    return payload?.ok === false ? null : payload;
   } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start !== -1 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1)) as T;
-      } catch {
-        return null;
-      }
-    }
     return null;
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
 }
 
@@ -36,74 +31,11 @@ export async function runClientGeminiPostAnalysis(params: {
   imageMimeType?: string;
   lexiconTerms?: string[];
 }): Promise<Record<string, unknown> | null> {
-  const apiKey = ENV.VITE_GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const { GoogleGenAI } = await import("@google/genai");
-    const ai = new GoogleGenAI({ apiKey });
-
-    const lexiconSample = Array.isArray(params.lexiconTerms)
-      ? params.lexiconTerms.slice(0, 40).join(", ")
-      : "";
-
-    const prompt = `Sen Muğla Monitör v2 Merkezi İstihbarat ve Çapraz Doğrulama Motorusun.
-Aşağıdaki sahadan gelen sosyal medya paylaşımını (ve varsa ekli saha fotoğrafını) analiz et.
-Bilinen Yaşayan Sözlük örnekleri: ${lexiconSample}
-
-GÖREVLER:
-1. Metindeki ve görseldeki TÜM farklı alt sorunları (Multi-Issue Decomposition) ayrıştır.
-2. İroni, kinaye, politik kulis eleştirisi ve dolaylı ima kalıplarını (Implicit Subtext Analyzer) açıkça deşifre et.
-3. Geçen veya ima edilen tüm mevki/lokaliteleri, aktörleri/unvanları, proje isimlerini ve saha jargonu kelimelerini çıkar.
-4. Trafik tıkanıklığı / yol kapanması / yoğunluk iddiası varsa konumunu belirle.
-
-SADECE geçerli JSON döndür:
-{
-  "summary": "2 cümlelik yönetici özeti",
-  "districtName": "İlçe adı",
-  "sentiment": "negative" | "neutral" | "positive",
-  "sentimentScore": 0.0,
-  "issues": [{ "topic": "...", "category": "altyapi_yol", "locality": "...", "severity": "yuksek", "summary": "..." }],
-  "implicitSubtext": [{ "phrase": "...", "hiddenMeaning": "...", "category": "kurumsal_sorumluluk", "targetActor": "..." }],
-  "extractedLocalities": [],
-  "extractedActors": [],
-  "extractedProjects": [],
-  "extractedJargon": [],
-  "reportedTrafficAnomaly": { "detected": false, "location": "", "reason": "" }
-}
-
-KULLANICI PAYLAŞIMI:
-"""
-${String(params.text || "").slice(0, 6000)}
-"""`;
-
-    const contents: Array<string | { inlineData: { mimeType: string; data: string } }> = [prompt];
-    if (params.imageBase64 && typeof params.imageBase64 === "string") {
-      const cleanBase64 = params.imageBase64.includes(",")
-        ? params.imageBase64.split(",")[1]
-        : params.imageBase64;
-      contents.push({
-        inlineData: {
-          mimeType: params.imageMimeType || "image/jpeg",
-          data: cleanBase64,
-        },
-      });
-    }
-
-    const response = await ai.models.generateContent({
-      model: CLIENT_GEMINI_MODEL,
-      contents,
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
-
-    const parsed = extractJsonFromText<Record<string, unknown>>(response.text ?? "");
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch (err) {
-    console.warn("[Tier-2 Client Gemini analyze-post] fallback tetiklendi:", err);
-    return null;
-  }
+  const response = await postJson<{ ok?: boolean; analysis?: Record<string, unknown> }>(
+    "/api/intel/analyze-post",
+    params,
+  );
+  return response?.analysis && typeof response.analysis === "object" ? response.analysis : null;
 }
 
 export interface ClientGroundingResult {
@@ -123,65 +55,25 @@ export async function runClientGeminiDistrictGrounding(params: {
   aliases?: string[];
   lexiconTerms?: string[];
 }): Promise<ClientGroundingResult | null> {
-  const apiKey = ENV.VITE_GEMINI_API_KEY;
-  if (!apiKey || !params.districtName) return null;
+  const response = await postJson<ClientGroundingResult & { ok?: boolean }>(
+    "/api/intel/district-grounding",
+    params,
+  );
 
-  try {
-    const { GoogleGenAI } = await import("@google/genai");
-    const ai = new GoogleGenAI({ apiKey });
+  if (!response || !Array.isArray(response.posts)) return null;
+  return {
+    posts: response.posts,
+    groundingSources: Array.isArray(response.groundingSources) ? response.groundingSources : [],
+  };
+}
 
-    const searchTerms = [
-      params.districtName,
-      ...(params.aliases ?? []).slice(0, 4),
-      ...(params.lexiconTerms ?? []).slice(0, 4),
-    ].join(" ");
-
-    const prompt = `Google Search aracını kullanarak Muğla ${params.districtName} ilçesi hakkında güncel sosyal medya, şikayet ve yerel gündem içeriklerini tara.
-Özellikle şu kaynak türlerini araştır: site:x.com OR site:instagram.com OR site:facebook.com OR site:sikayetvar.com OR site:eksisozluk.com ${searchTerms} Muğla belediye altyapı su elektrik yol turizm.
-
-Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında döndür (en az 3, en fazla 6 güncel madde; yalnızca SADECE JSON döndür):
-{
-  "posts": [
-    {
-      "platform": "twitter" | "instagram" | "facebook" | "sikayetvar" | "eksisozluk" | "news",
-      "author": "Kaynak veya hesap",
-      "content": "Bulunan güncel gündem / vatandaş bildiriminin özeti",
-      "sentiment": "positive" | "negative" | "neutral",
-      "url": "Varsa kaynak URL",
-      "topics": ["konu1", "konu2"]
-    }
-  ]
-}`;
-
-    const response = await ai.models.generateContent({
-      model: CLIENT_GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
-    });
-
-    const metadata = response.candidates?.[0]?.groundingMetadata;
-    const chunks = Array.isArray(metadata?.groundingChunks) ? metadata.groundingChunks : [];
-    const groundingSources = chunks
-      .map((c: { web?: { uri?: string; title?: string } }) => ({
-        uri: c.web?.uri || "",
-        title: c.web?.title || "",
-      }))
-      .filter((s) => Boolean(s.uri));
-
-    const parsed = extractJsonFromText<{ posts?: ClientGroundingResult["posts"] }>(
-      response.text ?? ""
-    );
-
-    const posts = Array.isArray(parsed?.posts) ? parsed!.posts : [];
-    if (posts.length === 0 && groundingSources.length === 0) {
-      return null;
-    }
-
-    return { posts, groundingSources };
-  } catch (err) {
-    console.warn("[Tier-2 Client Gemini district-grounding] fallback tetiklendi:", err);
-    return null;
-  }
+export async function runClientGeminiProtocolNode(params: {
+  node: unknown;
+  connections: unknown[];
+}): Promise<{ bullets?: unknown } | null> {
+  const response = await postJson<{ ok?: boolean; analysis?: { bullets?: unknown } }>(
+    "/api/intel/protocol-node",
+    params,
+  );
+  return response?.analysis && typeof response.analysis === "object" ? response.analysis : null;
 }

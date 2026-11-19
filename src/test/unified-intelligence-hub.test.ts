@@ -173,12 +173,22 @@ describe("Unified Intelligence & Arbitration Hub", () => {
             chain.select = vi.fn(() => chain);
             chain.eq = vi.fn(() => chain);
             chain.gte = vi.fn(() => chain);
+            chain.gt = vi.fn(() => chain);
+            chain.lt = vi.fn(() => chain);
+            chain.or = vi.fn(() => chain);
             chain.limit = vi.fn(() => chain);
-            chain.order = vi.fn().mockResolvedValue({ data: null, error: null });
-            chain.upsert = vi.fn().mockResolvedValue({ data: null, error: null });
-            chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+            chain.order = vi.fn(() => chain);
+            chain.upsert = vi.fn(() => chain);
+            chain.maybeSingle = vi.fn(() => chain);
+            chain.then = vi.fn((resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+              Promise.resolve({ data: null, error: null }).then(resolve, reject));
             return chain;
           }),
+          channel: vi.fn(() => {
+            const channel = { on: vi.fn(() => channel), subscribe: vi.fn(() => channel) };
+            return channel;
+          }),
+          removeChannel: vi.fn(),
           functions: {
             invoke: vi.fn().mockResolvedValue({ data: null, error: null }),
           },
@@ -263,15 +273,49 @@ describe("Unified Intelligence & Arbitration Hub", () => {
       expect(apiRule?.destination).toBe("/api/$1");
     });
 
-    it("falls back from Tier 1 (404) -> Tier 3 deterministic NLP when VITE_GEMINI_API_KEY is missing, and -> Tier 2 @google/genai when key is defined", async () => {
-      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-        ok: false,
-        status: 404,
-        json: async () => ({ error: "Not Found" }),
-      } as Response);
+    it("uses the server-side Gemini proxy and falls back to deterministic NLP", async () => {
+      let proxyAvailable = false;
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = String(input);
+        if (!proxyAvailable) {
+          return { ok: false, status: 404, json: async () => ({ error: "Not Found" }) } as Response;
+        }
+        if (url.includes("analyze-post")) {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              analysis: {
+                summary: "Server-side Gemini analizi tamamlandı.",
+                districtName: "Datça",
+                sentiment: "negative",
+                sentimentScore: 0.78,
+                issues: [{ topic: "Yol Bakım ve Altyapı", category: "altyapi_yol", locality: "Palamutbükü", severity: "yuksek", summary: "Sahil bağlantı yolunda yüzey bozulması tespit edildi." }],
+                implicitSubtext: [],
+                extractedLocalities: ["Palamutbükü"],
+                extractedActors: ["Büyükşehir Fen İşleri"],
+                extractedProjects: ["Sahil Bağlantı Yolu"],
+                extractedJargon: ["yüzey bozulması"],
+                reportedTrafficAnomaly: { detected: true, location: "Palamutbükü", reason: "Tek şerit daralma" },
+              },
+            }),
+          } as Response;
+        }
+        if (url.includes("district-grounding")) {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              posts: [{ platform: "twitter", author: "@MuglaSaha", content: "Datça Palamutbükü yolunda bakım çalışması tamamlandı.", sentiment: "positive", url: "https://x.com/MuglaSaha/status/1", topics: ["Datça", "Palamutbükü"] }],
+              groundingSources: [{ uri: "https://x.com/MuglaSaha/status/1", title: "Muğla Saha" }],
+            }),
+          } as Response;
+        }
+        return { ok: false, status: 404, json: async () => ({ error: "Not Found" }) } as Response;
+      });
 
       try {
-        // Case A: 404 + no VITE_GEMINI_API_KEY -> Tier 3 without crashing
+        // Case A: server proxy unavailable -> deterministic fallback without crashing
         vi.stubEnv("VITE_GEMINI_API_KEY", "");
         vi.stubEnv("GEMINI_API_KEY", "");
         vi.resetModules();
@@ -295,66 +339,7 @@ describe("Unified Intelligence & Arbitration Hub", () => {
         expect(tier3Ground.usedLiveSearch).toBe(false);
         expect(tier3Ground.posts).toEqual([]);
 
-        // Case B: 404 + VITE_GEMINI_API_KEY defined -> Tier 2 @google/genai multimodal & search grounding
-        vi.stubEnv("VITE_GEMINI_API_KEY", "test-client-gemini-key");
-        const generateContentMock = vi.fn().mockImplementation(async (req: { config?: { tools?: unknown[] } }) => {
-          if (req?.config?.tools) {
-            return {
-              text: JSON.stringify({
-                posts: [
-                  {
-                    platform: "twitter",
-                    author: "@MuglaSaha",
-                    content: "Datça Palamutbükü yolunda bakım çalışması tamamlandı.",
-                    sentiment: "positive",
-                    url: "https://x.com/MuglaSaha/status/1",
-                    topics: ["Datça", "Palamutbükü"],
-                  },
-                ],
-              }),
-              candidates: [
-                {
-                  groundingMetadata: {
-                    groundingChunks: [
-                      { web: { uri: "https://x.com/MuglaSaha/status/1", title: "Muğla Saha" } },
-                    ],
-                  },
-                },
-              ],
-            };
-          }
-          return {
-            text: JSON.stringify({
-              summary: "Tier-2 Gemini istemci analizi tamamlandı.",
-              districtName: "Datça",
-              sentiment: "negative",
-              sentimentScore: 0.78,
-              issues: [
-                {
-                  topic: "Yol Bakım ve Altyapı",
-                  category: "altyapi_yol",
-                  locality: "Palamutbükü",
-                  severity: "yuksek",
-                  summary: "Sahil bağlantı yolunda yüzey bozulması tespit edildi.",
-                },
-              ],
-              implicitSubtext: [],
-              extractedLocalities: ["Palamutbükü"],
-              extractedActors: ["Büyükşehir Fen İşleri"],
-              extractedProjects: ["Sahil Bağlantı Yolu"],
-              extractedJargon: ["yüzey bozulması"],
-              reportedTrafficAnomaly: { detected: true, location: "Palamutbükü", reason: "Tek şerit daralma" },
-            }),
-          };
-        });
-
-        vi.resetModules();
-        vi.doMock("@google/genai", () => ({
-          GoogleGenAI: class {
-            models = { generateContent: generateContentMock };
-          },
-        }));
-
+        proxyAvailable = true;
         const { analyzeAndArbitrateFieldSubmission: analyzeWithKey } = await import("@/services/fieldArbitrationEngine");
         const { fetchDistrictSearchGroundedFeed: groundWithKey } = await import("@/data/districtSocialBaselines");
 
@@ -375,9 +360,9 @@ describe("Unified Intelligence & Arbitration Hub", () => {
         expect(tier2Ground.usedLiveSearch).toBe(true);
         expect(tier2Ground.posts.length).toBe(1);
         expect(tier2Ground.groundingSources[0]?.uri).toBe("https://x.com/MuglaSaha/status/1");
-        expect(generateContentMock).toHaveBeenCalledTimes(2);
+        expect(fetchSpy).toHaveBeenCalledWith("/api/intel/analyze-post", expect.objectContaining({ method: "POST" }));
+        expect(fetchSpy).toHaveBeenCalledWith("/api/intel/district-grounding", expect.objectContaining({ method: "POST" }));
       } finally {
-        vi.doUnmock("@google/genai");
         vi.unstubAllEnvs();
         fetchSpy.mockRestore();
       }
@@ -465,4 +450,3 @@ describe("Unified Intelligence & Arbitration Hub", () => {
     });
   });
 });
-

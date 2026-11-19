@@ -22,6 +22,8 @@ export const AnomalyAlertSystem = () => {
     checkForAnomalies();
     const interval = setInterval(checkForAnomalies, 10000);
     return () => clearInterval(interval);
+    // The interval intentionally captures the initial checker for this mounted alert surface.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const checkForAnomalies = () => {
