@@ -104,6 +104,8 @@ export const LiveMap = () => {
         mapInstance.current = null;
       }
     };
+    // Leaflet scripts are loaded once when the map surface mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const initMap = () => {

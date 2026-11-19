@@ -2,7 +2,7 @@
 // Google AI Studio (Gemini API) ve Akıllı Heuristik Hibrit Olay Ayrıştırıcı
 
 import { MUGLA_DISTRICTS, IncidentCategory, IncidentSeverity } from "@/data/muglaDistricts";
-import { ENV } from "@/config/env";
+import { runClientGeminiPostAnalysis } from "@/services/clientGeminiFallback";
 
 export interface ParsedIncident {
   district_name: string;
@@ -75,78 +75,33 @@ function parseLocally(rawText: string): ParsedIncident {
 
 // 2. Gemini API ile Yapılandırılmış JSON Üretimi
 export async function parseUnstructuredTextWithGemini(rawText: string, apiKey?: string): Promise<ParsedIncident> {
-  const effectiveKey = apiKey || ENV.VITE_GEMINI_API_KEY;
-
-  if (!effectiveKey) {
-    // API anahtarı yoksa yerel zeki motor devreye girer
-    return parseLocally(rawText);
-  }
+  void apiKey;
 
   try {
-    const districtNames = MUGLA_DISTRICTS.map(d => d.name).join(", ");
-
-    const prompt = `
-Sen Muğla ili için çalışan kıdemli bir Coğrafi Bilgi Sistemleri (GIS) ve Kentsel İstihbarat analistisin.
-Aşağıda dış kaynaklardan veya haber bülteninden gelen ham metin verilmiştir:
-"""${rawText}"""
-
-GÖREVİN:
-1. Bu metnin Muğla'nın hangi ilçesiyle ilgili olduğunu tespit et. Sadece şu 13 ilçeden birini seç: [${districtNames}]. Eğer ilçe açıkça belirtilmemişse "Menteşe" olarak ata.
-2. Metni şu kategorilerden birine sınıflandır: 'Yangın/Afet', 'Trafik', 'Altyapı/Su', 'Asayiş', 'Turizm/Çevre', 'Genel'.
-3. Önem derecesini belirle: 'Düşük', 'Orta', 'Yüksek', 'Kritik'.
-4. Başlık (en fazla 8-10 kelime) ve en fazla 2 cümlelik kurumsal bir özet çıkar.
-
-Yalnızca ve sadece şu JSON formatında cevap ver (hiçbir markdown etiketi veya yorum ekleme):
-{
-  "district_name": "İlçe Adı",
-  "title": "Kısa ve Net Başlık",
-  "summary": "İki cümlelik net operasyonel özet.",
-  "category": "Kategori",
-  "severity": "Önem Derecesi"
-}
-`;
-
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${effectiveKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
-    });
-
-    if (!response.ok) {
-      console.warn("Gemini API çağrısı başarısız oldu, yerel ayrıştırıcı kullanılıyor.");
-      return parseLocally(rawText);
-    }
-
-    const data = await response.json();
-    const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!textContent) return parseLocally(rawText);
-
-    const parsed = JSON.parse(textContent);
+    const parsed = await runClientGeminiPostAnalysis({ text: rawText });
+    if (!parsed) return parseLocally(rawText);
 
     const matchedDistrict = MUGLA_DISTRICTS.find(
-      d => d.name.toLowerCase() === (parsed.district_name || "").toLowerCase()
+      d => d.name.toLowerCase() === String(parsed.districtName || "").toLowerCase()
     ) || MUGLA_DISTRICTS[0];
 
     const validCategories: IncidentCategory[] = [
       'Yangın/Afet', 'Trafik', 'Altyapı/Su', 'Asayiş', 'Turizm/Çevre', 'Genel'
     ];
     const category: IncidentCategory = validCategories.includes(parsed.category) 
-      ? parsed.category 
+      ? parsed.category as IncidentCategory
       : 'Genel';
 
     const validSeverities: IncidentSeverity[] = ['Düşük', 'Orta', 'Yüksek', 'Kritik'];
     const severity: IncidentSeverity = validSeverities.includes(parsed.severity)
-      ? parsed.severity
+      ? parsed.severity as IncidentSeverity
       : 'Orta';
 
     return {
       district_name: matchedDistrict.name,
       district_id: matchedDistrict.id,
-      title: parsed.title || "Bildirim",
-      summary: parsed.summary || rawText.slice(0, 120),
+      title: String(parsed.summary || "Bildirim").split(/[.!?]/)[0].slice(0, 80),
+      summary: String(parsed.summary || rawText.slice(0, 120)),
       category,
       severity,
       lat: matchedDistrict.lat,

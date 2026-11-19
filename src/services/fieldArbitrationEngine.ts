@@ -279,49 +279,19 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
   const lower = normTr(trimmedText);
   const nowIso = new Date().toISOString();
 
-  // 1. 3-Tier Smart Fallback:
-  //    Tier 1 -> /api/intel/analyze-post (Express / Vercel Serverless)
-  //    Tier 2 -> Direct @google/genai SDK (Static Vercel / Vite when VITE_GEMINI_API_KEY exists)
-  //    Tier 3 -> Deterministic Turkish NLP Arbitrator
+  // 1. Server-side Gemini proxy -> deterministic Turkish NLP fallback.
   let geminiRaw: any = null;
   let analysisSource: ArbitratedFieldEvent["analysisSource"] = "local-nlp-arbitrator";
 
-  if (typeof fetch === "function") {
-    try {
-      const resp = await fetch("/api/intel/analyze-post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: trimmedText,
-          imageBase64,
-          imageMimeType,
-          lexiconTerms,
-        }),
-      });
-      if (resp.ok) {
-        const json = await resp.json();
-        if (json?.ok && json?.analysis) {
-          geminiRaw = json.analysis;
-          analysisSource = "gemini-multimodal";
-        }
-      }
-    } catch {
-      // Proceed to Tier 2 client fallback cleanly
-    }
-  }
-
-  // Tier 2: If server endpoint returned 404 / fallback / network error and client key exists
-  if (!geminiRaw && ENV.VITE_GEMINI_API_KEY) {
-    const clientAnalysis = await runClientGeminiPostAnalysis({
+  const clientAnalysis = await runClientGeminiPostAnalysis({
       text: trimmedText,
       imageBase64,
       imageMimeType,
       lexiconTerms,
-    });
-    if (clientAnalysis) {
-      geminiRaw = clientAnalysis;
-      analysisSource = "gemini-multimodal";
-    }
+  });
+  if (clientAnalysis) {
+    geminiRaw = clientAnalysis;
+    analysisSource = "gemini-multimodal";
   }
 
   // 2. District identification

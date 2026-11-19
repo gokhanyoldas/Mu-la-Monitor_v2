@@ -8,7 +8,7 @@ const PORT = Number(process.env.PORT || 3000);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-4-hydrogen";
 
 function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+  const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return null;
   return new GoogleGenAI({
     apiKey,
@@ -49,7 +49,7 @@ async function startServer() {
 
   // Healthcheck
   app.get("/api/health", (_req, res) => {
-    const geminiConfigured = Boolean(process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
+    const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
     res.json({ ok: true, geminiConfigured, model: GEMINI_MODEL });
   });
 
@@ -241,6 +241,24 @@ Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında 
         fallback: true,
         reason: "Google Search Grounding geçici olarak kullanılamıyor.",
       });
+    }
+  });
+
+  app.post("/api/intel/protocol-node", async (req, res) => {
+    const { node, connections = [] } = req.body ?? {};
+    if (!node || typeof node !== "object") return res.status(400).json({ ok: false, error: "node gereklidir." });
+    const ai = getGeminiClient();
+    if (!ai) return res.json({ ok: false, fallback: true, reason: "GEMINI_API_KEY tanımlı değil." });
+    try {
+      const prompt = `Muğla protokol ve kriz ağı düğümünü analiz et. Tam olarak 3 kısa Türkçe madde üret ve yalnızca JSON döndür: {"bullets":["..."]}.\nDüğüm: ${JSON.stringify(node).slice(0, 4000)}\nBağlantılar: ${JSON.stringify(Array.isArray(connections) ? connections.slice(0, 40) : []).slice(0, 12000)}`;
+      const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { responseMimeType: "application/json" } });
+      const parsed = extractJsonFromText<{ bullets?: unknown }>(response.text ?? "");
+      const bullets = Array.isArray(parsed?.bullets) ? parsed!.bullets.map(String).filter((item) => item.trim()).slice(0, 3) : [];
+      if (bullets.length < 3) return res.json({ ok: false, fallback: true, reason: "Yapılandırılmış protocol yanıtı alınamadı." });
+      return res.json({ ok: true, model: GEMINI_MODEL, analysis: { bullets } });
+    } catch (err) {
+      console.error("[/api/intel/protocol-node] error:", err);
+      return res.json({ ok: false, fallback: true, reason: "Gemini servisine geçici olarak ulaşılamadı." });
     }
   });
 

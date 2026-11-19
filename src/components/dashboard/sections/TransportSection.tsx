@@ -145,7 +145,6 @@ export const AirportsSummaryPanel = () => {
     fetchFlights();
     const interval = setInterval(fetchFlights, 5 * 60 * 1000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

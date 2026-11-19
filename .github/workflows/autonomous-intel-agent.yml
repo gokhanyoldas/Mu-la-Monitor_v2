@@ -1,0 +1,52 @@
+name: Autonomous Intelligence Agent
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      group:
+        description: "İsteğe bağlı bölgesel grup (A/B/C/D)"
+        required: false
+        type: string
+      dry_run:
+        description: "Yazma işlemi yapmadan planı doğrula"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: autonomous-intel-agent
+  cancel-in-progress: false
+
+jobs:
+  run-agent:
+    name: Run autonomous intelligence agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      AGENT_SYSTEM_USER_ID: ${{ secrets.AGENT_SYSTEM_USER_ID }}
+      AGENT_GROUP_OVERRIDE: ${{ inputs.group || '' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run autonomous agent
+        run: node scripts/run-autonomous-agent.mjs
