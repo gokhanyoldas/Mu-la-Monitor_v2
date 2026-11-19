@@ -1,40 +1,74 @@
 project_id = "wivooargsmcwbiokpklu"
 
-[functions.data-scrape]
+# ── Gerçekten Public, Salt-Okunur Açık Veri Endpoint'leri ─────────────────────
+[functions.public-api]
 verify_jwt = false
+
+[functions.municipality-feed]
+verify_jwt = false
+
+[functions.venue-occupancy]
+verify_jwt = false
+
+# ── Kullanıcı Oturumu veya İç Servis Gerektiren Veri/AI Endpoint'leri ─────────
+[functions.data-scrape]
+verify_jwt = true
 
 [functions.reference-data]
-verify_jwt = false
+verify_jwt = true
 
 [functions.social-analyze]
-verify_jwt = false
+verify_jwt = true
 
 [functions.social-collect]
-verify_jwt = false
+verify_jwt = true
 
 [functions.transport-scrape]
-verify_jwt = false
-
-[functions.twitter-collect]
-verify_jwt = false
-
-[functions.news-scrape]
-verify_jwt = false
-
-[functions.job-worker]
-verify_jwt = false
-
-[functions.spike-scan]
-verify_jwt = false
+verify_jwt = true
 
 [functions.executive-report]
-verify_jwt = false
-
-[functions.mock-data-injector]
-verify_jwt = false
+verify_jwt = true
 
 [functions.city-briefing]
-verify_jwt = false
+verify_jwt = true
+
+[functions.ai-summary]
+verify_jwt = true
+
+[functions.osint-lookup]
+verify_jwt = true
+
+[functions.protocol-scrape]
+verify_jwt = true
+
+# ── Yönetici / Geliştirme Ortamı Endpoint'leri ────────────────────────────────
+[functions.mock-data-injector]
+verify_jwt = true
+
+# ── İç Servis / Cron / Worker Endpoint'leri (Tarayıcıya Kapalı) ────────────────
+[functions.job-worker]
+verify_jwt = true
+
+[functions.twitter-collect]
+verify_jwt = true
+
+[functions.news-scrape]
+verify_jwt = true
+
+[functions.spike-scan]
+verify_jwt = true
+
+[functions.anomaly-scan]
+verify_jwt = true
 
 [functions.tourism-data-checker]
-verify_jwt = false
+verify_jwt = true
+
+[functions.traffic-teyit]
+verify_jwt = true
+
+[functions.email-alerts-ingest]
+verify_jwt = true
+
+[functions.social-cron]
+verify_jwt = true

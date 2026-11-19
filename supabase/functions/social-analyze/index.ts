@@ -3,7 +3,8 @@
 // Model: savasy/bert-base-turkish-sentiment-cased (Turkish BERT)
 // Fallback: Enhanced keyword-based hybrid analysis
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
 
 interface SentimentResult {
   text: string;
@@ -145,22 +146,36 @@ function analyzeWithKeywords(texts: string[]): SentimentResult[] {
 
 // ─── Main Handler ───
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const rl = checkRateLimit(`social-analyze:${authCheck.auth.userId}`, 20, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
+  const cors = getCorsHeaders(req);
 
   try {
     const body = await req.json().catch(() => ({}));
-    const texts: string[] = body.texts || [];
+    const rawTexts: unknown[] = Array.isArray(body.texts) ? body.texts : [];
+    const texts: string[] = rawTexts
+      .slice(0, 30)
+      .map((t) => String(t ?? "").slice(0, 1000))
+      .filter(Boolean);
     
     if (texts.length === 0) {
       return new Response(
         JSON.stringify({ error: "No texts provided. Send { texts: [...] }" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
 
-    // Limit to 30 texts per request
     const limitedTexts = texts.slice(0, 30);
     
     // Try AI first, fallback to keywords
@@ -198,12 +213,12 @@ Deno.serve(async (req: Request) => {
           analyzed_at: new Date().toISOString(),
         },
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...cors, "Content-Type": "application/json" } }
     );
   } catch (error) {
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
 });

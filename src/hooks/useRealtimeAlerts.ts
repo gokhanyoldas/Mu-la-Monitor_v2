@@ -115,16 +115,16 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
         });
       })
       .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "social_analyses", filter: "sentiment=eq.critical",
+        event: "INSERT", schema: "public", table: "social_posts", filter: "sentiment=eq.negative",
       }, (payload) => {
         const row = payload.new as Record<string, unknown>;
         addAlert({
           id: `social_${row.id ?? Date.now()}`,
-          type: "social", severity: "critical",
-          title: String(row.title ?? "Kritik Sosyal Medya Uyarısı"),
-          body: String(row.summary ?? row.content ?? ""),
-          source: String(row.source ?? "Sosyal Medya"),
-          timestamp: String(row.created_at ?? new Date().toISOString()),
+          type: "social", severity: "high",
+          title: String(row.author ? `${row.author} — Sosyal Medya Bildirimi` : "Kritik Sosyal Medya Uyarısı"),
+          body: String(row.content ?? ""),
+          source: String(row.platform ? `Sosyal (${row.platform})` : "Sosyal Medya"),
+          timestamp: String(row.published_at ?? row.created_at ?? new Date().toISOString()),
         });
       })
       .on("broadcast", { event: "earthquake_alert" }, ({ payload }) => {

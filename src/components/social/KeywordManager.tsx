@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Plus, X, Tag, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -28,6 +29,7 @@ const categories = [
 ];
 
 export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
+  const { canManageData } = useAuth();
   const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [newKeyword, setNewKeyword] = useState("");
   const [newCategory, setNewCategory] = useState("general");
@@ -61,7 +63,7 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
   };
 
   const addKeyword = async () => {
-    if (!newKeyword.trim()) return;
+    if (!canManageData || !newKeyword.trim()) return;
     setAdding(true);
 
     const { error } = await supabase
@@ -88,6 +90,7 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
   };
 
   const toggleKeyword = async (id: string, currentState: boolean) => {
+    if (!canManageData) return;
     await supabase
       .from("social_keywords")
       .update({ is_active: !currentState })
@@ -96,6 +99,7 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
   };
 
   const deleteKeyword = async (id: string, keyword: string) => {
+    if (!canManageData) return;
     await supabase
       .from("social_keywords")
       .delete()
@@ -116,38 +120,40 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
 
   return (
     <div className="space-y-3">
-      {/* Add keyword input */}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={newKeyword}
-          onChange={(e) => setNewKeyword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addKeyword()}
-          placeholder="Yeni anahtar kelime..."
-          className="flex-1 text-[11px] font-mono px-3 py-1.5 rounded-lg bg-muted/30 border border-border/50 focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
-        />
-        <select
-          value={newCategory}
-          onChange={(e) => setNewCategory(e.target.value)}
-          className="text-[10px] font-mono px-2 py-1.5 rounded-lg bg-muted/30 border border-border/50 text-foreground"
-        >
-          {categories.map(c => (
-            <option key={c.value} value={c.value}>{c.label}</option>
-          ))}
-        </select>
-        <button
-          onClick={addKeyword}
-          disabled={adding || !newKeyword.trim()}
-          className="text-[10px] font-mono px-3 py-1.5 rounded-lg bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 disabled:opacity-40 flex items-center gap-1"
-        >
-          {adding ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-          Ekle
-        </button>
-      </div>
+      {/* Add keyword input (yalnızca admin/analyst) */}
+      {canManageData && (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newKeyword}
+            onChange={(e) => setNewKeyword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addKeyword()}
+            placeholder="Yeni anahtar kelime..."
+            className="flex-1 text-[11px] font-mono px-3 py-1.5 rounded-lg bg-muted/30 border border-border/50 focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
+          />
+          <select
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            className="text-[10px] font-mono px-2 py-1.5 rounded-lg bg-muted/30 border border-border/50 text-foreground"
+          >
+            {categories.map(c => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+          <button
+            onClick={addKeyword}
+            disabled={adding || !newKeyword.trim()}
+            className="text-[10px] font-mono px-3 py-1.5 rounded-lg bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 disabled:opacity-40 flex items-center gap-1"
+          >
+            {adding ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+            Ekle
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
-      <div className="text-[9px] font-mono text-muted-foreground">
-        {activeCount} aktif / {keywords.length} toplam keyword
+      <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground">
+        <span>{activeCount} aktif / {keywords.length} takip kelimesi</span>
       </div>
 
       {/* Keyword tags grouped by category */}
@@ -167,14 +173,18 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
                       kw.is_active ? cat.color : "border-border/20 text-muted-foreground/40 line-through"
                     }`}
                   >
-                    <button
-                      onClick={() => toggleKeyword(kw.id, kw.is_active)}
-                      className="hover:opacity-70"
-                      title={kw.is_active ? "Devre dışı bırak" : "Aktif et"}
-                    >
-                      {kw.keyword}
-                    </button>
-                    {kw.created_by === "user" && (
+                    {canManageData ? (
+                      <button
+                        onClick={() => toggleKeyword(kw.id, kw.is_active)}
+                        className="hover:opacity-70"
+                        title={kw.is_active ? "Devre dışı bırak" : "Aktif et"}
+                      >
+                        {kw.keyword}
+                      </button>
+                    ) : (
+                      <span>{kw.keyword}</span>
+                    )}
+                    {canManageData && kw.created_by === "user" && (
                       <button
                         onClick={() => deleteKeyword(kw.id, kw.keyword)}
                         className="hover:text-destructive ml-0.5"

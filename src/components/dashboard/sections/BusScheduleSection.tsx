@@ -57,9 +57,12 @@ export const BusScheduleSection = () => {
   const fetchLiveData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("transport-scrape", {
-        body: { type: "bus" },
-      });
+      const { data: { session } } = await supabase.auth.getSession();
+      const { data, error } = session?.access_token
+        ? await supabase.functions.invoke("transport-scrape", {
+            body: { type: "bus" },
+          })
+        : { data: null, error: null };
       if (!error && data?.routes?.length) {
         // MUTTAŞ hat verisini UI formatına normalize et
         const normalized = data.routes.map((r: Record<string, unknown>) => {

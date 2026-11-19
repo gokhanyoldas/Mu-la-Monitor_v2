@@ -2,7 +2,7 @@
 // Madde 12: Turistik işletme doluluk ve puanları
 // Kaynak: Google Places API (ücretsiz 28K req/ay) + OpenStreetMap Overpass (ücretsiz)
 
-import { corsHeaders } from '../_shared/cors.ts';
+import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 
 const MUGLA_LAT = 37.2153;
 const MUGLA_LON = 28.3636;
@@ -54,8 +54,15 @@ async function fetchOSMVenues(lat: number, lng: number, radius = 3000) {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const cors = getCorsHeaders(req);
+  if (req.method !== 'GET') {
+    return new Response(JSON.stringify({ error: 'Method not allowed. Use GET.' }), {
+      status: 405,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    });
   }
 
   try {
@@ -130,13 +137,13 @@ Deno.serve(async (req: Request) => {
         source: 'OpenStreetMap Overpass API (ücretsiz)',
         queried_at: new Date().toISOString(),
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { ...cors, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
     console.error('venue-occupancy error:', error);
     return new Response(
       JSON.stringify({ success: false, error: error.message, venues: [] }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } }
     );
   }
 });

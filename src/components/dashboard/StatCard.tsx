@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface StatCardProps {
   label: string;
@@ -20,11 +21,14 @@ const variantStyles = {
 };
 
 export const StatCard = ({ label, value, unit, change, icon, variant = "default", info }: StatCardProps) => {
+  const { t } = useTranslation();
+  const displayVal = typeof value === "string" ? t(value) : value;
+
   return (
     <div className="group relative bg-muted/30 rounded-md p-2.5 border border-border/50 animate-slide-in">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-          {label}
+          {t(label)}
           {info && (
             <Info size={9} className="text-muted-foreground/60 group-hover:text-primary transition-colors" />
           )}
@@ -33,10 +37,10 @@ export const StatCard = ({ label, value, unit, change, icon, variant = "default"
       </div>
       <div className="flex items-baseline gap-1.5">
         <span className={`text-lg font-mono font-bold ${variantStyles[variant]}`}>
-          {value}
+          {displayVal}
         </span>
         {unit && (
-          <span className="text-[10px] font-mono text-muted-foreground">{unit}</span>
+          <span className="text-[10px] font-mono text-muted-foreground">{t(unit)}</span>
         )}
       </div>
       {change !== undefined && (
@@ -50,7 +54,7 @@ export const StatCard = ({ label, value, unit, change, icon, variant = "default"
       {/* Hover tooltip — kaynak + periyot bilgisi */}
       {info && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-48 p-2 rounded-md bg-popover border border-border shadow-xl text-[9px] font-mono text-popover-foreground leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none">
-          {info}
+          {t(info)}
           <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-r border-b border-border -mt-1" />
         </div>
       )}

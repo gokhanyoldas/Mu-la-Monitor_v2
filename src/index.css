@@ -298,3 +298,43 @@
 .scrollbar-thin::-webkit-scrollbar { width: 3px; height: 3px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
+
+/* ═══════════════════════════════════════════════════════════
+   3. Ajan: Her Yaş Grubu İçin Yazı Boyutu (A-/A+) & Yüksek Kontrast
+   ═══════════════════════════════════════════════════════════ */
+html[data-font-scale="large"] {
+  font-size: 112.5%;
+}
+
+html[data-font-scale="xlarge"] {
+  font-size: 125%;
+}
+
+html.high-contrast-mode {
+  --background: 220 24% 4%;
+  --foreground: 0 0% 98%;
+  --card: 220 22% 9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 220 24% 8%;
+  --popover-foreground: 0 0% 98%;
+  --secondary: 220 18% 16%;
+  --secondary-foreground: 0 0% 94%;
+  --muted: 220 18% 15%;
+  --muted-foreground: 210 20% 78%;
+  --border: 215 24% 40%;
+  --input: 215 24% 42%;
+  --panel-header: 220 22% 13%;
+  --primary: 158 75% 54%;
+  --accent: 199 92% 62%;
+  --warning: 42 96% 58%;
+  --destructive: 0 85% 62%;
+}
+
+html.high-contrast-mode .panel-border {
+  border-width: 1.5px;
+}
+
+.tabular-nums-stat {
+  font-variant-numeric: tabular-nums;
+}
+

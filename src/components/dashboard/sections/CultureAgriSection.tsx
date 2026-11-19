@@ -51,75 +51,75 @@ const heritageData = {
 };
 
 const HeritageAccordion = () => {
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>("unesco");
   const toggle = (key: string) => setOpen(open === key ? null : key);
 
   const Section = ({ id, label, count, children }: { id: string; label: string; count: number; children: React.ReactNode }) => (
-    <div className="rounded bg-muted/20 overflow-hidden">
-      <button onClick={() => toggle(id)} className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-muted/40 transition-colors">
+    <div className="rounded bg-muted/20 overflow-hidden border border-border/40">
+      <button onClick={() => toggle(id)} className="w-full flex items-center justify-between px-2.5 py-1.5 hover:bg-muted/40 transition-colors">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-success" />
-          <span className="text-xs font-mono text-foreground/80">{label}</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span className="text-xs font-mono text-foreground/85 font-medium">{label}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs font-mono font-bold text-primary">{count}</span>
           {open === id ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
         </div>
       </button>
-      {open === id && <div className="px-2.5 pb-2 space-y-1">{children}</div>}
+      {open === id && <div className="px-2 pb-2 pt-1 space-y-1 bg-background/30 max-h-[140px] overflow-y-auto">{children}</div>}
     </div>
   );
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 max-h-[250px] overflow-y-auto pr-1">
       <Section id="unesco" label="UNESCO Alanları" count={heritageData.unesco.length}>
         {heritageData.unesco.map((item, i) => (
-          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/50">
+          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/60 border border-border/30">
             <MapPin size={10} className="text-accent mt-0.5 shrink-0" />
             <div>
-              <span className="text-[11px] font-mono font-semibold text-foreground/90 block">{item.name}</span>
-              <span className="text-[9px] text-muted-foreground">{item.address}</span>
+              <span className="text-[10px] font-mono font-semibold text-foreground/90 block">{item.name}</span>
+              <span className="text-[8px] text-muted-foreground">{item.address}</span>
             </div>
           </div>
         ))}
       </Section>
       <Section id="antik" label="Antik Kentler" count={heritageData.antikKentler.length}>
         {heritageData.antikKentler.map((item, i) => (
-          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/50">
+          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/60 border border-border/30">
             <MapPin size={10} className="text-accent mt-0.5 shrink-0" />
             <div>
-              <span className="text-[11px] font-mono font-semibold text-foreground/90 block">{item.name}</span>
-              <span className="text-[9px] text-muted-foreground">{item.address}</span>
+              <span className="text-[10px] font-mono font-semibold text-foreground/90 block">{item.name}</span>
+              <span className="text-[8px] text-muted-foreground">{item.address}</span>
             </div>
           </div>
         ))}
       </Section>
       <Section id="muze" label="Müze & Ören Yeri" count={heritageData.muzeOrenYeri.length}>
         {heritageData.muzeOrenYeri.map((item, i) => (
-          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/50">
+          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/60 border border-border/30">
             <MapPin size={10} className="text-accent mt-0.5 shrink-0" />
             <div>
-              <span className="text-[11px] font-mono font-semibold text-foreground/90 block">{item.name}</span>
-              <span className="text-[9px] text-muted-foreground">{item.address}</span>
+              <span className="text-[10px] font-mono font-semibold text-foreground/90 block">{item.name}</span>
+              <span className="text-[8px] text-muted-foreground">{item.address}</span>
             </div>
           </div>
         ))}
       </Section>
       <Section id="sanatci" label="Yerel Sanatçılar" count={heritageData.sanatcilar.length}>
         {heritageData.sanatcilar.map((name, i) => (
-          <div key={i} className="py-0.5 px-1.5 text-[11px] font-mono text-foreground/80">{name}</div>
+          <div key={i} className="py-0.5 px-1.5 text-[10px] font-mono text-foreground/80">{name}</div>
         ))}
       </Section>
       <Section id="koruma" label="Koruma Projeleri" count={heritageData.korumaProjeleri.length}>
         {heritageData.korumaProjeleri.map((item, i) => (
-          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/50">
+          <div key={i} className="flex items-start gap-1.5 py-1 px-1.5 rounded bg-background/60 border border-border/30">
             <MapPin size={10} className="text-accent mt-0.5 shrink-0" />
             <div className="flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono font-semibold text-foreground/90">{item.name}</span>
-                <span className={`text-[8px] font-mono px-1 py-0.5 rounded ${item.status === "Tamamlandı" ? "bg-success/20 text-success" : "bg-warning/20 text-warning"}`}>{item.status}</span>
+                <span className="text-[10px] font-mono font-semibold text-foreground/90">{item.name}</span>
+                <span className={`text-[7px] font-mono px-1 py-0.2 rounded ${item.status === "Tamamlandı" ? "bg-success/20 text-success" : "bg-warning/20 text-warning"}`}>{item.status}</span>
               </div>
-              <span className="text-[9px] text-muted-foreground">{item.address}</span>
+              <span className="text-[8px] text-muted-foreground">{item.address}</span>
             </div>
           </div>
         ))}
@@ -128,40 +128,54 @@ const HeritageAccordion = () => {
   );
 };
 
-
-
-export const CultureAgriSection = () => {
-  const { data: agriData, isLoading: aLoading } = useLiveData<any>("agriculture", { refetchInterval: 24 * 60 * 60 * 1000 });
-  const { data: cultureData, isLoading: cLoading } = useLiveData<any>("culture", { refetchInterval: 24 * 60 * 60 * 1000 });
-
+export const AgriculturePanel = () => {
+  const { data: agriData, isLoading } = useLiveData<any>("agriculture", { refetchInterval: 24 * 60 * 60 * 1000 });
   const agri = agriData || {};
+
+  return (
+    <DashboardPanel title="Tarım & Üretim" icon={<Wheat size={14} />} badge="Tarım-Orman Bk. 2024" badgeVariant="info">
+      {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
+      <div className="grid grid-cols-2 gap-2 mb-2.5">
+        <StatCard label="Zeytin Üretimi" value={agri.olive_production ?? "145K"} unit={agri.olive_unit ?? "ton"} change={agri.olive_change ?? 4.2} variant="primary"
+          info="Tarım ve Orman Bakanlığı 2024 zeytin üretimi (Muğla). Değişim yıllık." />
+        <StatCard label="Narenciye" value={agri.citrus_production ?? "89K"} unit={agri.citrus_unit ?? "ton"} change={agri.citrus_change ?? -2.1}
+          info="Tarım ve Orman Bakanlığı 2024 turunçgil üretimi. Değişim yıllık." />
+        <StatCard label="Bal Üretimi" value={agri.honey_production ?? "8.2K"} unit={agri.honey_unit ?? "ton"} change={agri.honey_change ?? 6.8} variant="primary"
+          info="Tarım ve Orman Bakanlığı 2024 bal üretimi (Muğla — çam balı ağırlıklı). Değişim yıllık." />
+        <StatCard label="Tarım Alanı" value={agri.farm_area ?? "412K"} unit={agri.farm_area_unit ?? "ha"}
+          info="Tarım ve Orman Bakanlığı 2024 toplam tarım alanı (412,000 hektar)." />
+      </div>
+      <div className="p-2 rounded bg-muted/20 border border-border/30">
+        <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground mb-1">
+          <span>Ürün Dağılımı</span>
+          <span className="text-primary font-bold">Zeytin %42 · Narenciye %26</span>
+        </div>
+        <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden flex">
+          <div className="bg-emerald-500 h-full w-[42%]" title="Zeytin: %42" />
+          <div className="bg-amber-500 h-full w-[26%]" title="Narenciye: %26" />
+          <div className="bg-yellow-400 h-full w-[18%]" title="Çam Balı: %18" />
+          <div className="bg-cyan-500 h-full w-[14%]" title="Diğer: %14" />
+        </div>
+      </div>
+      {agri.source && <div className="text-[8px] font-mono text-muted-foreground mt-1.5 text-right">Kaynak: {agri.source}</div>}
+    </DashboardPanel>
+  );
+};
+
+export const CultureEventsPanel = () => {
+  const { data: cultureData, isLoading } = useLiveData<any>("culture", { refetchInterval: 24 * 60 * 60 * 1000 });
   const culture = cultureData || {};
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
-      <DashboardPanel title="Tarım & Üretim" icon={<Wheat size={14} />} badge="Tarım-Orman Bk. 2024" badgeVariant="info">
-        {aLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Zeytin Üretimi" value={agri.olive_production ?? "145K"} unit={agri.olive_unit ?? "ton"} change={agri.olive_change ?? 4.2} variant="primary"
-            info="Tarım ve Orman Bakanlığı 2024 zeytin üretimi (Muğla). Değişim yıllık." />
-          <StatCard label="Narenciye" value={agri.citrus_production ?? "89K"} unit={agri.citrus_unit ?? "ton"} change={agri.citrus_change ?? -2.1}
-            info="Tarım ve Orman Bakanlığı 2024 turunçgil üretimi. Değişim yıllık." />
-          <StatCard label="Bal Üretimi" value={agri.honey_production ?? "8.2K"} unit={agri.honey_unit ?? "ton"} change={agri.honey_change ?? 6.8} variant="primary"
-            info="Tarım ve Orman Bakanlığı 2024 bal üretimi (Muğla — çam balı ağırlıklı). Değişim yıllık." />
-          <StatCard label="Tarım Alanı" value={agri.farm_area ?? "412K"} unit={agri.farm_area_unit ?? "ha"}
-            info="Tarım ve Orman Bakanlığı 2024 toplam tarım alanı (412,000 hektar)." />
-        </div>
-        {agri.source && <div className="text-[8px] font-mono text-muted-foreground mt-1 text-right">Kaynak: {agri.source}</div>}
-      </DashboardPanel>
-
-      <DashboardPanel title="Kültür & Etkinlikler" icon={<Palette size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info">
-        {cLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Aktif Etkinlik" value={String(culture.active_events ?? 24)} variant="accent"
-            info="Kültür ve Turizm Bakanlığı 2024 — şu an aktif/kayıtlı etkinlik sayısı." />
-          <StatCard label="Festival (Yıl)" value={String(culture.annual_festivals ?? 28)}
-            info="Kültür ve Turizm Bakanlığı 2024 — yıllık toplam festival sayısı (Muğla)." />
-        </div>
+    <DashboardPanel title="Kültür & Etkinlikler" icon={<Palette size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info">
+      {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
+      <div className="grid grid-cols-2 gap-2 mb-2.5">
+        <StatCard label="Aktif Etkinlik" value={String(culture.active_events ?? 24)} variant="accent"
+          info="Kültür ve Turizm Bakanlığı 2024 — şu an aktif/kayıtlı etkinlik sayısı." />
+        <StatCard label="Festival (Yıl)" value={String(culture.annual_festivals ?? 28)}
+          info="Kültür ve Turizm Bakanlığı 2024 — yıllık toplam festival sayısı (Muğla)." />
+      </div>
+      <div className="max-h-[160px] overflow-y-auto pr-0.5">
         <StatusList items={
           (culture.upcoming_events || [
             { name: "Bodrum Bale Festivali", date: "15 Tem" },
@@ -174,12 +188,31 @@ export const CultureAgriSection = () => {
             status: "info" as const,
           }))
         } />
-        {culture.source && <div className="text-[8px] font-mono text-muted-foreground mt-1 text-right">Kaynak: {culture.source}</div>}
-      </DashboardPanel>
+      </div>
+      {culture.source && <div className="text-[8px] font-mono text-muted-foreground mt-1.5 text-right">Kaynak: {culture.source}</div>}
+    </DashboardPanel>
+  );
+};
 
-      <DashboardPanel title="Kültürel Miras" icon={<Landmark size={14} />} badge="Kültür-Turizm Bk. 2024" badgeVariant="info">
-        <HeritageAccordion />
-      </DashboardPanel>
+export const CulturalHeritagePanel = () => {
+  return (
+    <DashboardPanel title="Kültürel Miras" icon={<Landmark size={14} />} badge="UNESCO & Tescilli" badgeVariant="info">
+      <div className="mb-2 px-2 py-1 rounded bg-secondary/30 border border-border/30 flex items-center justify-between text-[9px] font-mono text-muted-foreground">
+        <span>Kültür Envanteri</span>
+        <span className="text-foreground font-semibold">3 UNESCO · 12 Antik Kent · 7 Müze</span>
+      </div>
+      <HeritageAccordion />
+    </DashboardPanel>
+  );
+};
+
+export const CultureAgriSection = () => {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">
+      <AgriculturePanel />
+      <CultureEventsPanel />
+      <CulturalHeritagePanel />
     </div>
   );
 };
+

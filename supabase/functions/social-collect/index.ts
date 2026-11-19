@@ -3,7 +3,8 @@
 // Persists to DB: social_posts, social_trends, source_reliability
 // No API keys needed - all free sources
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface CollectedPost {
@@ -505,21 +506,38 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
 
 // ─── Main Handler ───
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const rl = checkRateLimit(`social-collect:${authCheck.auth.userId}`, 15, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
+  const cors = getCorsHeaders(req);
 
   try {
     const body = await req.json().catch(() => ({}));
-    const keywords: string[] = body.keywords || DEFAULT_KEYWORDS;
-    const platforms: string[] = body.platforms || ["news", "reddit", "eksisozluk"];
+    const rawKeywords: string[] = Array.isArray(body.keywords) ? body.keywords.slice(0, 15) : DEFAULT_KEYWORDS;
+    const keywords = rawKeywords.map((k) => String(k).trim()).filter(Boolean);
+    const platforms: string[] = Array.isArray(body.platforms) ? body.platforms : ["news", "reddit", "eksisozluk"];
 
     const results: CollectedPost[] = [];
     const errors: string[] = [];
 
-    // Create supabase client for DB-sourced scrapers
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (!supabaseUrl || !supabaseKey) {
+      return new Response(
+        JSON.stringify({ error: "Service credentials not configured" }),
+        { status: 503, headers: { ...cors, "Content-Type": "application/json" } }
+      );
+    }
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const fetchers: Promise<CollectedPost[]>[] = [];
@@ -556,12 +574,12 @@ Deno.serve(async (req: Request) => {
         },
         errors: errors.length > 0 ? errors : undefined,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...cors, "Content-Type": "application/json" } }
     );
   } catch (error) {
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
 });

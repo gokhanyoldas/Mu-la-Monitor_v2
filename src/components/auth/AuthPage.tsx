@@ -24,9 +24,6 @@ export const AuthPage = ({ onAuth }: AuthPageProps) => {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            data: { role: "user" },
-          },
         });
         if (error) throw error;
         toast({
@@ -150,13 +147,16 @@ export const AuthPage = ({ onAuth }: AuthPageProps) => {
           </form>
 
           {/* Guest access */}
-          <div className="mt-4 pt-4 border-t border-border/30 text-center">
+          <div className="mt-4 pt-4 border-t border-border/30 text-center space-y-1">
             <button
               onClick={onAuth}
               className="text-[10px] font-mono text-muted-foreground hover:text-primary transition-colors"
             >
-              Misafir olarak devam et →
+              Misafir Olarak Devam Et →
             </button>
+            <p className="text-[8px] font-mono text-muted-foreground/50">
+              Misafir görünümünde tüm genel şehir verileri incelenebilir.
+            </p>
           </div>
         </div>
 

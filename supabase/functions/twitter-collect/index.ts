@@ -3,7 +3,8 @@
 // aksi halde (varsayılan) gerçekçi demo sosyal sinyal mock-data-injector'den gelir.
 // Canlı modda: OAuth 2.0 token yenileme + 429 rate-limit backoff koruması aktif.
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 import { analyzeText } from "../_shared/nlp.ts";
 
@@ -89,24 +90,45 @@ async function searchRecent(token: string): Promise<{ tweets: TweetLite[]; retry
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
 
-  // FREE-TIER (varsayılan): canlı X API çağrısı keskülde; yerel feed üret
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const base = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const internalSecret = Deno.env.get("INTERNAL_FUNCTION_SECRET") ?? "";
+  const internalHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(serviceKey ? { Authorization: `Bearer ${serviceKey}`, apikey: serviceKey } : {}),
+    ...(internalSecret ? { "x-internal-secret": internalSecret } : {}),
+  };
+
+  // FREE-TIER (varsayılan): canlı X API çağrısı keskülde; yerel feed üret (yalnızca ALLOW_MOCK_IN_PROD=true ise)
   if (Deno.env.get("TWITTER_LIVE_ENABLED") !== "1") {
-    const base = Deno.env.get("SUPABASE_URL") ?? "";
-    const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (Deno.env.get("ENVIRONMENT") === "production" && Deno.env.get("ALLOW_MOCK_IN_PROD") !== "true") {
+      return new Response(
+        JSON.stringify({ ok: true, mode: "disabled-in-production", skipped: "TWITTER_LIVE_ENABLED!=1" }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+    }
     try {
       const resp = await fetch(`${base}/functions/v1/mock-data-injector`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        headers: internalHeaders,
         body: JSON.stringify({ perDistrict: 4, hours: 6 }),
       });
       const out = await resp.json().catch(() => ({}));
       return new Response(JSON.stringify({ ok: true, mode: "local-feed", ...out }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        { headers: { "Content-Type": "application/json" } });
     } catch (err) {
       return new Response(JSON.stringify({ ok: true, mode: "local-feed", error: String(err) }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        { headers: { "Content-Type": "application/json" } });
     }
   }
 
@@ -114,20 +136,19 @@ Deno.serve(async (req) => {
   const sb = getServiceClient();
   const token = await getToken();
 
-  // API anahtarı yoksa sessizce başarılı dön — serbest kaynak akışı devam eder
+  // API anahtarı yoksa sessizce başarılı dön — production'da sahte veri enjekte etme
   if (!sb || !token) {
-    // Canlı mod açık ama kimlik yok → lokal feed'e düş (boş veriden iyi)
-    const base = Deno.env.get("SUPABASE_URL") ?? "";
-    const key = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    try {
-      await fetch(`${base}/functions/v1/mock-data-injector`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ perDistrict: 4, hours: 6 }),
-      });
-    } catch { /* sessizce geç */ }
-    return new Response(JSON.stringify({ ok: true, mode: "local-feed-fallback", skipped: "twitter credentials not configured" }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (Deno.env.get("ENVIRONMENT") !== "production" || Deno.env.get("ALLOW_MOCK_IN_PROD") === "true") {
+      try {
+        await fetch(`${base}/functions/v1/mock-data-injector`, {
+          method: "POST",
+          headers: internalHeaders,
+          body: JSON.stringify({ perDistrict: 4, hours: 6 }),
+        });
+      } catch { /* sessizce geç */ }
+    }
+    return new Response(JSON.stringify({ ok: true, mode: "skipped", skipped: "twitter credentials not configured" }),
+      { headers: { "Content-Type": "application/json" } });
   }
 
   const { tweets, retryAfterSec, status } = await searchRecent(token);
@@ -140,7 +161,7 @@ Deno.serve(async (req) => {
       run_after: new Date(Date.now() + backoffSec * 1000).toISOString(), priority: 50,
     });
     return new Response(JSON.stringify({ ok: true, rateLimited: true, retryInSec: backoffSec }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { headers: { "Content-Type": "application/json" } });
   }
 
   let inserted = 0;
@@ -168,5 +189,5 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ ok: true, fetched: tweets.length, inserted }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    { headers: { "Content-Type": "application/json" } });
 });

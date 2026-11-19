@@ -1,6 +1,7 @@
 // Muğla Monitor - data-scrape Edge Function
 // Real-time data from free APIs: Open-Meteo, USGS, Frankfurter, Google News RSS
-import { corsHeaders } from '../_shared/cors.ts';
+import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
+import { authorizeRequest, checkRateLimit, buildRateLimitResponse } from '../_shared/auth.ts';
 import { getServiceClient, readLiveCache, writeLiveCache } from '../_shared/cache.ts';
 
 const MUGLA_LAT = 37.2153;
@@ -572,7 +573,7 @@ async function discoverProjectsViaGemini(
   titles: string[],
   existingNames: string[],
 ): Promise<{ name: string; type: string }[]> {
-  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
   if (!geminiKey || titles.length === 0) return [];
 
   const existing = existingNames.map(normalizeName);
@@ -737,9 +738,20 @@ async function detectSignificantQuakes(data: any) {
 //  MAIN HANDLER
 // ─────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const cors = getCorsHeaders(req);
+
+  const auth = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!auth.ok) return auth.response;
+
+  const rl = checkRateLimit(`data-scrape:${auth.auth.userId}`, 30, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
 
   try {
     const { type } = await req.json();
@@ -762,7 +774,7 @@ Deno.serve(async (req: Request) => {
     if (!handler) {
       return new Response(
         JSON.stringify({ error: `Unknown type: "${type}". Valid types: ${Object.keys(handlers).join(', ')}` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -773,13 +785,12 @@ Deno.serve(async (req: Request) => {
     if (cached?.fresh) {
       return new Response(
         JSON.stringify({ data: { ...cached.data, cache_hit: true, fetched_at: cached.fetched_at } }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
     try {
       const data = await handler();
-      // Persist for cron warm-up + stale fallback (never block the response on cache writes)
       writeLiveCache(type, data, ttl, (data as any)?.source)
         .catch((e) => console.error('[data-scrape] cache write:', e));
       if (type === 'earthquakes') {
@@ -787,14 +798,13 @@ Deno.serve(async (req: Request) => {
           .catch((e) => console.error('[data-scrape] quake detect:', e));
       }
       return new Response(JSON.stringify({ data }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     } catch (fetchErr) {
-      // Upstream API failed: degrade gracefully to the last known good value
       if (cached) {
         return new Response(
           JSON.stringify({ data: { ...cached.data, stale: true, fetched_at: cached.fetched_at } }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          { headers: { ...cors, 'Content-Type': 'application/json' } },
         );
       }
       throw fetchErr;
@@ -803,7 +813,7 @@ Deno.serve(async (req: Request) => {
     console.error('[data-scrape] error:', err);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } }
     );
   }
 });

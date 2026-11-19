@@ -1,3 +1,5 @@
+import { useTranslation } from "@/hooks/useTranslation";
+
 interface GaugeProps {
   value: number;
   max: number;
@@ -15,6 +17,7 @@ const gaugeColors = {
 };
 
 export const Gauge = ({ value, max, label, unit = "%", size = 80, variant = "primary" }: GaugeProps) => {
+  const { t } = useTranslation();
   const percentage = (value / max) * 100;
   const radius = (size - 10) / 2;
   const circumference = Math.PI * radius;
@@ -43,11 +46,11 @@ export const Gauge = ({ value, max, label, unit = "%", size = 80, variant = "pri
           className="fill-foreground font-mono text-sm font-bold"
           fontSize="14"
         >
-          {value}{unit}
+          {value}{t(unit)}
         </text>
       </svg>
       <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider text-center">
-        {label}
+        {t(label)}
       </span>
     </div>
   );

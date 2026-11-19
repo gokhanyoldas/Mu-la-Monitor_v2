@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
-import { Map, Loader2 } from "lucide-react";
+import { Map, Loader2, AlertTriangle, X } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
-import { supabase } from "@/integrations/supabase/client";
+import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import type { GroundTruthTrafficPatch } from "@/services/fieldArbitrationEngine";
 
 type DistrictZone = {
   name: string;
@@ -42,11 +43,36 @@ const getDensityOpacity = (density: number) => {
   return 0.2 + (density / 100) * 0.5;
 };
 
+/**
+ * Arka plandaki çapraz doğrulama çıktısını teknik jargondan tamamen arındırıp
+ * her yaş grubunun anlayacağı tek cümlelik günlük Türkçe trafik uyarısına çevirir.
+ */
+export function formatPlainTrafficNotice(patch: GroundTruthTrafficPatch): string {
+  const place = (patch.location || patch.districtName || "Bölgede").trim();
+  const reasonLow = `${patch.reason || ""} ${place}`.toLocaleLowerCase("tr-TR");
+  if (reasonLow.includes("kaza")) {
+    return `${place} güzergahında trafik kazası nedeniyle yavaşlama bildirildi.`;
+  }
+  if (reasonLow.includes("çalışma") || reasonLow.includes("asfalt") || reasonLow.includes("kazı") || reasonLow.includes("çukur")) {
+    return `${place} çevresinde yol çalışması nedeniyle yoğunluk bildirildi.`;
+  }
+  if (reasonLow.includes("kapalı") || reasonLow.includes("kapan") || reasonLow.includes("sel") || reasonLow.includes("su")) {
+    return `${place} hattında su baskını veya yol daralması bildirildi.`;
+  }
+  if (place.toLocaleLowerCase("tr-TR").includes("yol")) {
+    return `${place} çevresinde yoğunluk bildirildi.`;
+  }
+  if (!patch.districtName || place.toLocaleLowerCase("tr-TR") === patch.districtName.toLocaleLowerCase("tr-TR")) {
+    return `${place} yönünde trafik yoğunluğu bildirildi.`;
+  }
+  return `${place} (${patch.districtName}) yönünde trafik yoğunluğu bildirildi.`;
+}
+
 export const TrafficDensityMap = () => {
   const [hoveredZone, setHoveredZone] = useState<string | null>(null);
+  const [selectedPatchId, setSelectedPatchId] = useState<string | null>(null);
   const { data: trafficData, isLoading } = useLiveData<any>("traffic_density", { refetchInterval: 5 * 60 * 1000 });
 
-  // Backend canlı TomTom verisini "hotspots" olarak döndürür (eski şema: "zones")
   const rawZones = trafficData?.hotspots ?? trafficData?.zones;
   const districtZones: DistrictZone[] =
     Array.isArray(rawZones) && rawZones.length
@@ -61,18 +87,9 @@ export const TrafficDensityMap = () => {
         }))
       : fallbackZones;
   const isLive = !!trafficData?.hotspots?.length || !!trafficData?.zones?.length;
-
-  // AI teyit özeti: traffic-teyit fonksiyonu ai_summaries(type='traffic_verification')
-  // içine "İlçe: %doy (kaynak: basın) | (yalnızca TomTom)" gibi satırlar yazar.
-  const [verification, setVerification] = useState<string | null>(null);
-  useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    supabase.from("ai_summaries")
-      .select("summary").eq("type", "traffic_verification").eq("date", today)
-      .maybeSingle()
-      .then(({ data }) => setVerification(data?.summary ?? null))
-      .catch(() => setVerification(null));
-  }, []);
+  const hub = useOptionalUnifiedIntelligence();
+  const groundTruthPatches = hub?.groundTruthPatches ?? [];
+  const selectedPatch = groundTruthPatches.find((p) => p.id === selectedPatchId) ?? null;
 
   const mapWidth = 420;
   const mapHeight = 300;
@@ -83,16 +100,15 @@ export const TrafficDensityMap = () => {
   const toY = (lat: number) => ((maxLat - lat) / (maxLat - minLat)) * (mapHeight - 40) + 20;
 
   const avgDensity = Math.round(districtZones.reduce((a, z) => a + z.density, 0) / districtZones.length);
-  // En tıkalı nokta (gerçek canlı veri) — sabit "günlük araç" gösteriminin yerine
   const worstZone = districtZones.reduce((a, z) => (z.density > a.density ? z : a), districtZones[0]);
 
   return (
     <DashboardPanel title="Trafik Yoğunluk Haritası" icon={<Map size={14} />} badge="CANLI" badgeVariant="live">
       {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <StatCard label="Ort. Yoğunluk" value={`${avgDensity}`} unit="%" variant="primary" info="TomTom canlı trafik akışından hesaplanır (5 dk tazeleme)" />
-        <StatCard label="En Yoğun Bölge" value={worstZone?.name ?? "—"} unit={worstZone ? `%${worstZone.density}` : ""} info="Şu an en tıkalı izleme noktası (gerçek anlık hız)" />
-        <StatCard label="Kritik Bölge" value={String(districtZones.filter(z => z.density >= 70).length)} variant="destructive" info="Yoğunluğu %70+ olan nokta sayısı" />
+        <StatCard label="Ort. Yoğunluk" value={`${avgDensity}`} unit="%" variant="primary" info="13 ilçenin anlık ortalama trafik yoğunluğu" />
+        <StatCard label="En Yoğun Bölge" value={worstZone?.name ?? "—"} unit={worstZone ? `%${worstZone.density}` : ""} info="Şu an en yoğun trafik görülen ilçe" />
+        <StatCard label="Yoğun Nokta" value={String(districtZones.filter(z => z.density >= 70).length)} variant="destructive" info="Yoğunluğu %70 üzerindeki bölge sayısı" />
       </div>
 
       <div className="relative w-full">
@@ -127,7 +143,6 @@ export const TrafficDensityMap = () => {
                 r={12 + (zone.density / 100) * 12}
                 fill={getDensityColor(zone.density)}
                 opacity={getDensityOpacity(zone.density)}
-                className={zone.density >= 70 ? "animate-pulse" : ""}
               />
               <circle
                 cx={toX(zone.lng)}
@@ -161,9 +176,76 @@ export const TrafficDensityMap = () => {
               </text>
             </g>
           ))}
+
+          {/* Arka plan doğrulamasından gelen sade uyarı işaretçileri (tıklandığında günlük Türkçe tek cümle açılır) */}
+          {groundTruthPatches.map((patch) => {
+            const px = toX(patch.lng);
+            const py = toY(patch.lat);
+            const isSelected = selectedPatchId === patch.id;
+            return (
+              <g
+                key={patch.id}
+                role="button"
+                tabIndex={0}
+                aria-label={formatPlainTrafficNotice(patch)}
+                data-testid={`traffic-warning-marker-${patch.id}`}
+                className="cursor-pointer"
+                onClick={() => setSelectedPatchId((prev) => (prev === patch.id ? null : patch.id))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedPatchId((prev) => (prev === patch.id ? null : patch.id));
+                  }
+                }}
+              >
+                <circle
+                  cx={px}
+                  cy={py}
+                  r={isSelected ? 11 : 9}
+                  fill="hsl(var(--warning) / 0.25)"
+                  stroke="hsl(var(--warning))"
+                  strokeWidth={isSelected ? "2" : "1.5"}
+                />
+                <circle cx={px} cy={py} r={5.5} fill="hsl(var(--warning))" stroke="hsl(var(--background))" strokeWidth="1" />
+                <text
+                  x={px}
+                  y={py + 2.3}
+                  textAnchor="middle"
+                  fontSize="7"
+                  fontFamily="sans-serif"
+                  fontWeight="bold"
+                  fill="hsl(var(--background))"
+                >
+                  !
+                </text>
+              </g>
+            );
+          })}
         </svg>
 
-        {hoveredZone && (() => {
+        {selectedPatch && (
+          <div
+            data-testid="traffic-plain-notice"
+            className="absolute bottom-2 left-2 right-2 bg-card/95 border border-warning/50 rounded-md px-3 py-2 shadow-lg flex items-center justify-between gap-2"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle size={14} className="text-warning shrink-0" />
+              <p className="text-xs font-sans text-foreground leading-snug">
+                {formatPlainTrafficNotice(selectedPatch)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedPatchId(null)}
+              className="text-muted-foreground hover:text-foreground shrink-0 p-0.5"
+              aria-label="Uyarıyı kapat"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        {hoveredZone && !selectedPatch && (() => {
           const zone = districtZones.find(z => z.name === hoveredZone)!;
           return (
             <div className="absolute top-2 right-2 bg-card border border-border rounded-md px-3 py-2 shadow-lg">
@@ -172,12 +254,6 @@ export const TrafficDensityMap = () => {
               {zone.speed != null && (
                 <div className="text-[10px] font-mono text-muted-foreground">
                   Anlık Hız: <span className="font-bold">{zone.speed} km/s</span>
-                  {zone.freeFlow != null && <span> (akıcı: {zone.freeFlow})</span>}
-                </div>
-              )}
-              {zone.confidence != null && (
-                <div className="text-[9px] font-mono text-muted-foreground">
-                  Veri güvenirliği: %{Math.round(zone.confidence * 100)}
                 </div>
               )}
             </div>
@@ -185,39 +261,31 @@ export const TrafficDensityMap = () => {
         })()}
       </div>
 
-      <div className="flex items-center justify-center gap-3 mt-2">
+      <div className="flex items-center justify-center gap-3 mt-2.5 flex-wrap">
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-destructive" />
-          <span className="text-[9px] font-mono text-muted-foreground">Yoğun (70%+)</span>
+          <span className="text-[9px] font-mono text-muted-foreground">Yoğun (%70+)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-warning" />
-          <span className="text-[9px] font-mono text-muted-foreground">Orta (50-70%)</span>
+          <span className="text-[9px] font-mono text-muted-foreground">Orta (%50-70)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-accent" />
-          <span className="text-[9px] font-mono text-muted-foreground">Hafif (30-50%)</span>
+          <span className="text-[9px] font-mono text-muted-foreground">Hafif (%30-50)</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-success" />
-          <span className="text-[9px] font-mono text-muted-foreground">Düşük (&lt;30%)</span>
+          <span className="text-[9px] font-mono text-muted-foreground">Akıcı (&lt;%30)</span>
         </div>
       </div>
 
-      <div className="text-[8px] font-mono text-muted-foreground mt-2 text-center">
-        {isLive
-          ? `Kaynak: ${trafficData?.source ?? "TomTom Traffic Flow"} • Güncelleme: ${new Date(trafficData?.updated_at ?? Date.now()).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
-          : "Kaynak: Sabit fallback (canlı veri yok)"}
-      </div>
-
-      {verification && (
-        <div className="mt-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-          <div className="text-[9px] font-mono font-bold uppercase tracking-wide text-primary mb-1 flex items-center gap-1">
-            ✅ Basın teyidi (AI)
-          </div>
-          <pre className="whitespace-pre-wrap text-[9px] font-mono text-muted-foreground leading-relaxed m-0">{verification}</pre>
+      {isLive && (
+        <div className="text-[9px] font-mono text-muted-foreground mt-2 text-center">
+          Son güncelleme: {new Date(trafficData?.updated_at ?? Date.now()).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
         </div>
       )}
     </DashboardPanel>
   );
 };
+

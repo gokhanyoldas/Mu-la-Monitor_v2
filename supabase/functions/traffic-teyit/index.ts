@@ -5,7 +5,7 @@
 // Sonuç, Frontend'in "✅ haber teyitli" rozeti göstermesi için ai_summaries
 // (type='traffic_verification') içine kaydedilir; kritik eşleşmeler alert_events'e gider.
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { authorizeRequest, checkRateLimit, buildRateLimitResponse } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
@@ -39,7 +39,7 @@ async function buildAiVerification(
   hotspots: Hotspot[],
   trafficNews: NewsItem[],
 ): Promise<boolean> {
-  const geminiKey = Deno.env.get("GEMINI_API_KEY");
+  const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
   if (!geminiKey) return false;
 
   const dense = hotspots.filter((h) => h.density >= 25);
@@ -179,11 +179,30 @@ const TRAFFIC_SPIKE_MIN = 40;  // ilçe en az bu yoğunlukta
 const TRAFFIC_SPIKE_RATIO = 1.5;
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") {
+    return new Response(JSON.stringify({ ok: false, error: "CORS disabled for internal cron" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const auth = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!auth.ok) return auth.response;
+
+  const rl = checkRateLimit(`traffic-teyit:${auth.auth.userId}`, 6, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, false);
+
   try {
     const res = await runTrafficVerification();
-    return new Response(JSON.stringify(res), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify(res), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: String(e) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: false, error: String(e) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 });

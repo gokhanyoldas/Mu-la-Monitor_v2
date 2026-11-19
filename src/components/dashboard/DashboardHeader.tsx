@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { DISTRICTS } from "@/data/districts";
 import { MapPin, ChevronDown } from "lucide-react";
 import { AlertPanel } from "./AlertPanel";
+import { AccessibilityToolbar } from "./AccessibilityToolbar";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { NotificationBell } from "@/components/NotificationBell";
+import { useTranslation } from "@/hooks/useTranslation";
 
-export type DashboardTab = "genel" | "ekonomi" | "cevre" | "turizm" | "ulasim" | "sosyal" | "guvenlik" | "enerji" | "protokol";
+export type DashboardTab = "genel" | "diyagram" | "ekonomi" | "cevre" | "turizm" | "ulasim" | "sosyal" | "guvenlik" | "enerji" | "protokol" | "ag_grafigi";
 
 interface DashboardHeaderProps {
   activeTab?: DashboardTab;
@@ -15,6 +17,7 @@ interface DashboardHeaderProps {
 
 const tabs: { label: string; value: DashboardTab }[] = [
   { label: "Genel Bakış", value: "genel" },
+  { label: "Diyagram", value: "diyagram" },
   { label: "Ekonomi", value: "ekonomi" },
   { label: "Çevre", value: "cevre" },
   { label: "Turizm", value: "turizm" },
@@ -23,9 +26,11 @@ const tabs: { label: string; value: DashboardTab }[] = [
   { label: "Güvenlik", value: "guvenlik" },
   { label: "Enerji", value: "enerji" },
   { label: "Muğla Protokol", value: "protokol" },
+  { label: "Protokol ve Veri Ağı (Test)", value: "ag_grafigi" },
 ];
 
 export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardHeaderProps) => {
+  const { lang, t } = useTranslation();
   const [time, setTime] = useState(new Date());
   const [districtOpen, setDistrictOpen] = useState(false);
   // Dropdown, overflow-x-auto tab barının kırpmasından kaçınmak için fixed konumlanır
@@ -65,13 +70,14 @@ export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardH
   }, []);
 
   const formatDate = (d: Date) => {
-    return d.toLocaleDateString("tr-TR", {
+    const locale = lang === "en" ? "en-US" : lang === "de" ? "de-DE" : "tr-TR";
+    return d.toLocaleDateString(locale, {
       weekday: "short", day: "2-digit", month: "short", year: "numeric",
     });
   };
 
   const formatTime = (d: Date) => {
-    return d.toLocaleTimeString("tr-TR", { hour12: false });
+    return d.toLocaleTimeString(lang === "en" ? "en-US" : lang === "de" ? "de-DE" : "tr-TR", { hour12: false });
   };
 
   return (
@@ -88,29 +94,21 @@ export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardH
                 <span className="text-muted-foreground ml-1 sm:ml-1.5">MONİTÖR</span>
               </h1>
               <p className="text-[8px] sm:text-[9px] font-mono text-muted-foreground tracking-widest uppercase hidden sm:block">
-                Bölgesel İstihbarat Paneli
+                {t("Bölgesel İstihbarat Paneli")}
               </p>
             </div>
           </div>
           <div className="hidden md:flex items-center gap-2 ml-4">
             <span className="status-dot-live" />
-            <span className="text-[10px] font-mono text-destructive font-semibold">CANLI</span>
+            <span className="text-[10px] font-mono text-destructive font-semibold">{t("CANLI")}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-1 sm:gap-2">
-          <div className="hidden lg:flex items-center gap-4 text-[10px] font-mono text-muted-foreground">
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/30 border border-border/50">
-              <span>📡</span>
-              <span>48 KAYNAK</span>
-            </div>
-            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/30 border border-border/50">
-              <span>⏱</span>
-              <span>SON GÜNCELLEME: 2dk</span>
-            </div>
-          </div>
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* 3. Ajan: Görünüm Modu (Sade/Uzman), Yazı Boyutu (A-/A+) & Kontrast */}
+          <AccessibilityToolbar />
 
-          {/* M13: Language switcher */}
+          {/* M13: Hızlı TR / EN Dil Seçici */}
           <LanguageSwitcher />
 
           {/* M4: Notification bell */}
@@ -138,7 +136,7 @@ export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardH
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
             }`}
           >
-            {tab.label}
+            {t(tab.label)}
           </button>
         ))}
 
@@ -152,7 +150,7 @@ export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardH
             }`}
           >
             <MapPin size={10} />
-            İlçeler
+            {t("İlçeler")}
             <ChevronDown size={9} className={`transition-transform ${districtOpen ? "rotate-180" : ""}`} />
           </button>
           {districtOpen && menuPos && (

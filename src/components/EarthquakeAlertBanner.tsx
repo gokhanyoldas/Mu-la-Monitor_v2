@@ -1,7 +1,6 @@
-// M10: Deprem Erken Uyarı Banner
-// USGS Earthquake API ile son 24 saatin M2.5+ depremlerini gösterir (Muğla çevresi)
 import { useEffect, useState } from "react";
 import { AlertTriangle, X, ChevronDown, ChevronUp } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface QuakeEvent {
   id: string;
@@ -46,6 +45,7 @@ function magnitudeEmoji(mag: number): string {
 }
 
 export const EarthquakeAlertBanner = () => {
+  const { lang, t } = useTranslation();
   const [quakes, setQuakes] = useState<QuakeEvent[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState(false);
@@ -105,7 +105,7 @@ export const EarthquakeAlertBanner = () => {
           </span>
           <span className="ml-2 text-[9px] opacity-70">
             {lastFetch
-              ? `Güncellendi: ${lastFetch.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}`
+              ? `${t("updated")}: ${lastFetch.toLocaleTimeString(lang === "en" ? "en-US" : lang === "de" ? "de-DE" : "tr-TR", { hour: "2-digit", minute: "2-digit" })}`
               : ""}
           </span>
         </div>
@@ -133,10 +133,10 @@ export const EarthquakeAlertBanner = () => {
           const dist = Math.round(distanceKm(MUGLA_LAT, MUGLA_LNG, q.lat, q.lng));
           const age = Math.round((Date.now() - q.time) / 60000);
           const ageLabel = age < 60
-            ? `${age}dk önce`
+            ? `${age}${t("min")} ${t("ago")}`
             : age < 1440
-            ? `${Math.round(age / 60)}sa önce`
-            : "1g+ önce";
+            ? `${Math.round(age / 60)}${t("hour")} ${t("ago")}`
+            : `1${t("day")}+ ${t("ago")}`;
           return (
             <div key={q.id} className="flex items-center gap-3 px-3 py-1.5">
               <span className="text-base">{magnitudeEmoji(q.mag)}</span>
@@ -146,9 +146,9 @@ export const EarthquakeAlertBanner = () => {
                   <span className="text-[9px] font-mono opacity-80 truncate">{q.place}</span>
                 </div>
                 <div className="flex gap-2 text-[8px] font-mono opacity-60">
-                  <span>Derinlik: {q.depth_km.toFixed(0)}km</span>
+                  <span>{t("quake.depth")}: {q.depth_km.toFixed(0)}km</span>
                   <span>·</span>
-                  <span>Muğla'ya: ~{dist}km</span>
+                  <span>Muğla: ~{dist}km</span>
                   <span>·</span>
                   <span>{ageLabel}</span>
                 </div>

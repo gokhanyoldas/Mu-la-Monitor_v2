@@ -12,8 +12,10 @@ import { CategoryCard } from "@/components/intelligence/CategoryCard";
 import { CircleAlert as AlertCircle, RefreshCw, Database, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function OSINTDashboard() {
+  const { isAuthenticated, canRunAdminActions } = useAuth();
   const [stats, setStats] = useState({
     totalItems: 0,
     criticalItems: 0,
@@ -138,17 +140,23 @@ export default function OSINTDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <DemoDataButton />
-            <Button
-              onClick={handleManualRefresh}
-              disabled={syncStatus.isRefreshing}
-              className="bg-cyan-600 hover:bg-cyan-700"
-            >
-              <RefreshCw
-                className={`w-4 h-4 mr-2 ${syncStatus.isRefreshing ? "animate-spin" : ""}`}
-              />
-              {syncStatus.isRefreshing ? "Yenileniyor..." : "Yenile"}
-            </Button>
+            {canRunAdminActions && <DemoDataButton />}
+            {isAuthenticated ? (
+              <Button
+                onClick={handleManualRefresh}
+                disabled={syncStatus.isRefreshing}
+                className="bg-cyan-600 hover:bg-cyan-700"
+              >
+                <RefreshCw
+                  className={`w-4 h-4 mr-2 ${syncStatus.isRefreshing ? "animate-spin" : ""}`}
+                />
+                {syncStatus.isRefreshing ? "Yenileniyor..." : "Yenile"}
+              </Button>
+            ) : (
+              <Badge variant="outline" className="text-[10px] font-mono border-slate-700 text-slate-400">
+                Misafir Görünümü
+              </Badge>
+            )}
           </div>
         </div>
 

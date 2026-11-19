@@ -5,7 +5,8 @@
 // alert_events'e düşer (realtime banner + bildirim).
 // pg_cron ile 15 dakikada bir çağrılır.
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 
 type Severity = "critical" | "warning" | "info";
@@ -158,15 +159,21 @@ function scanAll(
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
 
   try {
     const sb = getServiceClient();
     if (!sb) {
       return new Response(JSON.stringify({ error: "Service client unavailable" }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 503, headers: { "Content-Type": "application/json" },
       });
     }
 
@@ -229,13 +236,13 @@ Deno.serve(async (req: Request) => {
         keys: [...activeKeys],
         timestamp: now,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { headers: { "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("[anomaly-scan] error:", err);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
 });

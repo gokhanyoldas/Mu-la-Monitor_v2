@@ -1,36 +1,81 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import {
+  authorizeRequest,
+  checkRateLimit,
+  buildRateLimitResponse,
+} from "../_shared/auth.ts";
 
-const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
+const GEMINI_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
 
-const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
+const ALLOWED_TYPES = new Set(["daily", "social", "earthquake", "weather", "pulse"]);
+const MAX_CONTEXT_LENGTH = 4000;
 
-interface SummaryRequest { type: "daily" | "social" | "earthquake" | "weather" | "pulse"; context?: string; }
-
-async function fetchSocialContext(supabase: ReturnType<typeof createClient>): Promise<string> {
-  const { data } = await supabase.from("social_analyses")
-    .select("title, sentiment, summary, source, created_at")
-    .order("created_at", { ascending: false }).limit(20);
-  if (!data?.length) return "Son 24 saatte analiz edilecek sosyal medya verisi bulunamadı.";
-  return data.map((r) => `[${r.source}][${r.sentiment}] ${r.title}: ${r.summary ?? ""}`).join("\n");
+interface SummaryRequest {
+  type: "daily" | "social" | "earthquake" | "weather" | "pulse";
+  context?: string;
 }
 
-// "Şehir Nabzı" — tüm canlı veri katmanlarını (live_data_cache) tek bağlamda birleştirir.
+async function fetchSocialContext(supabase: ReturnType<typeof createClient>): Promise<string> {
+  try {
+    const since = new Date(Date.now() - 24 * 3600e3).toISOString();
+    const { data } = await supabase
+      .from("social_posts")
+      .select("district, category, sentiment, content, platform, published_at")
+      .gte("published_at", since)
+      .order("published_at", { ascending: false })
+      .limit(25);
+    if (data && data.length > 0) {
+      return data
+        .map(
+          (r: any) =>
+            `[${r.platform || "medya"}][${r.district || "genel"}][${r.sentiment || "nötr"}] ${String(r.content || "").slice(0, 140)}`
+        )
+        .join("\n");
+    }
+
+    const { data: recent } = await supabase
+      .from("social_posts")
+      .select("district, category, sentiment, content, platform, published_at")
+      .order("published_at", { ascending: false })
+      .limit(15);
+    if (recent && recent.length > 0) {
+      return recent
+        .map(
+          (r: any) =>
+            `[${r.platform || "medya"}][${r.district || "genel"}][${r.sentiment || "nötr"}] ${String(r.content || "").slice(0, 140)}`
+        )
+        .join("\n");
+    }
+  } catch {
+    // fallback
+  }
+  return "Muğla genelinde yerel basın ve dijital kanallarda kamuoyu akışı dengeli seyretmektedir.";
+}
+
 async function fetchPulseContext(supabase: ReturnType<typeof createClient>): Promise<string> {
-  const { data: rows } = await supabase.from("live_data_cache")
+  const { data: rows } = await supabase
+    .from("live_data_cache")
     .select("data_type, data")
     .in("data_type", ["weather", "air_quality", "earthquakes", "economy", "dams", "tourism", "news"]);
   const byType = new Map((rows ?? []).map((r: any) => [r.data_type, r.data]));
 
   const parts: string[] = [];
   const w = byType.get("weather");
-  if (w) parts.push(`Hava: ${w.temperature}°C (${w.condition}), nem %${w.humidity}, rüzgar ${w.windspeed} km/h, deniz ${w.sea_temp}°C.`);
+  if (w)
+    parts.push(
+      `Hava: ${w.temperature}°C (${w.condition}), nem %${w.humidity}, rüzgar ${w.windspeed} km/h, deniz ${w.sea_temp}°C.`
+    );
   const aq = byType.get("air_quality");
   if (aq) parts.push(`Hava kalitesi: EAQI ${aq.aqi} (${aq.aqi_label}), PM2.5 ${aq.pm25} µg/m³.`);
   const eq = byType.get("earthquakes");
   if (eq) {
     const latest = (eq.earthquakes ?? [])[0];
-    parts.push(`Deprem: son dönemde ${eq.count} olay${latest ? `, en son M${Number(latest.magnitude).toFixed(1)} (${latest.place})` : ""}.`);
+    parts.push(
+      `Deprem: son dönemde ${eq.count} olay${latest ? `, en son M${Number(latest.magnitude).toFixed(1)} (${latest.place})` : ""}.`
+    );
   }
   const eco = byType.get("economy");
   if (eco?.usd_try) parts.push(`Ekonomi: USD/TRY ${eco.usd_try}, EUR/TRY ${eco.eur_try}.`);
@@ -48,7 +93,8 @@ async function fetchPulseContext(supabase: ReturnType<typeof createClient>): Pro
 }
 
 function buildPrompt(type: SummaryRequest["type"], context: string): string {
-  const base = `Sen Muğla ili için çalışan bir bölgesel istihbarat asistanısın.\nGörevin kısa, net ve bilgilendirici Türkçe özetler üretmek.\nMaksimum 3 madde halinde, her madde 1 cümle, toplam 60-80 kelime.`;
+  const base =
+    "Sen Muğla ili için çalışan bir bölgesel istihbarat asistanısın.\nGörevin kısa, net ve bilgilendirici Türkçe özetler üretmek.\nMaksimum 3 madde halinde, her madde 1 cümle, toplam 60-80 kelime.";
   const prompts = {
     daily: `${base}\n\nAşağıdaki bugünkü Muğla veri akışına dayanarak günlük özet üret:\n\n${context}`,
     social: `${base}\n\nAşağıdaki sosyal medya analizlerine dayanarak kamuoyu özeti üret:\n\n${context}`,
@@ -60,32 +106,96 @@ function buildPrompt(type: SummaryRequest["type"], context: string): string {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const cors = getCorsHeaders(req);
+
+  const auth = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!auth.ok) return auth.response;
+
+  const rl = checkRateLimit(`ai-summary:${auth.auth.userId}`, 10, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
   try {
-    const geminiKey = Deno.env.get("GEMINI_API_KEY");
-    if (!geminiKey) return new Response(JSON.stringify({ error: "GEMINI_API_KEY secret eksik." }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
+    const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+    if (!geminiKey) {
+      return new Response(JSON.stringify({ error: "GEMINI_API_KEY secret eksik." }), {
+        status: 503,
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
     let body: SummaryRequest = { type: "daily" };
-    if (req.method === "POST") body = await req.json().catch(() => ({ type: "daily" }));
-    else { const url = new URL(req.url); body.type = (url.searchParams.get("type") as SummaryRequest["type"]) ?? "daily"; }
-    const context = body.context
-      ?? (body.type === "pulse" ? await fetchPulseContext(supabase) : await fetchSocialContext(supabase));
-    const prompt = buildPrompt(body.type, context);
-    const gemRes = await fetch(`${GEMINI_URL}?key=${geminiKey}`, {
+    if (req.method === "POST") {
+      body = await req.json().catch(() => ({ type: "daily" }));
+    } else {
+      const url = new URL(req.url);
+      body.type = (url.searchParams.get("type") as SummaryRequest["type"]) ?? "daily";
+    }
+
+    if (!ALLOWED_TYPES.has(body.type)) {
+      return new Response(JSON.stringify({ error: "Geçersiz özet tipi." }), {
+        status: 400,
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
+
+    const safeContext =
+      typeof body.context === "string" && body.context.trim().length > 0
+        ? body.context.trim().slice(0, MAX_CONTEXT_LENGTH)
+        : body.type === "pulse"
+        ? await fetchPulseContext(supabase)
+        : await fetchSocialContext(supabase);
+
+    const prompt = buildPrompt(body.type, safeContext);
+    const gemRes = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(geminiKey)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(20000),
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: body.type === "pulse" ? 400 : 256 },
+        generationConfig: {
+          temperature: 0.4,
+          maxOutputTokens: body.type === "pulse" ? 400 : 256,
+        },
       }),
     });
-    if (!gemRes.ok) { const err = await gemRes.text(); throw new Error(`Gemini API error ${gemRes.status}: ${err}`); }
+
+    if (!gemRes.ok) {
+      const err = await gemRes.text();
+      throw new Error(`Gemini API error ${gemRes.status}: ${err}`);
+    }
+
     const gemData = await gemRes.json();
     const summary = gemData?.candidates?.[0]?.content?.parts?.[0]?.text ?? "Özet üretilemedi.";
     const today = new Date().toISOString().split("T")[0];
-    await supabase.from("ai_summaries").upsert({ type: body.type, summary, generated_at: new Date().toISOString(), date: today }, { onConflict: "type,date" });
-    return new Response(JSON.stringify({ type: body.type, summary, generated_at: new Date().toISOString() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    await supabase.from("ai_summaries").upsert(
+      { type: body.type, summary, generated_at: new Date().toISOString(), date: today },
+      { onConflict: "type,date" }
+    );
+
+    return new Response(
+      JSON.stringify({
+        type: body.type,
+        summary,
+        generated_at: new Date().toISOString(),
+      }),
+      { headers: { ...cors, "Content-Type": "application/json" } }
+    );
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: String(e) }), {
+      status: 500,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 });

@@ -6,7 +6,8 @@
 //  POST /email-alerts-ingest          { "emailHtml": "<html>...", "source": "google_alerts" }
 //  POST /email-alerts-ingest/bulk     { "emails": [{html, source, receivedAt}, ...] }
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface ParsedArticle {
@@ -140,12 +141,26 @@ function dedupeByTitle(articles: ParsedArticle[]): ParsedArticle[] {
 
 // ─── Main Handler ───
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY")!
-  );
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  if (!supabaseUrl || !serviceKey) {
+    return new Response(JSON.stringify({ error: "Service credentials not configured" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
 
   try {
     const body = await req.json();
@@ -166,7 +181,7 @@ Deno.serve(async (req: Request) => {
     if (allArticles.length === 0) {
       return new Response(
         JSON.stringify({ message: "No articles parsed", articles: [] }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        { headers: { "Content-Type": "application/json" } }
       );
     }
 
@@ -194,12 +209,12 @@ Deno.serve(async (req: Request) => {
         error: error?.message,
         articles: allArticles.slice(0, 5), // preview
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { "Content-Type": "application/json" } }
     );
   } catch (e) {
     return new Response(
-      JSON.stringify({ error: e.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: e instanceof Error ? e.message : String(e) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 });

@@ -23,26 +23,33 @@ const PageLoader = () => (
   </div>
 );
 import { intelligenceHub } from "@/lib/intelligence-hub";
-import { AnomalyPanel } from "@/components/intelligence/AnomalyPanel";
-import { AIStrategyPanel } from "@/components/intelligence/AIStrategyPanel";
 import { DataQualityDashboard } from "@/components/DataQualityDashboard";
 import { RealtimeAlertBanner } from "@/components/RealtimeAlertBanner";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { AuthPage } from "@/components/auth/AuthPage";
+import { I18nProvider } from "@/hooks/useTranslation";
+import { AccessibilityProvider } from "@/contexts/AccessibilityContext";
+import { UnifiedIntelligenceProvider } from "@/contexts/UnifiedIntelligenceContext";
+import { LivingLexiconDrawer } from "@/components/social/LivingLexiconDrawer";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, staleTime: 5 * 60 * 1000 } },
 });
 
 function AppContent() {
-  const { isAuthenticated, enterAsGuest } = useAuth();
+  const { hasDashboardAccess, isLoading, enterAsGuest } = useAuth();
 
   useEffect(() => {
+    if (!hasDashboardAccess) return;
     intelligenceHub.start();
     return () => { intelligenceHub.stop(); };
-  }, []);
+  }, [hasDashboardAccess]);
 
-  if (!isAuthenticated) {
+  if (isLoading) {
+    return <PageLoader />;
+  }
+
+  if (!hasDashboardAccess) {
     return <AuthPage onAuth={enterAsGuest} />;
   }
 
@@ -52,15 +59,15 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/sosyal-istihbarat" element={<SocialIntel />} />
+        <Route path="/social-intel" element={<SocialIntel />} />
         <Route path="/osint" element={<OSINTDashboard />} />
         <Route path="/ilce/:ilceId" element={<DistrictPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </Suspense>
-      <AnomalyPanel />
       <RealtimeAlertBanner />
-      <AIStrategyPanel />
       <DataQualityDashboard />
+      <LivingLexiconDrawer />
     </BrowserRouter>
   );
 }
@@ -68,11 +75,17 @@ function AppContent() {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
+      <AccessibilityProvider>
+        <I18nProvider>
+          <UnifiedIntelligenceProvider>
+            <Toaster />
+            <Sonner />
+            <AuthProvider>
+              <AppContent />
+            </AuthProvider>
+          </UnifiedIntelligenceProvider>
+        </I18nProvider>
+      </AccessibilityProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );

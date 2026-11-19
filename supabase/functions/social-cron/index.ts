@@ -3,18 +3,32 @@
 // Collects data every 15 minutes, persists to DB
 // Can be triggered: (1) Supabase pg_cron (2) External scheduler (3) Manual call
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const internalSecret = Deno.env.get("INTERNAL_FUNCTION_SECRET") ?? "";
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const internalHeaders: Record<string, string> = {
+      Authorization: `Bearer ${supabaseKey}`,
+      apikey: supabaseKey,
+      ...(internalSecret ? { "x-internal-secret": internalSecret } : {}),
+    };
 
     // 1. Get active keywords from DB
     const { data: keywordsData } = await supabase
@@ -29,6 +43,7 @@ Deno.serve(async (req: Request) => {
     // 2. Call social-collect function (internal invocation)
     const { data: collectResult, error: collectError } = await supabase.functions.invoke("social-collect", {
       body: { keywords, platforms: ["news", "reddit", "eksisozluk"] },
+      headers: internalHeaders,
     });
 
     if (collectError) {
@@ -45,6 +60,7 @@ Deno.serve(async (req: Request) => {
       
       const { data: analyzeResult, error: analyzeError } = await supabase.functions.invoke("social-analyze", {
         body: { texts },
+        headers: internalHeaders,
       });
 
       if (!analyzeError && analyzeResult?.data?.results) {
@@ -98,13 +114,13 @@ Deno.serve(async (req: Request) => {
         keywords_used: keywords.length,
         timestamp: new Date().toISOString(),
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Cron error:", error);
     return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
 });

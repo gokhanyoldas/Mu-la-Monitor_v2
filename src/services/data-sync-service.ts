@@ -52,7 +52,22 @@ class DataSyncService {
     this.notifyListeners();
 
     try {
-      // Fetch live data from Supabase Edge Functions
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        const { data: cacheRows } = await supabase
+          .from("live_data_cache")
+          .select("data_type, data")
+          .in("data_type", ["weather", "news", "economy"]);
+
+        this.status.itemsCount = cacheRows?.length ?? 0;
+        this.status.lastSync = Date.now();
+        this.status.nextSync = Date.now() + this.refreshIntervalMs;
+        this.status.fromCache = true;
+        this.updateDataAge();
+        return this.status;
+      }
+
+      // Fetch live data from Supabase Edge Functions (authenticated session only)
       const [weatherResult, newsResult, economyResult] = await Promise.allSettled([
         supabase.functions.invoke("data-scrape", { body: { type: "weather" } }),
         supabase.functions.invoke("data-scrape", { body: { type: "news" } }),

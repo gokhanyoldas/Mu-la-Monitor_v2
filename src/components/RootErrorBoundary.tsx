@@ -87,23 +87,43 @@ export class RootErrorBoundary extends Component<Props, State> {
             >
               {message}
             </pre>
-            <button
-              data-testid="root-error-reload-btn"
-              type="button"
-              onClick={this.handleReload}
-              style={{
-                marginTop: 16,
-                padding: '8px 14px',
-                borderRadius: 6,
-                background: '#2563eb',
-                color: 'white',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: 13,
-              }}
-            >
-              Sayfayı yeniden yükle
-            </button>
+            <div style={{ display: 'flex', gap: '8px', marginTop: 16 }}>
+              <button
+                data-testid="root-error-reload-btn"
+                type="button"
+                onClick={this.handleReload}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 6,
+                  background: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                Sayfayı yeniden yükle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try { localStorage.clear(); } catch {}
+                  try { sessionStorage.clear(); } catch {}
+                  window.location.reload();
+                }}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 6,
+                  background: '#374151',
+                  color: '#e5e7eb',
+                  border: '1px solid #4b5563',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                }}
+              >
+                Önbelleği Temizle & Yeniden Başlat
+              </button>
+            </div>
             <p
               style={{
                 marginTop: 12,

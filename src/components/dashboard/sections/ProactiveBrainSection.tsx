@@ -48,16 +48,19 @@ export const ProactiveBrainSection = () => {
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
 
-  // Senaryo değişince city-briefing fonksiyonundan AI brifingi çek
+  // Senaryo değişince oturum varsa city-briefing fonksiyonundan AI brifingi çek
   useEffect(() => {
     let cancelled = false;
-    setBriefingLoading(true);
-    supabase.functions.invoke("city-briefing", { body: { scenario } })
-      .then(({ data, error }) => {
-        if (!cancelled && !error && data?.briefing) setBriefing(data.briefing as Briefing);
-      })
-      .catch(() => { /* briefing opsiyonel */ })
-      .finally(() => { if (!cancelled) setBriefingLoading(false); });
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled || !session?.access_token) return;
+      setBriefingLoading(true);
+      supabase.functions.invoke("city-briefing", { body: { scenario } })
+        .then(({ data, error }) => {
+          if (!cancelled && !error && data?.briefing) setBriefing(data.briefing as Briefing);
+        })
+        .catch(() => { /* briefing opsiyonel */ })
+        .finally(() => { if (!cancelled) setBriefingLoading(false); });
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, [scenario]);
 
@@ -169,7 +172,7 @@ export const ProactiveBrainSection = () => {
         badge="PROAKTİF BEYİN"
         badgeVariant="live"
         collapsible
-        defaultOpen={false}
+        defaultOpen={true}
       >
         <div className="p-3 bg-secondary/20 rounded-lg border border-border/40 space-y-3">
           

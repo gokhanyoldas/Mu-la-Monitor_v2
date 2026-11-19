@@ -2,7 +2,8 @@
 // Son 1 saatlik ilçe+kategori hacmini önceki 6 saatin saatlik ortalamasıyla
 // kıyaslar; eşik aşılırsa anomaly_alerts + alert_events'e yazar (Realtime push).
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 
 const SPIKE_THRESHOLD = 3.0; // +300%
@@ -25,12 +26,20 @@ async function countBy(sb: ReturnType<typeof getServiceClient> & object, from: D
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
 
   const sb = getServiceClient();
   if (!sb) {
     return new Response(JSON.stringify({ ok: false, error: "no service client" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { status: 500, headers: { "Content-Type": "application/json" } });
   }
 
   const now = new Date();
@@ -87,5 +96,5 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ ok: true, spikes: spikes.length, details: spikes }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    { headers: { "Content-Type": "application/json" } });
 });

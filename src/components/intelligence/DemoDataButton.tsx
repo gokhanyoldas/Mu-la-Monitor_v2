@@ -6,14 +6,20 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { FlaskConical, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function DemoDataButton({ className }: { className?: string }) {
+  const { canRunAdminActions } = useAuth();
   const [busy, setBusy] = useState<"inject" | "clear" | null>(null);
   const qc = useQueryClient();
   const { toast } = useToast();
+
+  if (!canRunAdminActions) {
+    return null;
+  }
 
   async function run(mode: "inject" | "clear") {
     setBusy(mode);

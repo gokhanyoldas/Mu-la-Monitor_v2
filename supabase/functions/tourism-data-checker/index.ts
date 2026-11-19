@@ -3,7 +3,8 @@
 // tespit ederse alert_events'e uyarı düşer. Kullanıcı onayıyla referans değerler
 // güncellenir — yanlış veri çekme riski yok (parse değil, tespit).
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const KTB_URL = "https://www.ktb.gov.tr/TR-213203/resmi-turizm-istatistikleri.html";
@@ -41,7 +42,16 @@ function detectPeriods(html: string): string[] {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "");
 
@@ -97,10 +107,10 @@ Deno.serve(async (req) => {
         alerted,
         last_check: lastCheck?.created_at ?? null,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { headers: { "Content-Type": "application/json" } },
     );
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { status: 500, headers: { "Content-Type": "application/json" } });
   }
 });

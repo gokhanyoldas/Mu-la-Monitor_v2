@@ -1,12 +1,24 @@
 // supabase/functions/protocol-scrape/index.ts
 // Scrapes https://www.mugla.gov.tr/il-protokol-listesi and returns structured data
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const rl = checkRateLimit(`protocol-scrape:${authCheck.auth.userId}`, 10, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
+  const cors = getCorsHeaders(req);
 
   try {
     // Fetch the protocol page
@@ -163,13 +175,13 @@ Deno.serve(async (req: Request) => {
         source: "https://www.mugla.gov.tr/il-protokol-listesi",
         scraped_at: new Date().toISOString(),
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...cors, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Protocol scrape error:", error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message, protocol: [] }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error), protocol: [] }),
+      { status: 500, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
 });

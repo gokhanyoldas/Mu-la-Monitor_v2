@@ -3,6 +3,7 @@ import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { Landmark, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
+import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 
 type BudgetItem = {
   category: string;
@@ -131,62 +132,109 @@ const barColors = [
 export const LocalGovBudgetSection = () => {
   const [openMunicipality, setOpenMunicipality] = useState<string | null>("Büyükşehir Belediyesi");
   const { data: budgetData, isLoading } = useLiveData<any>("budget", { refetchInterval: 24 * 60 * 60 * 1000 });
+  const hub = useOptionalUnifiedIntelligence();
 
   const municipalities: Municipality[] = budgetData?.municipalities || fallbackMunicipalities;
   const totalAllBudgets = municipalities.reduce((a, m) => a + m.totalBudget, 0);
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Yerel Yönetim Bütçeleri" icon={<Landmark size={14} />} badge="CANLI" badgeVariant="live">
+      <DashboardPanel title="Yerel Yönetim Bütçeleri" icon={<Landmark size={14} />} badge="2024 RESMİ" badgeVariant="info">
         {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Toplam Bütçe" value={`${(totalAllBudgets / 1000).toFixed(1)}`} unit="Myr ₺" variant="primary" />
-          <StatCard label="Kurum Sayısı" value={String(municipalities.length)} variant="accent" />
+          <StatCard label="Toplam Bütçe" value={`${(totalAllBudgets / 1000).toFixed(1)}`} unit="Myr ₺" variant="primary" info="Muğla Valiliği + Büyükşehir ve İlçe Meclisleri onaylı 2024 bütçe toplamı" />
+          <StatCard label="İzlenen Kurum" value={String(municipalities.length)} variant="accent" info="Resmi bütçe kararı izlenen yerel idare sayısı" />
         </div>
 
         <div className="space-y-1">
-          {municipalities.map((mun) => (
-            <div key={mun.name} className="rounded bg-muted/20 overflow-hidden">
-              <button
-                onClick={() => setOpenMunicipality(openMunicipality === mun.name ? null : mun.name)}
-                className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-muted/40 transition-colors"
+          {municipalities.map((mun) => {
+            const munAlerts = hub?.getBudgetAlertsForMunicipality(mun.name) ?? [];
+            const hasFieldDemand = munAlerts.length > 0;
+            const alertProjects = Array.from(new Set(munAlerts.flatMap((a) => a?.projects ?? [])));
+            const alertCats = munAlerts.flatMap((a) => a?.categories ?? []).map((c) => c.toLocaleLowerCase("tr-TR"));
+
+            return (
+              <div
+                key={mun.name}
+                className={`rounded overflow-hidden transition-colors ${
+                  hasFieldDemand ? "bg-amber-500/10 border border-amber-500/50" : "bg-muted/20"
+                }`}
               >
-                <span className="text-xs font-mono font-semibold text-foreground/80">{mun.name}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold text-primary">{mun.totalBudget >= 1000 ? `${(mun.totalBudget / 1000).toFixed(1)} Myr ₺` : `${mun.totalBudget} Mln ₺`}</span>
-                  {openMunicipality === mun.name ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
-                </div>
-              </button>
-              {openMunicipality === mun.name && (
-                <div className="px-2.5 pb-3">
-                  <div className="flex h-3 rounded-full overflow-hidden mb-2">
-                    {mun.items.map((item, j) => (
-                      <div
-                        key={j}
-                        className={`${barColors[j % barColors.length]} transition-all`}
-                        style={{ width: `${item.percentage}%` }}
-                        title={`${item.category}: ${item.percentage}%`}
-                      />
-                    ))}
+                <button
+                  onClick={() => setOpenMunicipality(openMunicipality === mun.name ? null : mun.name)}
+                  className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-muted/40 transition-colors gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-mono font-semibold text-foreground/80 truncate">{mun.name}</span>
+                    {hasFieldDemand && (
+                      <span className="shrink-0 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        Güncel Gündem
+                      </span>
+                    )}
                   </div>
-                  <div className="space-y-0.5">
-                    {mun.items.map((item, j) => (
-                      <div key={j} className="flex items-center justify-between py-0.5 px-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-sm ${barColors[j % barColors.length]}`} />
-                          <span className="text-[10px] font-mono text-foreground/80">{item.category}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-mono text-muted-foreground">{item.amount >= 1000 ? `${(item.amount / 1000).toFixed(1)} Myr` : `${item.amount} Mln`} ₺</span>
-                          <span className="text-[10px] font-mono font-bold text-primary w-8 text-right">{item.percentage}%</span>
-                        </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] font-mono font-bold text-primary">{mun.totalBudget >= 1000 ? `${(mun.totalBudget / 1000).toFixed(1)} Myr ₺` : `${mun.totalBudget} Mln ₺`}</span>
+                    {openMunicipality === mun.name ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
+                  </div>
+                </button>
+                {openMunicipality === mun.name && (
+                  <div className="px-2.5 pb-3">
+                    {hasFieldDemand && (
+                      <div className="mb-2 rounded border border-amber-500/40 bg-background/60 p-2 text-[10px] font-mono space-y-1">
+                        <div className="font-bold text-amber-300">Güncel Proje Notu:</div>
+                        <div className="text-foreground/85">{munAlerts[0]?.detail}</div>
+                        {alertProjects.length > 0 && (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {alertProjects.map((proj) => (
+                              <span key={proj} className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-200 border border-rose-500/30 text-[9px]">
+                                {proj}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )}
+                    <div className="flex h-3 rounded-full overflow-hidden mb-2">
+                      {mun.items.map((item, j) => (
+                        <div
+                          key={j}
+                          className={`${barColors[j % barColors.length]} transition-all`}
+                          style={{ width: `${item.percentage}%` }}
+                          title={`${item.category}: ${item.percentage}%`}
+                        />
+                      ))}
+                    </div>
+                    <div className="space-y-0.5">
+                      {mun.items.map((item, j) => {
+                        const catLow = item.category.toLocaleLowerCase("tr-TR");
+                        const catMatched = alertCats.some((ac) => catLow.includes(ac) || ac.includes(catLow.split(" ")[0]));
+                        return (
+                          <div
+                            key={j}
+                            className={`flex items-center justify-between py-0.5 px-1.5 rounded ${
+                              catMatched ? "bg-amber-500/15 border border-amber-500/40" : ""
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-sm ${barColors[j % barColors.length]}`} />
+                              <span className="text-[10px] font-mono text-foreground/80">
+                                {item.category}
+                                {catMatched && <span className="ml-1.5 text-[8px] text-amber-300 font-bold">· Güncel</span>}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-mono text-muted-foreground">{item.amount >= 1000 ? `${(item.amount / 1000).toFixed(1)} Myr` : `${item.amount} Mln`} ₺</span>
+                              <span className="text-[10px] font-mono font-bold text-primary w-8 text-right">{item.percentage}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
+                )}
+              </div>
+            );
+          })}
         </div>
         {budgetData?.source && <div className="text-[8px] font-mono text-muted-foreground mt-2 text-right">Kaynak: {budgetData.source}</div>}
       </DashboardPanel>

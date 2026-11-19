@@ -1,6 +1,7 @@
 // Muğla Monitor - reference-data Edge Function
 // Semi-static reference data: TÜİK, MEB, Sağlık Bakanlığı, Belediye
-import { corsHeaders } from '../_shared/cors.ts';
+import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
+import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from '../_shared/auth.ts';
 import { readLiveCache, writeLiveCache } from '../_shared/cache.ts';
 
 const MUGLA_LAT = 37.2153;
@@ -48,9 +49,9 @@ async function fetchTomTomSegment(apiKey: string, lat: number, lon: number): Pro
 }
 
 async function fetchTrafficDensity() {
-  const apiKey = Deno.env.get('TOMTOM_API_KEY');
+  const apiKey = Deno.env.get('TOMTOM_API_KEY') ?? '';
   if (!apiKey) {
-    // anahtar yoksa canli veri uretilemez — sabit bir uyari döndur (onsiz kim biraz)
+    // anahtar yoksa canli veri uretilemez — sabit bir uyari döndur
     console.error('[traffic] TOMTOM_API_KEY secret tanimli degil');
     return {
       hotspots: [],
@@ -397,9 +398,20 @@ async function fetchLifeQuality() {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const rl = checkRateLimit(`reference-data:${authCheck.auth.userId}`, 60, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
+  const cors = getCorsHeaders(req);
 
   try {
     const { type } = await req.json();
@@ -420,7 +432,7 @@ Deno.serve(async (req: Request) => {
     if (!handler) {
       return new Response(
         JSON.stringify({ error: `Unknown type: "${type}". Valid: ${Object.keys(handlers).join(', ')}` }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...cors, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -429,7 +441,7 @@ Deno.serve(async (req: Request) => {
     if (cached?.fresh) {
       return new Response(
         JSON.stringify({ data: { ...cached.data, cache_hit: true, fetched_at: cached.fetched_at } }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        { headers: { ...cors, 'Content-Type': 'application/json' } },
       );
     }
 
@@ -438,13 +450,13 @@ Deno.serve(async (req: Request) => {
       writeLiveCache(type, data, ttl, (data as any)?.source)
         .catch((e) => console.error('[reference-data] cache write:', e));
       return new Response(JSON.stringify({ data }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     } catch (fetchErr) {
       if (cached) {
         return new Response(
           JSON.stringify({ data: { ...cached.data, stale: true, fetched_at: cached.fetched_at } }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          { headers: { ...cors, 'Content-Type': 'application/json' } },
         );
       }
       throw fetchErr;
@@ -453,7 +465,7 @@ Deno.serve(async (req: Request) => {
     console.error('[reference-data] error:', err);
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } }
     );
   }
 });

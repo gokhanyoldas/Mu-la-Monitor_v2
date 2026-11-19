@@ -90,10 +90,19 @@ export const FlightTrackerSection = () => {
   const fetchLiveData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("transport-scrape", {
-        body: { type: "flights", source: "adsb" },
-      });
-      if (!error && data?.airports?.length) {
+      const { data: { session } } = await supabase.auth.getSession();
+      let payload: any = null;
+      if (session?.access_token) {
+        const { data, error } = await supabase.functions.invoke("transport-scrape", {
+          body: { type: "flights", source: "adsb" },
+        });
+        if (!error && data?.airports?.length) payload = data;
+      } else {
+        const { data: cache } = await supabase.from("live_data_cache").select("data").eq("data_type", "flights").maybeSingle();
+        if ((cache?.data as any)?.airports?.length) payload = cache!.data;
+      }
+      if (payload?.airports?.length) {
+        const data = payload;
         // transport-scrape alan adlarını Flight formatına normalize et
         const normalized = data.airports.map((ap: Record<string, unknown>) => ({
           code: String(ap.code ?? ""),

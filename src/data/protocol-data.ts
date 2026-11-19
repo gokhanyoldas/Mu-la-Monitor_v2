@@ -1,6 +1,6 @@
-// Top priority protocol members (inline)
-// Full list fetched at runtime from mugla.gov.tr
-// Last scraped: 2026-08-20 (canlı mugla.gov.tr doğrulandı)
+// Top priority protocol members (verified official list)
+// Official source: https://www.mugla.gov.tr/il-protokol-listesi
+// Last verified: 2026-11 (Muğla Valiliği, HSK Kararnameleri ve Mülki İdare Atamaları ile tam doğrulandı)
 
 export interface ProtocolMember {
   sira: string;
@@ -141,8 +141,72 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
     "kategori": "BÜYÜKŞEHİR BELEDİYE BAŞKANI, BAKAN YARDIMCISI, İL BELEDİYE BAŞKANI"
   },
   {
+    "sira": "4",
+    "unvan": "Muğla Sıtkı Koçman Üniversitesi Rektörü",
+    "isim": "Prof. Dr. Turhan KAÇAR",
+    "telefon": "211 1001 - 211 1002",
+    "faks": "211 1009",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "Muğla Cumhuriyet Başsavcısı",
+    "isim": "Necati KAYAKÖZÜ",
+    "telefon": "214 1025 - 214 1400",
+    "faks": "214 3624",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "Adli Yargı Adalet Komisyonu Başkanı",
+    "isim": "Şenol KARTAL",
+    "telefon": "214 1025",
+    "faks": "214 3624",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "1. İdare Mahkemesi Başkanı",
+    "isim": "Tugay KILIÇ",
+    "telefon": "214 1025",
+    "faks": "",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "2. İdare Mahkemesi Başkanı",
+    "isim": "Murat ACAR",
+    "telefon": "214 1025",
+    "faks": "",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "3. İdare Mahkemesi Başkanı",
+    "isim": "Feyzullah ERTAN",
+    "telefon": "214 1025",
+    "faks": "",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "Vergi Mahkemesi Başkanı",
+    "isim": "Eda EKMEKCİ",
+    "telefon": "214 1025",
+    "faks": "",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
+    "sira": "4",
+    "unvan": "Muğla Barosu Başkanı",
+    "isim": "Av. Levent AKGÜN",
+    "telefon": "214 1825 - 214 1826",
+    "faks": "214 1827",
+    "kategori": "CUMHURİYET BAŞSAVCISI, REKTÖR, ADALET KOMİSYONU VE MAHKEME BAŞKANLARI, BARO BAŞKANI"
+  },
+  {
     "sira": "5",
-    "unvan": "Vali Yardımcısı",
+    "unvan": "Vali Yardımcısı (YİKOB Başkanı)",
     "isim": "Halil Serdar CEVHEROĞLU",
     "telefon": "212 9210 - 214 3032",
     "faks": "",
@@ -159,17 +223,17 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "5",
     "unvan": "Vali Yardımcısı",
-    "isim": "Hüseyin KARAMEŞE",
-    "telefon": "214 9407 - 5420",
+    "isim": "İsmail ÇORUMLUOĞLU",
+    "telefon": "214 1003 - 212 9968",
     "faks": "",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
   },
   {
     "sira": "5",
     "unvan": "Vali Yardımcısı",
-    "isim": "Ali YILMAZ",
+    "isim": "Ahmet Ferhat ÖZEN",
     "telefon": "214 9407 - 5420",
-    "faks": "242 1221",
+    "faks": "212 1019",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
   },
   {
@@ -182,16 +246,8 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   },
   {
     "sira": "5",
-    "unvan": "Vali Yardımcısı",
-    "isim": "Murat KAHRAMAN",
-    "telefon": "214 1003 - 212 9968",
-    "faks": "",
-    "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
-  },
-  {
-    "sira": "5",
-    "unvan": "Vali Yardımcısı V.",
-    "isim": "Mehmet ERİŞ",
+    "unvan": "Vali Yardımcısı V. / Menteşe Kaymakamı",
+    "isim": "Ali Edip BUDAN",
     "telefon": "214 1282",
     "faks": "212 1019",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
@@ -231,7 +287,7 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "5",
     "unvan": "Kavaklıdere Kaymakamı",
-    "isim": "Turgay İLHAN",
+    "isim": "Cihad KARAKAYA",
     "telefon": "592 7101 - 7118",
     "faks": "592 7821",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
@@ -255,7 +311,7 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "5",
     "unvan": "Menteşe Kaymakamı",
-    "isim": "Mehmet ERİŞ",
+    "isim": "Ali Edip BUDAN",
     "telefon": "214 1282",
     "faks": "212 1019",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
@@ -263,8 +319,8 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "5",
     "unvan": "Milas Kaymakamı",
-    "isim": "Mustafa Ünver BÖKE",
-    "telefon": "512 1001 - 1578 - 513 3641",
+    "isim": "Dr. Vural KARAGÜL",
+    "telefon": "512 1001 - 1578",
     "faks": "512 3333",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
   },
@@ -272,7 +328,7 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
     "sira": "5",
     "unvan": "Ortaca Kaymakamı",
     "isim": "Kenan AKTAŞ",
-    "telefon": "282 2970 -3014",
+    "telefon": "282 2970 - 3014",
     "faks": "282 2972",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
   },
@@ -280,14 +336,14 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
     "sira": "5",
     "unvan": "Seydikemer Kaymakamı",
     "isim": "Mustafa DİLEKLİ",
-    "telefon": "656 1800 -1801",
+    "telefon": "656 1800 - 1801",
     "faks": "656 1802",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
   },
   {
     "sira": "5",
     "unvan": "Ula Kaymakamı",
-    "isim": "Mehmet Rıdvan DOĞAN",
+    "isim": "Murat EKİNCİ",
     "telefon": "242 3001 - 3831",
     "faks": "242 1221",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
@@ -427,5 +483,69 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
     "telefon": "572 5500 - 5900",
     "faks": "572 5013",
     "kategori": "VALİ YARDIMCILARI, KAYMAKAMLAR, İL GENEL KOLLUĞUN EN ÜST AMİRLERİ İLE İLÇE BELEDİYE BAŞKANLARI"
+  },
+  {
+    "sira": "6",
+    "unvan": "İl Milli Eğitim Müdürü",
+    "isim": "Emre ÇAY",
+    "telefon": "214 1005",
+    "faks": "214 1240",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "İl Sağlık Müdürü",
+    "isim": "Dr. Eriş BAŞARAN AKÇA",
+    "telefon": "214 1010",
+    "faks": "214 1358",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "İl Tarım ve Orman Müdürü",
+    "isim": "Seyfettin BAYDAR",
+    "telefon": "214 1260",
+    "faks": "214 1420",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "İl Kültür ve Turizm Müdürü",
+    "isim": "Hüseyin TOPRAK",
+    "telefon": "214 1261",
+    "faks": "214 1244",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "AFAD İl Müdürü",
+    "isim": "Elvan KAYA",
+    "telefon": "214 1950",
+    "faks": "214 1955",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "Muğla Orman Bölge Müdürü",
+    "isim": "Mustafa ÜLKÜDÜR",
+    "telefon": "214 1080",
+    "faks": "214 1205",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "Gençlik ve Spor İl Müdürü",
+    "isim": "Musa Kazım AÇIKBAŞ",
+    "telefon": "214 1318",
+    "faks": "214 1320",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
+  },
+  {
+    "sira": "6",
+    "unvan": "Çevre, Şehircilik ve İklim Değişikliği İl Müdürü",
+    "isim": "Ömür ÖZDEMİR",
+    "telefon": "214 1020",
+    "faks": "214 1022",
+    "kategori": "BAKANLIKLARIN İL VE BÖLGE MÜDÜRLERİ"
   }
 ];

@@ -4,7 +4,8 @@
 // Tüm mock kayıtlar sentiment_method='mock' ile işaretlenir — mode:'clear'
 // tek seferde temizler; gerçek veriye asla dokunmaz.
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 import { analyzeText } from "../_shared/nlp.ts";
 
@@ -178,11 +179,36 @@ function buildAlerts(rng: () => number) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const cors = getCorsHeaders(req);
+
+  const auth = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowedRoles: ["admin"],
+    allowCors: true,
+  });
+  if (!auth.ok) return auth.response;
+
+  // Üretim ortamında yalnızca açıkça ALLOW_MOCK_IN_PROD=true ise ve admin/iç servis tarafından çalışır
+  const environment = (Deno.env.get("ENVIRONMENT") ?? "production").toLowerCase();
+  const allowMockInProd = Deno.env.get("ALLOW_MOCK_IN_PROD") === "true";
+  if (environment === "production" && !allowMockInProd && auth.auth.kind !== "internal") {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        error: "Demo veri enjeksiyonu production ortamında devre dışıdır (yalnızca geliştirme veya yetkili bakım penceresinde aktif edilir).",
+      }),
+      { status: 403, headers: { ...cors, "Content-Type": "application/json" } }
+    );
+  }
+
   const sb = getServiceClient();
   if (!sb) {
     return new Response(JSON.stringify({ ok: false, error: "no service client" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   }
 
   const body = await req.json().catch(() => ({}));
@@ -195,7 +221,7 @@ Deno.serve(async (req) => {
     const { count: alertsDeleted } = await sb.from("alert_events")
       .delete({ count: "exact" }).eq("source", "Demo Veri");
     return new Response(JSON.stringify({ ok: true, mode, postsDeleted, alertsDeleted }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { headers: { ...cors, "Content-Type": "application/json" } });
   }
 
   // ── Enjeksiyon ──
@@ -211,7 +237,6 @@ Deno.serve(async (req) => {
   }
 
   let inserted = 0;
-  // 500'lük gruplar halinde (Supabase upsert limiti)
   for (let i = 0; i < rows.length; i += 500) {
     const { error, count } = await sb.from("social_posts")
       .upsert(rows.slice(i, i + 500), { onConflict: "content_hash", ignoreDuplicates: true, count: "exact" });
@@ -219,7 +244,6 @@ Deno.serve(async (req) => {
     else inserted += count ?? rows.slice(i, i + 500).length;
   }
 
-  // Kritik uyarılar: yalnızca son 30 dk içinde demo uyarısı yoksa ekle
   const { data: recentDemo } = await sb.from("alert_events")
     .select("id").eq("source", "Demo Veri")
     .gte("created_at", new Date(Date.now() - 30 * 60e3).toISOString()).limit(1);
@@ -232,5 +256,5 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({
     ok: true, mode, inserted, alertsInserted,
     districts: DISTRICTS.length, generated: rows.length, seed,
-  }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }), { headers: { ...cors, "Content-Type": "application/json" } });
 });

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { dataQualityTracker } from "@/lib/data-quality";
 import { Clock, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, Zap } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface DataFreshnessIndicatorProps {
   category: string;
@@ -9,6 +10,7 @@ interface DataFreshnessIndicatorProps {
 }
 
 export const DataFreshnessIndicator = ({ category, size = "sm" }: DataFreshnessIndicatorProps) => {
+  const { lang, t } = useTranslation();
   const [status, setStatus] = useState<any>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
@@ -55,23 +57,23 @@ export const DataFreshnessIndicator = ({ category, size = "sm" }: DataFreshnessI
 
   const getDescription = () => {
     if (!status.isFresh) {
-      return `Eski veri: ${status.age} dakika önceki`;
+      return `${t("stale_data", "Eski veri")}: ${status.age} ${t("min", "dk")} ${t("ago", "önce")}`;
     }
 
     if (status.age === 0) {
-      return "Yeni güncelleme (saniyeler)";
+      return t("just_updated", "Yeni güncelleme (saniyeler)");
     }
 
-    return `${status.age} dakika önceki`;
+    return `${status.age} ${t("min", "dk")} ${t("ago", "önce")}`;
   };
 
   const timeFormatted = lastUpdate
-    ? lastUpdate.toLocaleTimeString("tr-TR", {
+    ? lastUpdate.toLocaleTimeString(lang === "en" ? "en-US" : lang === "de" ? "de-DE" : "tr-TR", {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
       })
-    : "Bilinmiyor";
+    : t("unknown", "Bilinmiyor");
 
   return (
     <TooltipProvider>
@@ -85,7 +87,7 @@ export const DataFreshnessIndicator = ({ category, size = "sm" }: DataFreshnessI
           </div>
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-xs text-xs space-y-1">
-          <p className="font-semibold">{status.source}</p>
+          <p className="font-semibold">{t(status.source)}</p>
           <div className="flex items-center gap-1 text-gray-400">
             <Clock className="w-3 h-3" />
             {timeFormatted}
@@ -94,16 +96,16 @@ export const DataFreshnessIndicator = ({ category, size = "sm" }: DataFreshnessI
             {status.hasRealSource ? (
               <>
                 <Zap className="w-3 h-3 text-green-500" />
-                <span className="text-green-600">Ücretsiz gerçek kaynak</span>
+                <span className="text-green-600">{t("free_real_source", "Ücretsiz gerçek kaynak")}</span>
               </>
             ) : (
               <>
                 <AlertCircle className="w-3 h-3 text-yellow-500" />
-                <span className="text-yellow-600">Ücretli veya tahmini</span>
+                <span className="text-yellow-600">{t("paid_or_estimate", "Ücretli veya tahmini")}</span>
               </>
             )}
           </div>
-          {status.lastError && <p className="text-red-500">Hata: {status.lastError}</p>}
+          {status.lastError && <p className="text-red-500">{t("Hata", "Hata")}: {status.lastError}</p>}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

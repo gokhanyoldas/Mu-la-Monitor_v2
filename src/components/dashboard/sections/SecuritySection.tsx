@@ -5,6 +5,7 @@ import { Gauge } from "../Gauge";
 import { Shield, AlertTriangle, Landmark, Newspaper, MapPin, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useState, useEffect } from "react";
+import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 
 const radarPoints = [
   { name: "Bodrum - Milas Arası", lat: 37.28, lng: 27.67, type: "radar" },
@@ -93,13 +94,94 @@ const defaultNews = [
   { time: "08:00", text: "Muğla'da hava kalitesi 'İYİ' seviyesinde", type: "ok" as const, reads: "3.2K", shares: 145, trend: 0 },
 ];
 
+export const SecurityOverviewPanel = () => {
+  return (
+    <DashboardPanel title="Güvenlik & Asayiş" icon={<Shield size={14} />} badge="AKTİF" badgeVariant="active">
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <StatCard label="Asayiş Olayı (Ay)" value="485" variant="primary" />
+        <StatCard label="Trafik Kazası (Ay)" value="128" variant="warning" />
+      </div>
+      <div className="flex justify-around">
+        <Gauge value={78} max={100} label="Güvenlik Skoru" variant="primary" />
+        <Gauge value={22} max={100} label="Suç Oranı İndeks" variant="primary" />
+      </div>
+    </DashboardPanel>
+  );
+};
+
+export const RadarTrafficMapPanel = () => {
+  return (
+    <DashboardPanel title="Radar & Trafik Denetim Haritası" icon={<MapPin size={14} />} badge="CANLI" badgeVariant="live">
+      <TrafficMap />
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <StatCard label="Aktif Radar" value={`${radarPoints.filter(p => p.type === "radar").length}`} variant="destructive" />
+        <StatCard label="Denetim Noktası" value={`${radarPoints.filter(p => p.type === "denetim").length}`} variant="warning" />
+      </div>
+    </DashboardPanel>
+  );
+};
+
+export const EmergencyPanel = () => {
+  const hub = useOptionalUnifiedIntelligence();
+  const floodAlerts = (hub?.arbitratedEvents ?? [])
+    .map((e) => e.floodSecurityAlert)
+    .filter((a): a is NonNullable<typeof a> => Boolean(a));
+  const latestFlood = floodAlerts[0] ?? null;
+
+  return (
+    <DashboardPanel
+      title="Acil Durum & Kriz"
+      badge={latestFlood ? "SEL UYARISI" : "NORMAL"}
+      badgeVariant={latestFlood ? (latestFlood.riskLevel === "YÜKSEK" ? "alert" : "warning") : "active"}
+    >
+      <StatusList items={[
+        { label: "Deprem Riski", value: "ORTA", status: "warning" },
+        {
+          label: "Sel Riski",
+          value: latestFlood ? latestFlood.riskLevel : "DÜŞÜK",
+          status: latestFlood ? (latestFlood.riskLevel === "YÜKSEK" ? "critical" : "warning") : "ok",
+        },
+        { label: "Yangın Riski", value: "DÜŞÜK", status: "ok" },
+        { label: "Kriz Yönetimi", value: "HAZIR", status: "ok" },
+        {
+          label: "Aktif Uyarı",
+          value: latestFlood ? `${floodAlerts.length} Bildirim` : "YOK",
+          status: latestFlood ? "warning" : "ok",
+        },
+      ]} />
+      {latestFlood && (
+        <div className="mt-2 rounded border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-[9px] font-mono text-rose-200">
+          🌊 <b>{latestFlood.districtName}:</b> {latestFlood.detail}
+        </div>
+      )}
+    </DashboardPanel>
+  );
+};
+
+export const LocalGovQuickPanel = () => {
+  return (
+    <DashboardPanel title="Yerel Yönetim" icon={<Landmark size={14} />}>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <StatCard label="Belediye Bütçesi" value="8.2" unit="Myr ₺" />
+        <StatCard label="Yatırım" value="1.4" unit="Myr ₺" variant="primary" />
+      </div>
+      <StatusList items={[
+        { label: "Altyapı Harcama", value: "32%", status: "ok" },
+        { label: "Sosyal Hizmetler", value: "18%", status: "info" },
+        { label: "Kültür & Sanat", value: "8%", status: "info" },
+        { label: "Şeffaflık Skoru", value: "72/100", status: "ok" },
+        { label: "Meclis Kararları", value: "48 karar", status: "info" },
+      ]} />
+    </DashboardPanel>
+  );
+};
+
 export const SecuritySection = () => {
   const [keywords, setKeywords] = useState<string[]>(() => {
     const saved = localStorage.getItem("social-intel-keywords");
     return saved ? JSON.parse(saved) : ["Muğla", "Bodrum", "Fethiye", "Marmaris"];
   });
 
-  // Listen for keyword changes from SocialIntel page
   useEffect(() => {
     const handleStorage = (e: StorageEvent) => {
       if (e.key === "social-intel-keywords" && e.newValue) {
@@ -117,7 +199,7 @@ export const SecuritySection = () => {
   const { data: liveRoadWorks, isLoading: rwLoading } = useLiveData<any[]>("road_works", { refetchInterval: 15 * 60 * 1000 });
 
   const newsItems = liveNews && liveNews.length > 0
-    ? liveNews.map((n: any, i: number) => ({
+    ? liveNews.map((n: any) => ({
         time: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", hour12: false }),
         text: n.title || n.description || "",
         type: "info" as const,
@@ -140,24 +222,8 @@ export const SecuritySection = () => {
 
   return (
     <div className="space-y-3">
-      <DashboardPanel title="Güvenlik" icon={<Shield size={14} />} badge="AKTİF" badgeVariant="active">
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Asayiş Olayı (Ay)" value="485" variant="primary" />
-          <StatCard label="Trafik Kazası (Ay)" value="128" variant="warning" />
-        </div>
-        <div className="flex justify-around">
-          <Gauge value={78} max={100} label="Güvenlik Skoru" variant="primary" />
-          <Gauge value={22} max={100} label="Suç Oranı İndeks" variant="primary" />
-        </div>
-      </DashboardPanel>
-
-      <DashboardPanel title="Radar & Trafik Denetim Haritası" icon={<MapPin size={14} />} badge="CANLI" badgeVariant="live">
-        <TrafficMap />
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          <StatCard label="Aktif Radar" value={`${radarPoints.filter(p => p.type === "radar").length}`} variant="destructive" />
-          <StatCard label="Denetim Noktası" value={`${radarPoints.filter(p => p.type === "denetim").length}`} variant="warning" />
-        </div>
-      </DashboardPanel>
+      <SecurityOverviewPanel />
+      <RadarTrafficMapPanel />
 
       <DashboardPanel title="Yol Çalışmaları & Kapanmalar" icon={<AlertTriangle size={14} />} badge="AKTİF" badgeVariant="warning">
         {rwLoading && <Loader2 size={12} className="animate-spin text-muted-foreground mb-2" />}
@@ -179,45 +245,10 @@ export const SecuritySection = () => {
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-center gap-4 mt-3">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-destructive" />
-            <span className="text-[10px] font-mono text-muted-foreground">Kapalı</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-warning" />
-            <span className="text-[10px] font-mono text-muted-foreground">Tek Şerit</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-success" />
-            <span className="text-[10px] font-mono text-muted-foreground">Açık</span>
-          </div>
-        </div>
       </DashboardPanel>
 
-      <DashboardPanel title="Acil Durum" badge="NORMAL" badgeVariant="active">
-        <StatusList items={[
-          { label: "Deprem Riski", value: "ORTA", status: "warning" },
-          { label: "Sel Riski", value: "DÜŞÜK", status: "ok" },
-          { label: "Yangın Riski", value: "DÜŞÜK", status: "ok" },
-          { label: "Kriz Yönetimi", value: "HAZIR", status: "ok" },
-          { label: "Aktif Uyarı", value: "YOK", status: "ok" },
-        ]} />
-      </DashboardPanel>
-
-      <DashboardPanel title="Yerel Yönetim" icon={<Landmark size={14} />}>
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Belediye Bütçesi" value="8.2" unit="Myr ₺" />
-          <StatCard label="Yatırım" value="1.4" unit="Myr ₺" variant="primary" />
-        </div>
-        <StatusList items={[
-          { label: "Altyapı Harcama", value: "32%", status: "ok" },
-          { label: "Sosyal Hizmetler", value: "18%", status: "info" },
-          { label: "Kültür & Sanat", value: "8%", status: "info" },
-          { label: "Şeffaflık Skoru", value: "72/100", status: "ok" },
-          { label: "Meclis Kararları", value: "48 karar", status: "info" },
-        ]} />
-      </DashboardPanel>
+      <EmergencyPanel />
+      <LocalGovQuickPanel />
 
       <DashboardPanel title="Haber Akışı" icon={<Newspaper size={14} />} badge="CANLI" badgeVariant="live">
         {newsLoading && <Loader2 size={12} className="animate-spin text-muted-foreground mb-2" />}

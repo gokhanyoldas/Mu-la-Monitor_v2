@@ -71,6 +71,10 @@ export function useLiveData<T = any>(type: DataType, options?: {
   return useQuery<T | null>({
     queryKey: ["live-data", type, options?.extraBody],
     queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        return readPersistentCache<T>(type);
+      }
       const { data, error } = await supabase.functions.invoke(functionName, {
         body: { type, ...options?.extraBody },
       });

@@ -1,14 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { formatDuration, parseTripsFromHtml } from "./obilet-parser.ts";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
 import { readLiveCache, writeLiveCache } from "../_shared/cache.ts";
 
 const BUS_CACHE_TYPE = "bus_schedule";
 const BUS_CACHE_TTL = 30 * 60 * 1000; // 30 dk — panel canlı olduğundan sık tazeleme gerekmez
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
 
 async function scrapeFlight(apiKey: string, airportCode: string): Promise<any> {
   try {
@@ -177,9 +174,21 @@ async function scrapeAdsbAirports(codes: string[]): Promise<any> {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
 
-  const { type, airports, source } = await req.json();
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const rl = checkRateLimit(`transport-scrape:${authCheck.auth.userId}`, 30, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
+  const cors = getCorsHeaders(req);
+  const { type, airports, source } = await req.json().catch(() => ({}));
   const apiKey = Deno.env.get("FIRECRAWL_API_KEY");
 
   try {
@@ -191,14 +200,14 @@ serve(async (req) => {
         airports: airportData,
         source: "adsb.fi (ADS-B, canlı)",
         scraped_at: new Date().toISOString(),
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }), { headers: { ...cors, "Content-Type": "application/json" } });
     }
 
     // Yalnızca Firecrawl tabanlı flights için gerekli; bus/adsb doğrudan okunur
     if (type === "flights" && !apiKey) {
       return new Response(JSON.stringify({ error: "FIRECRAWL_API_KEY not configured" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
@@ -241,7 +250,7 @@ serve(async (req) => {
       });
 
       return new Response(JSON.stringify({ airports: airportData, scraped_at: new Date().toISOString() }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
@@ -256,7 +265,7 @@ serve(async (req) => {
           source_period: "30 dk tazeleme",
           cached_at: cached.fetched_at,
           scraped_at: cached.fetched_at,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }), { headers: { ...cors, "Content-Type": "application/json" } });
       }
 
       // MUTTAŞ resmi hat sayfalarından canlı otobüs saatleri çek
@@ -328,19 +337,19 @@ serve(async (req) => {
         source_period: "Güncel hat saatleri",
         scraped_at: new Date().toISOString(),
       }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 
     return new Response(JSON.stringify({ error: "Invalid type. Use 'flights' or 'bus'." }), {
       status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (e) {
     console.error("transport-scrape error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   }
 });

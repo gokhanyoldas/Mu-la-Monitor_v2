@@ -82,5 +82,7 @@ Vercel (kalıcı): claim linki ile `*.vercel.app` adresi alınabilir
 - Not: Muğla kırsal ilçelerinde TomTom probe verisi zayıftır → %0 değerleri "sakin" ya da "ölçülemiyor" olabilir; bu yüzden teyit katmanı değerlidir
 
 ## 📅 Son Güncelleme
+2026-09-21 — Sosyal Sekmesi Sadeleştirme: Kullanıcı talebi doğrultusunda Çapraz Teyit Matrisi, Kurumsal İmaj & İtibar ve Stratejik Yol Haritası alt sekmeleri ve butonları kaldırıldı; Sosyal İstihbarat doğrudan sade, odaklı akış ve OSINT görünümüne kavuşturuldu.
+2026-09-11 — Sosyal İstihbarat & Yaşayan Şehir Dönüşümü: Math.random() haftalık simülasyon ve statik 1330 fallback trendler kaldırıldı; Supabase social_posts son 7-14 günlük gerçek çift periyot kıyaslamasına ve dinamik etiket frekans analizine bağlandı; kurum itibarında uydurma ilçe skorları yerine gerçek post içerik alıntıları ve 'İzleniyor' şeffaflığı getirildi; Nüfus/Sağlık panelleri TÜİK 2024 ADNKS (1.066.736) resmi kayıtlarıyla doğrulandı
 2026-08-28 — TomTom canlı trafik: 13 ilçe + 5dk otomatik tazeleme (pg_cron refresh-traffic-live) + AI/basın teyit katmanı (traffic-teyit, 15 dk), confidence anomali flagleri; otobüs verisi kalıcı cache (bus_schedule + refresh-bus cron 30 dk)
 2026-08-27 — Uçuş takip ADS-B + transit filtre, MUTTAŞ gidiş/dönüş, turizm 2025/Ç2, altyapı haber takibi

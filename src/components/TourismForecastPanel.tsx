@@ -11,6 +11,7 @@ import {
 import { Umbrella, TrendingUp, Users, Loader2 } from "lucide-react";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { DataSourceBadge } from "@/components/DataSourceBadge";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface DayForecast {
   date: string;       // "15/06"
@@ -77,6 +78,7 @@ const DISTRICT_MULTIPLIERS: Record<string, number> = {
 };
 
 export const TourismForecastPanel = () => {
+  const { t } = useTranslation();
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [view, setView] = useState<"trend" | "districts">("trend");
   const [isLoading, setIsLoading] = useState(true);
@@ -108,7 +110,7 @@ export const TourismForecastPanel = () => {
 
   return (
     <DashboardPanel
-      title="Turizm Talep Tahmini (30 Gün)"
+      title="Turizm Talep Tahmin Modeli"
       icon={<Umbrella size={14} />}
       badge="TAHMİN MODELİ"
       badgeVariant="warning"
@@ -124,10 +126,10 @@ export const TourismForecastPanel = () => {
           {today && (
             <div className="grid grid-cols-4 gap-1.5 mb-3">
               {[
-                { label: "Bugün", value: `${today.visitors}/100`, icon: <TrendingUp size={10} /> },
-                { label: "Otel Dol.", value: `${today.hotels}%`, icon: <Users size={10} /> },
-                { label: "Plaj",      value: `${today.beaches}%`, icon: <Umbrella size={10} /> },
-                { label: "7g Zirve",  value: peakDay?.date ?? "—", icon: <TrendingUp size={10} /> },
+                { label: t("Bugün"), value: `${today.visitors}/100`, icon: <TrendingUp size={10} /> },
+                { label: t("Otel Dol."), value: `${today.hotels}%`, icon: <Users size={10} /> },
+                { label: t("Plaj"),      value: `${today.beaches}%`, icon: <Umbrella size={10} /> },
+                { label: t("7g Zirve"),  value: peakDay?.date ?? "—", icon: <TrendingUp size={10} /> },
               ].map(s => (
                 <div key={s.label} className="text-center px-1 py-1.5 rounded bg-muted/20">
                   <div className="text-[8px] font-mono text-muted-foreground flex items-center justify-center gap-0.5 mb-0.5">
@@ -149,7 +151,7 @@ export const TourismForecastPanel = () => {
                   view === v ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {v === "trend" ? "30 Günlük Trend" : "İlçe Tahmini"}
+                {v === "trend" ? t("30 Günlük Trend", "30 Günlük Trend") : t("İlçe Tahmini", "İlçe Tahmini")}
               </button>
             ))}
           </div>

@@ -1,47 +1,48 @@
-// M13: Dil Seçici Bileşeni (Header'a eklenir)
-import { useRef, useState, useEffect } from "react";
-import { Globe, ChevronDown } from "lucide-react";
-import { useTranslation, LANGUAGE_LABELS, type Language } from "@/hooks/useTranslation";
+// M13 + 3. Ajan: Hızlı 1-Tık TR / EN Dil Seçici Bileşeni
+import { Globe } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export const LanguageSwitcher = () => {
   const { lang, setLang } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, []);
 
   return (
-    <div className="relative flex-shrink-0" ref={ref}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-      >
+    <div
+      className="inline-flex items-center rounded border border-border/50 bg-muted/20 overflow-hidden flex-shrink-0"
+      role="group"
+      aria-label={lang === "en" ? "Language selector" : "Dil seçici"}
+    >
+      <span className="hidden sm:inline-flex items-center pl-1.5 pr-1 text-muted-foreground" aria-hidden="true">
         <Globe size={10} />
-        {lang.toUpperCase()}
-        <ChevronDown size={9} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </span>
+      <button
+        type="button"
+        onClick={() => setLang("tr")}
+        aria-pressed={lang === "tr"}
+        data-testid="lang-tr"
+        title="Türkçe"
+        className={`px-1.5 py-1 text-[10px] font-mono whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${
+          lang === "tr"
+            ? "bg-primary/20 text-primary font-semibold"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+        }`}
+      >
+        TR
       </button>
-      {open && (
-        <div className="absolute top-full right-0 mt-1 w-36 bg-background border border-border rounded-md shadow-lg z-50 overflow-hidden">
-          {(Object.entries(LANGUAGE_LABELS) as [Language, string][]).map(([code, label]) => (
-            <button
-              key={code}
-              onClick={() => { setLang(code); setOpen(false); }}
-              className={`w-full flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono text-left transition-colors hover:bg-muted/40 ${
-                lang === code ? "text-primary bg-primary/5" : "text-foreground"
-              }`}
-            >
-              {label}
-              {lang === code && <span className="ml-auto text-primary">✓</span>}
-            </button>
-          ))}
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={() => setLang("en")}
+        aria-pressed={lang === "en"}
+        data-testid="lang-en"
+        title="English"
+        className={`px-1.5 py-1 text-[10px] font-mono border-l border-border/40 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${
+          lang === "en"
+            ? "bg-primary/20 text-primary font-semibold"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+        }`}
+      >
+        EN
+      </button>
     </div>
   );
 };
+

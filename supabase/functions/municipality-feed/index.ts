@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
 
 function parseRSSItems(xml: string, limit = 10) {
   const items: { title: string; link: string; pubDate: string; description: string }[] = [];
@@ -25,7 +24,17 @@ async function fetchWithTimeout(url: string, ms = 5000): Promise<string> {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const cors = getCorsHeaders(req);
+  if (req.method !== "GET") {
+    return new Response(JSON.stringify({ error: "Method not allowed. Use GET." }), {
+      status: 405,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
+  }
+
   const url = new URL(req.url);
   const source = url.searchParams.get("source") ?? "municipality";
   const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "10"), 30);
@@ -37,8 +46,8 @@ serve(async (req) => {
       try { const xml = await fetchWithTimeout(feedUrl, 4000); allItems = [...allItems, ...parseRSSItems(xml, limit)]; } catch { /* try next */ }
     }
     if (allItems.length === 0) { const xml = await fetchWithTimeout(googleNewsUrl, 5000); allItems = parseRSSItems(xml, limit); }
-    return new Response(JSON.stringify({ source, count: allItems.length, fetched_at: new Date().toISOString(), items: allItems.slice(0, limit) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ source, count: allItems.length, fetched_at: new Date().toISOString(), items: allItems.slice(0, limit) }), { headers: { ...cors, "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e), items: [] }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: String(e), items: [] }), { status: 500, headers: { ...cors, "Content-Type": "application/json" } });
   }
 });

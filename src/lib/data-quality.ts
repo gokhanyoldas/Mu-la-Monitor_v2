@@ -17,12 +17,23 @@ class DataQualityTracker {
   private refreshIntervals: Map<string, number> = new Map();
 
   private sourceRegistry: Record<string, { name: string; isFree: boolean; isReliable: boolean; refreshMinutes: number }> = {
-    "open-meteo": { name: "Open-Meteo", isFree: true, isReliable: true, refreshMinutes: 15 },
-    "turkish-statistics": { name: "Turkish Statistics Institute", isFree: false, isReliable: true, refreshMinutes: 1440 },
-    "tourism-board": { name: "Muğla Tourism Board", isFree: false, isReliable: true, refreshMinutes: 1440 },
-    "manual-observation": { name: "Manual Observation", isFree: true, isReliable: false, refreshMinutes: 60 },
-    "rss-feeds": { name: "RSS News Feeds", isFree: true, isReliable: false, refreshMinutes: 15 },
-    "manual-survey": { name: "Manual Survey", isFree: true, isReliable: false, refreshMinutes: 10080 },
+    "open-meteo": { name: "Open-Meteo & EAQI", isFree: true, isReliable: true, refreshMinutes: 15 },
+    "usgs-earthquakes": { name: "USGS & AFAD Sismik Ağı", isFree: true, isReliable: true, refreshMinutes: 10 },
+    "tomtom-traffic": { name: "TomTom Flow & Trafik", isFree: true, isReliable: true, refreshMinutes: 5 },
+    "rss-news": { name: "Google News & Muğla Basını", isFree: true, isReliable: true, refreshMinutes: 15 },
+    "muttas-bus": { name: "MUTTAŞ & Şehirlerarası Sefer", isFree: true, isReliable: true, refreshMinutes: 30 },
+    "adsb-flights": { name: "adsb.fi Hava Radarı (DLM/BJV)", isFree: true, isReliable: true, refreshMinutes: 5 },
+    "mugla-protocol": { name: "Muğla Valiliği İl Protokolü", isFree: true, isReliable: true, refreshMinutes: 1440 },
+    "municipal-portals": { name: "14 Belediye Portalları (Büyükşehir + 13 İlçe)", isFree: true, isReliable: true, refreshMinutes: 30 },
+    "district-governorships": { name: "14 Valilik & Kaymakamlık Portalları", isFree: true, isReliable: true, refreshMinutes: 30 },
+    "dam-inventory": { name: "Muğla 8 Baraj Su Envanteri", isFree: true, isReliable: true, refreshMinutes: 1440 },
+    "tuik-statistics": { name: "TÜİK 2024 ADNKS & Ekonomi", isFree: true, isReliable: true, refreshMinutes: 1440 },
+    "tourism-board": { name: "Kültür & Turizm Bakanlığı", isFree: true, isReliable: true, refreshMinutes: 1440 },
+    "turkish-statistics": { name: "TÜİK Resmi İstatistikler", isFree: true, isReliable: true, refreshMinutes: 1440 },
+    "ai-strategy-memo": { name: "AI Kentsel Strateji & İcra Brifingi", isFree: true, isReliable: true, refreshMinutes: 30 },
+    "manual-observation": { name: "Saha & Manuel Gözlem", isFree: true, isReliable: false, refreshMinutes: 60 },
+    "rss-feeds": { name: "Açık RSS Akışları", isFree: true, isReliable: true, refreshMinutes: 15 },
+    "manual-survey": { name: "Dönemsel Kamu Anketi", isFree: true, isReliable: false, refreshMinutes: 10080 },
   };
 
   registerDataFetch(

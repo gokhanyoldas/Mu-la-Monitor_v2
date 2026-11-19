@@ -56,22 +56,75 @@ function extractSearchName(rawName: string): string {
 /**
  * Turkish-safe case fold: handles İ/I/ı/i
  */
-function turkishLower(s: string): string {
+export function turkishLower(s: string): string {
   return s.replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase();
 }
 
 /**
- * Returns true if any part of the post content mentions the member.
- * Strategy: full name match first, surname match as fallback (min 4 chars).
+ * Turkish word-boundary safe phrase check.
+ * Prevents "cumhuriyet" matching "cumhur", or "uzunluk" matching "uzun".
  */
-function mentionsMember(content: string, searchName: string): boolean {
+export function containsExactPhrase(haystack: string, phrase: string): boolean {
+  if (!haystack || !phrase) return false;
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(^|[^a-z0-9çğıöşü])${escaped}([^a-z0-9çğıöşü]|$)`, "i");
+  return regex.test(haystack);
+}
+
+// Common Turkish vocabulary words that are also common surnames.
+// These words MUST NEVER be matched as standalone surnames without full name or title!
+const AMBIGUOUS_SURNAMES = new Set([
+  "uzun", "kaya", "demir", "genc", "genç", "gul", "gül", "aydin", "aydın",
+  "kurt", "sahin", "şahin", "koc", "koç", "aslan", "arslan", "yilmaz", "yılmaz",
+  "mutlu", "cetin", "çetin", "yildiz", "yıldız", "gunes", "güneş", "deniz",
+  "celik", "çelik", "yavuz", "kartal", "polat", "simsek", "şimşek", "dogan", "doğan",
+  "akar", "ak", "şen", "sen", "oz", "öz", "avci", "avcı", "turan", "topuz",
+]);
+
+/**
+ * Returns true if any part of the post content reliably mentions the protocol member.
+ * Strategy:
+ * 1. Full name match (e.g. "Cumhur Uzun", "İdris Akbıyık") with word boundary.
+ * 2. If multi-word name, both first and last name present in content.
+ * 3. Title + surname match (e.g. "Milletvekili Uzun", "Vekil Uzun", "Başkan Topuz").
+ * Standalone generic surnames like "uzun" without first name or title are REJECTED
+ * to prevent false positives (such as "uzun vadeli", "uzun dönemli takip").
+ */
+export function mentionsMember(content: string, searchName: string): boolean {
   const haystack = turkishLower(content);
-  const needle = turkishLower(searchName);
-  if (haystack.includes(needle)) return true;
-  // Surname (last word, must be ≥4 chars to avoid false positives)
-  const parts = needle.split(/\s+/);
-  const surname = parts[parts.length - 1];
-  if (surname.length >= 4 && haystack.includes(surname)) return true;
+  const needle = turkishLower(searchName).trim();
+  if (!needle || !haystack) return false;
+
+  // 1. Direct full name match with word boundary
+  if (containsExactPhrase(haystack, needle)) return true;
+
+  const parts = needle.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const firstName = parts[0];
+    const lastName = parts[parts.length - 1];
+
+    // 2. Both first name and last name appear in the text
+    if (containsExactPhrase(haystack, firstName) && containsExactPhrase(haystack, lastName)) {
+      return true;
+    }
+
+    // 3. Title + Surname match (e.g. "Milletvekili Uzun", "Vekil Uzun", "Başkan Topuz")
+    const titleRegex = new RegExp(`(^|[^a-z0-9çğıöşü])(milletvekili|vekil|vali|kaymakam|baskan|başkan|bşk|belediye başkanı)\\s+${lastName}([^a-z0-9çğıöşü]|$)`, "i");
+    if (titleRegex.test(haystack)) {
+      return true;
+    }
+
+    // Standalone surname is only accepted if it's NOT an ambiguous vocabulary word and >= 5 chars
+    if (!AMBIGUOUS_SURNAMES.has(lastName) && lastName.length >= 5) {
+      if (containsExactPhrase(haystack, lastName)) return true;
+    }
+  } else {
+    // Single word name (must be exact and not ambiguous)
+    if (needle.length >= 4 && !AMBIGUOUS_SURNAMES.has(needle)) {
+      return containsExactPhrase(haystack, needle);
+    }
+  }
+
   return false;
 }
 
@@ -182,7 +235,7 @@ export const ProtocolMentionPanel = ({ analyses, onMemberFilter }: Props) => {
       {/* Summary strip */}
       <div className="flex items-center justify-between text-[9px] font-mono text-muted-foreground px-0.5">
         <span>
-          <span className="text-foreground font-bold">{totalMentionedMembers}</span> üye anılıyor ·{" "}
+          <span className="text-foreground font-bold">{totalMentionedMembers}</span> üye basında anılıyor <span className="opacity-60">({members.length} protokol üyesi tarandı)</span> ·{" "}
           <span className="text-foreground font-bold">{totalMentions}</span> mention
         </span>
         {selected && (
@@ -284,6 +337,14 @@ export const ProtocolMentionPanel = ({ analyses, onMemberFilter }: Props) => {
           )}
         </button>
       )}
+
+      {/* Info footer */}
+      <div className="pt-2 border-t border-border/20 flex items-center justify-between text-[8px] font-mono text-muted-foreground/70 px-0.5">
+        <span>Sistem {members.length} protokol üyesini tarar (yalnızca basında anılanlar listelenir)</span>
+        <a href="/?tab=protokol" className="text-primary hover:underline font-semibold">
+          412 Üyenin Tamamı →
+        </a>
+      </div>
     </div>
   );
 };

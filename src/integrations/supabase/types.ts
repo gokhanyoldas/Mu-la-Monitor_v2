@@ -515,34 +515,55 @@ export type Database = {
           category: string | null
           created_at: string
           created_by: string | null
+          district: string | null
           id: string
           is_active: boolean
-          keyword: string
+          is_learned: boolean | null
+          keyword: string | null
+          layer: string | null
           platform: string
           region: string | null
-          user_id: string
+          source_context: string | null
+          term: string | null
+          updated_at: string | null
+          user_id: string | null
+          weight: number | null
         }
         Insert: {
           category?: string | null
           created_at?: string
           created_by?: string | null
+          district?: string | null
           id?: string
           is_active?: boolean
-          keyword: string
+          is_learned?: boolean | null
+          keyword?: string | null
+          layer?: string | null
           platform?: string
           region?: string | null
-          user_id?: string
+          source_context?: string | null
+          term?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+          weight?: number | null
         }
         Update: {
           category?: string | null
           created_at?: string
           created_by?: string | null
+          district?: string | null
           id?: string
           is_active?: boolean
-          keyword?: string
+          is_learned?: boolean | null
+          keyword?: string | null
+          layer?: string | null
           platform?: string
           region?: string | null
-          user_id?: string
+          source_context?: string | null
+          term?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+          weight?: number | null
         }
         Relationships: []
       }

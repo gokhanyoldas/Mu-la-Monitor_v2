@@ -2,7 +2,8 @@
 // User-agent rotasyonu, timeout koruması ve NLP zenginleştirme ile
 // social_posts tablosuna yazar (content_hash unique — otomatik dedupe).
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 import { analyzeText } from "../_shared/nlp.ts";
 
@@ -28,12 +29,37 @@ const SOURCES: FeedSource[] = [
     type: "rss", platform: "emergency",
     url: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.atom",
   },
-  // ── Muğla Büyükşehir & İlçe Belediyeleri ──
+  // ── Muğla Büyükşehir & 13 İlçe Belediyesi Resmi Siteleri (14 Kaynak) ──
   { name: "Muğla Büyükşehir Belediyesi", type: "html", platform: "news", url: "https://www.mugla.bel.tr/haberler" },
   { name: "Bodrum Belediyesi", type: "html", platform: "news", url: "https://www.bodrum.bel.tr/haberler" },
-  { name: "Marmaris Belediyesi", type: "html", platform: "news", url: "https://www.marmaris.bel.tr/" },
-  { name: "Fethiye Belediyesi", type: "html", platform: "news", url: "https://www.fethiye.bel.tr/" },
+  { name: "Fethiye Belediyesi", type: "html", platform: "news", url: "https://www.fethiye.bel.tr/haberler" },
+  { name: "Marmaris Belediyesi", type: "html", platform: "news", url: "https://www.marmaris.bel.tr/haberler" },
   { name: "Menteşe Belediyesi", type: "html", platform: "news", url: "https://www.mentese.bel.tr/haberler" },
+  { name: "Milas Belediyesi", type: "html", platform: "news", url: "https://www.milas.bel.tr/haberler" },
+  { name: "Datça Belediyesi", type: "html", platform: "news", url: "https://www.datca.bel.tr/haberler" },
+  { name: "Dalaman Belediyesi", type: "html", platform: "news", url: "https://www.dalaman.bel.tr/haberler" },
+  { name: "Ortaca Belediyesi", type: "html", platform: "news", url: "https://www.ortaca.bel.tr/haberler" },
+  { name: "Köyceğiz Belediyesi", type: "html", platform: "news", url: "https://www.koycegiz.bel.tr/haberler" },
+  { name: "Ula Belediyesi", type: "html", platform: "news", url: "https://www.ula.bel.tr/haberler" },
+  { name: "Yatağan Belediyesi", type: "html", platform: "news", url: "https://www.yatagan.bel.tr/haberler" },
+  { name: "Seydikemer Belediyesi", type: "html", platform: "news", url: "https://www.seydikemer.bel.tr/haberler" },
+  { name: "Kavaklıdere Belediyesi", type: "html", platform: "news", url: "https://www.kavaklidere.bel.tr/haberler" },
+
+  // ── Muğla Valiliği & 13 İlçe Kaymakamlığı Resmi Siteleri (14 Kaynak) ──
+  { name: "Muğla Valiliği", type: "html", platform: "news", url: "http://www.mugla.gov.tr/haberler" },
+  { name: "Bodrum Kaymakamlığı", type: "html", platform: "news", url: "http://www.bodrum.gov.tr/haberler" },
+  { name: "Fethiye Kaymakamlığı", type: "html", platform: "news", url: "http://www.fethiye.gov.tr/haberler" },
+  { name: "Marmaris Kaymakamlığı", type: "html", platform: "news", url: "http://www.marmaris.gov.tr/haberler" },
+  { name: "Menteşe Kaymakamlığı", type: "html", platform: "news", url: "http://www.mentese.gov.tr/haberler" },
+  { name: "Milas Kaymakamlığı", type: "html", platform: "news", url: "http://www.milas.gov.tr/haberler" },
+  { name: "Datça Kaymakamlığı", type: "html", platform: "news", url: "http://www.datca.gov.tr/haberler" },
+  { name: "Dalaman Kaymakamlığı", type: "html", platform: "news", url: "http://www.dalaman.gov.tr/haberler" },
+  { name: "Ortaca Kaymakamlığı", type: "html", platform: "news", url: "http://www.ortaca.gov.tr/haberler" },
+  { name: "Köyceğiz Kaymakamlığı", type: "html", platform: "news", url: "http://www.koycegiz.gov.tr/haberler" },
+  { name: "Ula Kaymakamlığı", type: "html", platform: "news", url: "http://www.ula.gov.tr/haberler" },
+  { name: "Yatağan Kaymakamlığı", type: "html", platform: "news", url: "http://www.yatagan.gov.tr/haberler" },
+  { name: "Seydikemer Kaymakamlığı", type: "html", platform: "news", url: "http://www.seydikemer.gov.tr/haberler" },
+  { name: "Kavaklıdere Kaymakamlığı", type: "html", platform: "news", url: "http://www.kavaklidere.gov.tr/haberler" },
   // ── İlçe bazlı yerel haber akışları (13 ilçe) ──
   { name: "Muğla Genel", type: "rss", platform: "news", url: GN("Mu%C4%9Fla") },
   { name: "Bodrum", type: "rss", platform: "news", url: GN("Bodrum+Mu%C4%9Fla") },
@@ -87,12 +113,20 @@ function parseHtmlTitles(html: string, limit = 15): { title: string; link: strin
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, false);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: false,
+    allowCors: false,
+  });
+  if (!authCheck.ok) return authCheck.response;
 
   const sb = getServiceClient();
   if (!sb) {
     return new Response(JSON.stringify({ ok: false, error: "no service client" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      { status: 500, headers: { "Content-Type": "application/json" } });
   }
 
   const stats: Record<string, { fetched: number; inserted: number }> = {};
@@ -156,5 +190,5 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ ok: true, stats }),
-    { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    { headers: { "Content-Type": "application/json" } });
 });

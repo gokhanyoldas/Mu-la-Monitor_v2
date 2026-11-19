@@ -1,3 +1,5 @@
+import { useTranslation } from "@/hooks/useTranslation";
+
 interface StatusListItem {
   label: string;
   value: string | number;
@@ -16,6 +18,7 @@ const statusColors = {
 };
 
 export const StatusList = ({ items }: StatusListProps) => {
+  const { t } = useTranslation();
   return (
     <div className="space-y-1.5">
       {items.map((item, i) => (
@@ -24,9 +27,11 @@ export const StatusList = ({ items }: StatusListProps) => {
             {item.status && (
               <span className={`w-1.5 h-1.5 rounded-full ${statusColors[item.status]}`} />
             )}
-            <span className="text-xs text-muted-foreground">{item.label}</span>
+            <span className="text-xs text-muted-foreground">{t(item.label)}</span>
           </div>
-          <span className="text-xs font-mono font-medium text-foreground">{item.value}</span>
+          <span className="text-xs font-mono font-medium text-foreground">
+            {typeof item.value === "string" ? t(item.value) : item.value}
+          </span>
         </div>
       ))}
     </div>

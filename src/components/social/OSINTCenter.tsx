@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { relativeTime } from "@/lib/time-utils";
+import { useAuth } from "@/hooks/useAuth";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,7 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Username Lookup Panel ────────────────────────────────────────────────────
 
 function UsernameLookup() {
+  const { isAuthenticated } = useAuth();
   const [query, setQuery]         = useState("");
   const [loading, setLoading]     = useState(false);
   const [result, setResult]       = useState<LookupResult | null>(null);
@@ -138,6 +140,10 @@ function UsernameLookup() {
   const [expanded, setExpanded]   = useState<Record<string, boolean>>({});
 
   const handleSearch = useCallback(async () => {
+    if (!isAuthenticated) {
+      setError("Kullanıcı tarama için giriş gereklidir.");
+      return;
+    }
     if (!query.trim() || loading) return;
     setLoading(true);
     setError(null);
@@ -154,7 +160,7 @@ function UsernameLookup() {
     } finally {
       setLoading(false);
     }
-  }, [query, loading]);
+  }, [query, loading, isAuthenticated]);
 
   const foundResults  = result?.results.filter(r => r.status === "found")  ?? [];
   const linkResults   = result?.results.filter(r => r.status === "link_only") ?? [];
@@ -168,13 +174,20 @@ function UsernameLookup() {
         subtitle="12 platformda ücretsiz kullanıcı tespiti — API anahtarı gerekmez"
       />
 
+      {!isAuthenticated && (
+        <div className="mb-3 p-2 rounded border border-amber-500/30 bg-amber-950/20 text-[10px] font-mono text-amber-300">
+          Misafir görünümü · Kullanıcı tarama için giriş gereklidir.
+        </div>
+      )}
+
       {/* Search input */}
       <div className="flex gap-2 mb-4">
         <div className="relative flex-1">
           <Terminal className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan-500 w-3.5 h-3.5" />
           <Input
-            placeholder="kullanıcı_adı gir..."
+            placeholder={isAuthenticated ? "kullanıcı_adı gir..." : "Tarama için giriş gereklidir"}
             value={query}
+            disabled={!isAuthenticated}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSearch()}
             className="pl-8 font-mono text-xs bg-slate-900 border-cyan-500/30 text-cyan-100 placeholder:text-slate-600 focus:border-cyan-400 h-8"
@@ -182,7 +195,7 @@ function UsernameLookup() {
         </div>
         <Button
           onClick={handleSearch}
-          disabled={loading || !query.trim()}
+          disabled={!isAuthenticated || loading || !query.trim()}
           size="sm"
           className="h-8 px-3 bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-500/40 text-cyan-300 font-mono text-xs"
         >
@@ -419,10 +432,15 @@ function GeoMonitor() {
 // ─── Search History Panel ─────────────────────────────────────────────────────
 
 function SearchHistory() {
+  const { isAuthenticated, canManageData } = useAuth();
   const [rows, setRows]       = useState<SearchHistoryRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   const loadHistory = useCallback(async () => {
+    if (!isAuthenticated) {
+      setRows([]);
+      return;
+    }
     setLoading(true);
     const { data } = await supabase
       .from("osint_searches")
@@ -431,12 +449,13 @@ function SearchHistory() {
       .limit(20);
     setRows((data as unknown as SearchHistoryRow[]) ?? []);
     setLoading(false);
-  }, []);
+  }, [isAuthenticated]);
 
   const deleteRow = useCallback(async (id: string) => {
+    if (!canManageData) return;
     await supabase.from("osint_searches").delete().eq("id", id);
     setRows(r => r.filter(x => x.id !== id));
-  }, []);
+  }, [canManageData]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
@@ -447,13 +466,19 @@ function SearchHistory() {
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           <p className="text-[10px] font-mono font-bold text-slate-300 uppercase tracking-widest">Geçmiş Aramalar</p>
         </div>
-        <button onClick={loadHistory} className="text-[9px] font-mono text-slate-500 hover:text-slate-300 flex items-center gap-1">
-          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
-          Yenile
-        </button>
+        {isAuthenticated && (
+          <button onClick={loadHistory} className="text-[9px] font-mono text-slate-500 hover:text-slate-300 flex items-center gap-1">
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+            Yenile
+          </button>
+        )}
       </div>
 
-      {rows.length === 0 && !loading ? (
+      {!isAuthenticated ? (
+        <p className="text-[10px] font-mono text-amber-300/80 text-center py-4">
+          Arama geçmişini görüntülemek için giriş yapmanız gerekmektedir.
+        </p>
+      ) : rows.length === 0 && !loading ? (
         <p className="text-[10px] font-mono text-slate-600 text-center py-4">Henüz arama yapılmadı</p>
       ) : (
         <div className="space-y-1.5">
@@ -481,12 +506,14 @@ function SearchHistory() {
                     </a>
                   ))}
               </div>
-              <button
-                onClick={() => deleteRow(row.id)}
-                className="ml-2 opacity-0 group-hover:opacity-100 text-red-600 hover:text-red-400 transition-all flex-shrink-0"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+              {canManageData && (
+                <button
+                  onClick={() => deleteRow(row.id)}
+                  className="ml-2 opacity-0 group-hover:opacity-100 text-red-600 hover:text-red-400 transition-all flex-shrink-0"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>

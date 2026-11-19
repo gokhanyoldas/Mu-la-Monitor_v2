@@ -1,5 +1,5 @@
-// M1: Canlı/Tahmin Rozeti — tüm veri kartlarında tek tip gösterim
 import { Zap, Brain, Clock } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export type DataSourceType = "live" | "estimate" | "cached" | "static";
 
@@ -45,14 +45,15 @@ export const DataSourceBadge = ({
   className = "",
   showIcon = true,
 }: DataSourceBadgeProps) => {
+  const { t } = useTranslation();
   const cfg = CONFIG[type];
 
   const ageLabel = lastUpdated
     ? (() => {
         const diff = Math.round((Date.now() - new Date(lastUpdated).getTime()) / 60000);
-        if (diff < 1) return "Az önce";
-        if (diff < 60) return `${diff}dk önce`;
-        return `${Math.round(diff / 60)}s önce`;
+        if (diff < 1) return t("just_now", "Az önce");
+        if (diff < 60) return `${diff}${t("min", "dk")} ${t("ago", "önce")}`;
+        return `${Math.round(diff / 60)}${t("hour", "sa")} ${t("ago", "önce")}`;
       })()
     : null;
 
@@ -64,11 +65,11 @@ export const DataSourceBadge = ({
 
   return (
     <span
-      title={cfg.tooltip}
+      title={t(cfg.tooltip)}
       className={`inline-flex items-center gap-0.5 text-[8px] font-mono font-semibold px-1.5 py-0.5 rounded border ${cfg.className} ${className}`}
     >
       {showIcon && IconEl}
-      {cfg.label}
+      {t(cfg.label)}
       {ageLabel && (
         <span className="ml-0.5 opacity-70">· {ageLabel}</span>
       )}

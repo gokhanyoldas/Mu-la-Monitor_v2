@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { BrainCircuit, CalendarDays, RefreshCw } from "lucide-react";
 
@@ -17,6 +18,7 @@ interface SummaryRow {
 }
 
 export function ExecutiveReportPanel({ className }: { className?: string }) {
+  const { canGenerateExecutiveReport } = useAuth();
   const [period, setPeriod] = useState<Period>("daily");
   const [generating, setGenerating] = useState(false);
   const qc = useQueryClient();
@@ -70,14 +72,16 @@ export function ExecutiveReportPanel({ className }: { className?: string }) {
               </button>
             ))}
           </div>
-          <button
-            onClick={generate}
-            disabled={generating}
-            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={cn("w-3 h-3", generating && "animate-spin")} />
-            {generating ? "Üretiliyor…" : "Şimdi Üret"}
-          </button>
+          {canGenerateExecutiveReport && (
+            <button
+              onClick={generate}
+              disabled={generating}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={cn("w-3 h-3", generating && "animate-spin")} />
+              {generating ? "Üretiliyor…" : "Şimdi Üret"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -100,13 +104,19 @@ export function ExecutiveReportPanel({ className }: { className?: string }) {
             <p className="text-xs text-muted-foreground mb-3">
               Henüz {period === "daily" ? "günlük" : "haftalık"} yönetici özeti üretilmedi.
             </p>
-            <button
-              onClick={generate}
-              disabled={generating}
-              className="px-3 py-1.5 rounded-md text-[11px] font-mono bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {generating ? "Üretiliyor…" : "İlk Raporu Üret"}
-            </button>
+            {canGenerateExecutiveReport ? (
+              <button
+                onClick={generate}
+                disabled={generating}
+                className="px-3 py-1.5 rounded-md text-[11px] font-mono bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {generating ? "Üretiliyor…" : "İlk Raporu Üret"}
+              </button>
+            ) : (
+              <p className="text-[10px] font-mono text-muted-foreground/70">
+                Salt-okunur görünüm · Yönetici özetleri zamanlanmış cron tarafından güncellenir.
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Flame, Wind, Droplets, Thermometer, Info } from "lucide-react";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { DataSourceBadge } from "@/components/DataSourceBadge";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface FireRiskData {
   fwi_score: number;     // 0-100 hesaplanan skor
@@ -23,20 +24,16 @@ interface FireRiskData {
 // Simplified Fire Weather Index calculation
 // Based on Canadian FWI system components adapted for Aegean Turkey
 function calculateFWI(temp: number, rh: number, wind: number, precip: number): number {
-  // FFMC (Fine Fuel Moisture Code): low humidity + high temp = dry fuels
   const ffmc = Math.max(0, Math.min(100,
     (temp * 0.65) + ((100 - rh) * 0.35) - precip * 8
   ));
 
-  // ISI (Initial Spread Index): wind effect on fire spread
   const isi = wind * 0.4 + Math.max(0, ffmc - 50) * 0.2;
 
-  // BUI (Buildup Index): seasonal dryness (peaks Aug-Sep in Muğla)
   const month = new Date().getMonth(); // 0=Jan
   const seasonFactor = [0.3, 0.3, 0.4, 0.5, 0.7, 0.85, 1.0, 1.0, 0.9, 0.6, 0.4, 0.3][month];
   const bui = seasonFactor * 100 * Math.max(0, 1 - rh / 100);
 
-  // FWI composite
   const fwi = (isi * 0.4 + bui * 0.6) * seasonFactor;
   return Math.round(Math.min(fwi, 100));
 }
@@ -60,13 +57,13 @@ const LEVEL_CONFIG = {
 };
 
 export const FireRiskIndicator = () => {
+  const { t, translate } = useTranslation();
   const [data, setData] = useState<FireRiskData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetch = async () => {
       try {
-        // Open-Meteo current weather for Muğla
         const res = await window.fetch(
           "https://api.open-meteo.com/v1/forecast?latitude=37.2153&longitude=28.3636" +
           "&current=temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation" +
@@ -105,7 +102,7 @@ export const FireRiskIndicator = () => {
     <DashboardPanel
       title="Orman Yangın Risk Göstergesi"
       icon={<Flame size={14} />}
-      badge={data?.danger_level.toUpperCase() ?? ""}
+      badge={data?.danger_level ? t(data.danger_level.toUpperCase()) : ""}
       badgeVariant={
         data
           ? data.fwi_score >= 65 ? "live"
@@ -124,7 +121,7 @@ export const FireRiskIndicator = () => {
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
               <span className={`text-xl font-mono font-bold ${level.color}`}>
-                {level.emoji} {data.danger_level.toUpperCase()}
+                {level.emoji} {t(data.danger_level.toUpperCase())}
               </span>
               <span className={`text-xs font-mono font-bold ${level.color}`}>
                 FWI {data.fwi_score}/100
@@ -138,20 +135,20 @@ export const FireRiskIndicator = () => {
             </div>
             {/* Scale labels */}
             <div className="flex justify-between mt-0.5 text-[7px] font-mono text-muted-foreground">
-              <span>Çok Düşük</span>
-              <span>Orta</span>
-              <span>Yüksek</span>
-              <span>Aşırı</span>
+              <span>{t("ÇOK DÜŞÜK", "Çok Düşük")}</span>
+              <span>{t("ORTA", "Orta")}</span>
+              <span>{t("YÜKSEK", "Yüksek")}</span>
+              <span>{t("AŞIRI", "Aşırı")}</span>
             </div>
           </div>
 
           {/* Metrics grid */}
           <div className="grid grid-cols-2 gap-2 mb-2">
             {[
-              { icon: <Thermometer size={10} />, label: "Sıcaklık", value: `${data.temperature}°C` },
-              { icon: <Droplets size={10} />,    label: "Nem",       value: `${data.relative_humidity}%` },
-              { icon: <Wind size={10} />,        label: "Rüzgar",    value: `${data.wind_speed} km/h` },
-              { icon: <Droplets size={10} />,    label: "Yağış",     value: `${data.precipitation} mm` },
+              { icon: <Thermometer size={10} />, label: t("Sıcaklık"), value: `${data.temperature}°C` },
+              { icon: <Droplets size={10} />,    label: t("Nem"),       value: `${data.relative_humidity}%` },
+              { icon: <Wind size={10} />,        label: t("Rüzgar"),    value: `${data.wind_speed} km/h` },
+              { icon: <Droplets size={10} />,    label: t("Yağış"),     value: `${data.precipitation} mm` },
             ].map(m => (
               <div key={m.label} className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/20">
                 <span className="text-muted-foreground">{m.icon}</span>
@@ -168,7 +165,7 @@ export const FireRiskIndicator = () => {
             <div className="flex items-start gap-1.5 p-2 rounded bg-orange-500/10 border border-orange-500/20">
               <Info size={10} className="text-orange-400 flex-shrink-0 mt-0.5" />
               <p className="text-[9px] font-mono text-orange-300/80">
-                Haziran–Eylül arasında Muğla'da yangın riski yüksektir. AFAD uyarılarını takip edin.
+                {translate("Haziran–Eylül arasında Muğla'da yangın riski yüksektir. AFAD uyarılarını takip edin.")}
               </p>
             </div>
           )}
@@ -176,13 +173,13 @@ export const FireRiskIndicator = () => {
           <div className="flex items-center justify-between mt-2">
             <DataSourceBadge type="estimate" lastUpdated={data.lastUpdated} />
             <span className="text-[8px] font-mono text-muted-foreground">
-              Kaynak: {data.source}
+              {t("source", "Kaynak")}: {data.source}
             </span>
           </div>
         </>
       ) : (
         <p className="text-[10px] font-mono text-muted-foreground text-center py-4">
-          Veri alınamadı
+          {t("no_data", "Veri alınamadı")}
         </p>
       )}
     </DashboardPanel>

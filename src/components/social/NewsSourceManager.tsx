@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Plus, X, Newspaper, Rss, Globe, Loader2, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -26,6 +27,7 @@ const categories = [
 ];
 
 export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) => {
+  const { canManageData } = useAuth();
   const [sources, setSources] = useState<NewsSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -53,7 +55,7 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
   };
 
   const addSource = async () => {
-    if (!form.name.trim() || !form.url.trim()) return;
+    if (!canManageData || !form.name.trim() || !form.url.trim()) return;
     setAdding(true);
 
     const { error } = await supabase.from("news_sources").insert({
@@ -81,11 +83,13 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
   };
 
   const toggleSource = async (id: string, current: boolean) => {
+    if (!canManageData) return;
     await supabase.from("news_sources").update({ is_active: !current }).eq("id", id);
     await fetchSources();
   };
 
   const deleteSource = async (id: string, name: string, createdBy: string) => {
+    if (!canManageData) return;
     if (createdBy === "system") {
       toast({ title: "Sistem kaynakları silinemez, devre dışı bırakabilirsiniz", variant: "destructive" });
       return;
@@ -121,7 +125,7 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
             {rssCount} RSS beslemesi
           </span>
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 items-center">
           <button
             onClick={fetchSources}
             className="text-[9px] font-mono text-muted-foreground hover:text-foreground flex items-center gap-1"
@@ -129,18 +133,20 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
           >
             <RefreshCw size={8} />
           </button>
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="text-[9px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 flex items-center gap-1"
-          >
-            <Plus size={8} />
-            Kaynak ekle
-          </button>
+          {canManageData && (
+            <button
+              onClick={() => setShowForm(!showForm)}
+              className="text-[9px] font-mono px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 flex items-center gap-1"
+            >
+              <Plus size={8} />
+              Kaynak ekle
+            </button>
+          )}
         </div>
       </div>
 
       {/* Add form */}
-      {showForm && (
+      {canManageData && showForm && (
         <div className="p-3 rounded-lg bg-muted/20 border border-border/40 space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <input
@@ -211,12 +217,21 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
             }`}
           >
             {/* Status indicator */}
-            <button onClick={() => toggleSource(src.id, src.is_active)} title={src.is_active ? "Devre dışı bırak" : "Aktif et"}>
-              {src.is_active
-                ? <CheckCircle size={10} className="text-emerald-400 shrink-0" />
-                : <XCircle size={10} className="text-muted-foreground/40 shrink-0" />
-              }
-            </button>
+            {canManageData ? (
+              <button onClick={() => toggleSource(src.id, src.is_active)} title={src.is_active ? "Devre dışı bırak" : "Aktif et"}>
+                {src.is_active
+                  ? <CheckCircle size={10} className="text-emerald-400 shrink-0" />
+                  : <XCircle size={10} className="text-muted-foreground/40 shrink-0" />
+                }
+              </button>
+            ) : (
+              <span>
+                {src.is_active
+                  ? <CheckCircle size={10} className="text-emerald-400 shrink-0" />
+                  : <XCircle size={10} className="text-muted-foreground/40 shrink-0" />
+                }
+              </span>
+            )}
 
             {/* Info */}
             <div className="flex-1 min-w-0">
@@ -245,7 +260,7 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
             </span>
 
             {/* Delete (user-added only) */}
-            {src.created_by === "user" && (
+            {canManageData && src.created_by === "user" && (
               <button
                 onClick={() => deleteSource(src.id, src.name, src.created_by)}
                 className="text-muted-foreground/40 hover:text-destructive shrink-0"

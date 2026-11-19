@@ -49,13 +49,29 @@ export function useAlertSystem() {
     const newAlerts: ActiveAlert[] = [];
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const hasSession = Boolean(session?.access_token);
+
+      const getTypePayload = async (dataType: "earthquakes" | "air_quality" | "weather") => {
+        if (hasSession) {
+          const { data } = await supabase.functions.invoke("data-scrape", {
+            body: { type: dataType },
+          });
+          if (data?.data) return data.data;
+        }
+        const { data: cacheRow } = await supabase
+          .from("live_data_cache")
+          .select("data")
+          .eq("data_type", dataType)
+          .maybeSingle();
+        return cacheRow?.data ?? null;
+      };
+
       // Check earthquakes
       const eqRules = enabledRules.filter(r => r.type === "earthquake");
       if (eqRules.length > 0) {
-        const { data } = await supabase.functions.invoke("data-scrape", {
-          body: { type: "earthquakes" },
-        });
-        const earthquakes = data?.data?.earthquakes || [];
+        const eqData = await getTypePayload("earthquakes");
+        const earthquakes = eqData?.earthquakes || [];
         
         for (const rule of eqRules) {
           // Guard: USGS can return features with null/undefined properties
@@ -84,10 +100,8 @@ export function useAlertSystem() {
       // Check air quality
       const aqRules = enabledRules.filter(r => r.type === "air_quality");
       if (aqRules.length > 0) {
-        const { data } = await supabase.functions.invoke("data-scrape", {
-          body: { type: "air_quality" },
-        });
-        const aqi = data?.data?.european_aqi;
+        const aqData = await getTypePayload("air_quality");
+        const aqi = aqData?.european_aqi;
 
         if (aqi) {
           for (const rule of aqRules) {
@@ -108,10 +122,8 @@ export function useAlertSystem() {
       // Check weather
       const wxRules = enabledRules.filter(r => r.type === "weather");
       if (wxRules.length > 0) {
-        const { data } = await supabase.functions.invoke("data-scrape", {
-          body: { type: "weather" },
-        });
-        const temp = data?.data?.temperature;
+        const wxData = await getTypePayload("weather");
+        const temp = wxData?.temperature;
 
         if (temp !== undefined) {
           for (const rule of wxRules) {

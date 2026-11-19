@@ -3,7 +3,8 @@
 // Uses: public JSON APIs (GitHub, Reddit, Keybase, HN), HEAD/GET requests for others
 // Called from: OSINTCenter.tsx -> POST { username: string }
 
-import { corsHeaders } from "../_shared/cors.ts";
+import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
+import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface PlatformResult {
@@ -158,19 +159,29 @@ async function checkHead(url: string): Promise<"found" | "not_found" | "error"> 
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const authCheck = await authorizeRequest(req, {
+    allowInternal: true,
+    allowUser: true,
+    allowCors: true,
+  });
+  if (!authCheck.ok) return authCheck.response;
+
+  const rl = checkRateLimit(`osint-lookup:${authCheck.auth.userId}`, 15, 60_000);
+  if (!rl.allowed) return buildRateLimitResponse(req, rl.retryAfterSec, true);
+
+  const cors = getCorsHeaders(req);
 
   try {
     const { username } = await req.json();
-    if (!username || username.trim().length < 2) {
-      return new Response(JSON.stringify({ error: "Username too short" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const cleanUsername = String(username ?? "").trim().replace(/^@/, "");
+    if (!cleanUsername || cleanUsername.length < 2 || cleanUsername.length > 64 || !/^[a-zA-Z0-9._-]+$/.test(cleanUsername)) {
+      return new Response(JSON.stringify({ error: "Invalid username" }), {
+        status: 400, headers: { ...cors, "Content-Type": "application/json" },
       });
     }
-
-    const cleanUsername = username.trim().replace(/^@/, "");
 
     // Run all checks in parallel
     const checks = await Promise.allSettled([
@@ -219,11 +230,11 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ username: cleanUsername, results, found_count: foundCount, searched_at: new Date().toISOString() }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...cors, "Content-Type": "application/json" } }
     );
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...cors, "Content-Type": "application/json" },
     });
   }
 });

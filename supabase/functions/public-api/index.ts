@@ -2,14 +2,14 @@
 // Ücretsiz, anonim erişim, CORS açık
 // Endpoints: GET /public-api?type=weather|earthquakes|air_quality|social_summary
 
-import { corsHeaders } from '../_shared/cors.ts';
+import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SERVICE_KEY  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const ANON_KEY     = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 
 const HEADERS_DB = {
-  apikey: SERVICE_KEY,
-  Authorization: `Bearer ${SERVICE_KEY}`,
+  apikey: ANON_KEY,
+  Authorization: `Bearer ${ANON_KEY}`,
   'Content-Type': 'application/json',
 };
 
@@ -129,14 +129,21 @@ async function getHistoricalSnapshot(days = 7) {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  const preflight = handleCorsPreflight(req, true);
+  if (preflight) return preflight;
+
+  const cors = getCorsHeaders(req);
+
+  if (req.method !== 'GET') {
+    return new Response(JSON.stringify({ error: 'Method not allowed. Use GET.' }), {
+      status: 405, headers: { ...cors, 'Content-Type': 'application/json' },
+    });
   }
 
   const ip = req.headers.get('x-forwarded-for') ?? 'unknown';
   if (isRateLimited(ip)) {
     return new Response(JSON.stringify({ error: 'Rate limit exceeded. Max 60 req/min.' }), {
-      status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 429, headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -171,12 +178,12 @@ Deno.serve(async (req: Request) => {
         };
     }
     return new Response(JSON.stringify({ success: true, type, data }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' },
+      headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' },
     });
   } catch (error: any) {
     console.error('public-api error:', error);
     return new Response(JSON.stringify({ success: false, error: error.message }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 });

@@ -2,6 +2,8 @@
 // Centralized localStorage management with TTL, versioning, and namespacing.
 // Replaces 15 scattered localStorage usages across the app.
 
+import { safeStorage } from "./safe-storage";
+
 const CACHE_VERSION = "v1";
 const CACHE_PREFIX = `mugla_monitor_${CACHE_VERSION}_`;
 
@@ -56,7 +58,7 @@ class CacheManager {
   set<T>(key: string, data: T, ttl: number = TTL.MEDIUM): void {
     try {
       const entry: CacheEntry<T> = { data, timestamp: Date.now(), ttl };
-      localStorage.setItem(this.buildKey(key), JSON.stringify(entry));
+      safeStorage.setItem(this.buildKey(key), JSON.stringify(entry));
     } catch (e) {
       console.warn("[CacheManager] write failed:", key, e);
     }
@@ -64,7 +66,7 @@ class CacheManager {
 
   get<T>(key: string): T | null {
     try {
-      const raw = localStorage.getItem(this.buildKey(key));
+      const raw = safeStorage.getItem(this.buildKey(key));
       if (!raw) return null;
       const entry: CacheEntry<T> = JSON.parse(raw);
       if (this.isExpired(entry)) {
@@ -76,7 +78,7 @@ class CacheManager {
 
   getMeta<T>(key: string): { data: T; ageMs: number } | null {
     try {
-      const raw = localStorage.getItem(this.buildKey(key));
+      const raw = safeStorage.getItem(this.buildKey(key));
       if (!raw) return null;
       const entry: CacheEntry<T> = JSON.parse(raw);
       if (this.isExpired(entry)) {
@@ -87,28 +89,28 @@ class CacheManager {
   }
 
   isFresh(key: string): boolean { return this.get(key) !== null; }
-  delete(key: string): void { localStorage.removeItem(this.buildKey(key)); }
+  delete(key: string): void { safeStorage.removeItem(this.buildKey(key)); }
 
   invalidateDataFeeds(): void {
     const preferenceKeys = [CACHE_KEYS.LANGUAGE, CACHE_KEYS.THEME, CACHE_KEYS.DASHBOARD_LAYOUT];
     const toDelete: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
+    for (let i = 0; i < safeStorage.length; i++) {
+      const k = safeStorage.key(i);
       if (k?.startsWith(this.prefix)) {
         const shortKey = k.slice(this.prefix.length) as CacheKey;
         if (!(preferenceKeys as readonly string[]).includes(shortKey)) toDelete.push(k);
       }
     }
-    toDelete.forEach((k) => localStorage.removeItem(k));
+    toDelete.forEach((k) => safeStorage.removeItem(k));
   }
 
   clearAll(): void {
     const toDelete: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
+    for (let i = 0; i < safeStorage.length; i++) {
+      const k = safeStorage.key(i);
       if (k?.startsWith(this.prefix)) toDelete.push(k);
     }
-    toDelete.forEach((k) => localStorage.removeItem(k));
+    toDelete.forEach((k) => safeStorage.removeItem(k));
   }
 
   migrateOldKeys(): void {
@@ -118,22 +120,22 @@ class CacheManager {
       dismissedAlerts: CACHE_KEYS.DISMISSED_ALERTS,
     };
     Object.entries(legacyMappings).forEach(([oldKey, newKey]) => {
-      const val = localStorage.getItem(oldKey);
+      const val = safeStorage.getItem(oldKey);
       if (val !== null) {
         try { this.set(newKey, JSON.parse(val), TTL.PERMANENT); }
         catch { this.set(newKey, val, TTL.PERMANENT); }
-        localStorage.removeItem(oldKey);
+        safeStorage.removeItem(oldKey);
       }
     });
   }
 
   stats(): { totalKeys: number; expiredKeys: number; sizeKB: number } {
     let totalKeys = 0, expiredKeys = 0, sizeBytes = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
+    for (let i = 0; i < safeStorage.length; i++) {
+      const k = safeStorage.key(i);
       if (!k?.startsWith(this.prefix)) continue;
       totalKeys++;
-      const raw = localStorage.getItem(k) ?? "";
+      const raw = safeStorage.getItem(k) ?? "";
       sizeBytes += raw.length * 2;
       try {
         const entry = JSON.parse(raw) as CacheEntry<unknown>;
