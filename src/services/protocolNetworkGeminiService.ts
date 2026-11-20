@@ -1,6 +1,6 @@
 // src/services/protocolNetworkGeminiService.ts
 // Seçili düğümün bağlı olduğu ilçeler ve kurumlarla koordinasyon/gündem özetini
-// merkezi ENV (VITE_GEMINI_API_KEY / process.env.GEMINI_API_KEY) üzerinden 3 maddede üretir.
+// server-side /api/intel/protocol-node proxy üzerinden 3 maddede üretir.
 
 import { runClientGeminiProtocolNode } from "@/services/clientGeminiFallback";
 import {

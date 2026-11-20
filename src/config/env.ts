@@ -1,7 +1,6 @@
 // src/config/env.ts
 // Muğla Monitör v2 — Merkezi Ortam Değişkenleri Yapılandırması
-// GitHub, Vercel (Vite import.meta.env.VITE_*) ve Google AI Studio (process.env.GEMINI_API_KEY)
-// çalışma zamanlarını güvenli ve beyaz ekran hatası olmadan birleştirir.
+// GitHub/Vercel frontend ortam değişkenlerini güvenli ve beyaz ekran hatası olmadan birleştirir.
 
 type EnvRecord = Record<string, string | boolean | undefined>;
 
@@ -83,7 +82,7 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
  * Merkezi ENV nesnesi:
  * - VITE_SUPABASE_URL
  * - VITE_SUPABASE_ANON_KEY (VITE_SUPABASE_PUBLISHABLE_KEY yedeğiyle)
- * - VITE_GEMINI_API_KEY (AI Studio process.env.GEMINI_API_KEY yedeğiyle)
+ * - VITE_GEMINI_API_KEY (yalnızca açıkça frontend ortamına verilmiş legacy uyumluluk alanı)
  * - VITE_TOMTOM_API_KEY
  */
 export const ENV = {
