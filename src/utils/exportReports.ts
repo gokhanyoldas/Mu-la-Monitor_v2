@@ -1,17 +1,26 @@
-// exportReports — PDF/Excel dışa aktarım yardımcıları.
-// xlsx ve jspdf ağır bağımlılıklar; ilk yüklemede bundle'ı şişirmemek için
-// dinamik import ile sadece kullanıcı dışa aktardığında yüklenir.
+// exportReports — PDF/CSV dışa aktarım yardımcıları.
+// CSV, Excel tarafından doğrudan açılabilir ve güvenlik açısından xlsx parser'ı çalıştırmaz.
 
 export interface ExportRow {
   [key: string]: string | number | null | undefined;
 }
 
-export async function exportToExcel(rows: ExportRow[], filename: string, sheetName = "Rapor") {
-  const XLSX = await import("xlsx");
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+export function exportToCsv(rows: ExportRow[], filename: string) {
+  const columns = Array.from(new Set(rows.flatMap(row => Object.keys(row))));
+  const escapeCell = (value: unknown) => {
+    const text = String(value ?? "").replace(/\r?\n/g, " ");
+    return /[",;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const csv = [
+    columns.map(escapeCell).join(","),
+    ...rows.map(row => columns.map(column => escapeCell(row[column])).join(",")),
+  ].join("\r\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${filename}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 }
 
 export async function exportToPdf(

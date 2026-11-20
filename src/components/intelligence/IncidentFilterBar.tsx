@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { exportToExcel, exportToPdf } from "@/utils/exportReports";
+import { exportToCsv, exportToPdf } from "@/utils/exportReports";
 import { cn } from "@/lib/utils";
 import { Download, FileSpreadsheet, FileText, Filter, X } from "lucide-react";
 
@@ -54,28 +54,28 @@ function useExportRows(filter: IncidentFilterState, enabled: boolean) {
 }
 
 export function IncidentFilterBar({ value, onChange, className }: Props) {
-  const [exporting, setExporting] = useState<"xlsx" | "pdf" | null>(null);
+  const [exporting, setExporting] = useState<"csv" | "pdf" | null>(null);
   const { data: rows, refetch } = useExportRows(value, false);
 
   const label = value.scope === "district" && value.district
     ? value.district
     : value.scope === "critical" ? "Kritik Uyarılar" : "Genel";
 
-  async function handleExport(kind: "xlsx" | "pdf") {
+  async function handleExport(kind: "csv" | "pdf") {
     setExporting(kind);
     try {
       const { data } = await refetch();
       const list = data ?? rows ?? [];
       const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
       const base = `mugla-istihbarat-${stamp}`;
-      if (kind === "xlsx") {
-        await exportToExcel(
+      if (kind === "csv") {
+        exportToCsv(
           list.map(r => ({
             İlçe: r.district, Kategori: CATEGORY_TR[r.category ?? "general"] ?? r.category,
             Duygu: r.sentiment, Skor: r.sentiment_score, İçerik: r.content,
             Kaynak: r.platform, Tarih: r.published_at, Link: r.url,
           })),
-          base, label,
+          base,
         );
       } else {
         await exportToPdf(
@@ -159,11 +159,11 @@ export function IncidentFilterBar({ value, onChange, className }: Props) {
           <FileText className="w-3 h-3" /> {exporting === "pdf" ? "…" : "PDF"}
         </button>
         <button
-          onClick={() => handleExport("xlsx")}
+          onClick={() => handleExport("csv")}
           disabled={exporting !== null}
           className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-mono bg-green-500/10 text-green-400 border border-green-500/30 hover:bg-green-500/20 transition-colors disabled:opacity-50"
         >
-          <FileSpreadsheet className="w-3 h-3" /> {exporting === "xlsx" ? "…" : "Excel"}
+          <FileSpreadsheet className="w-3 h-3" /> {exporting === "csv" ? "…" : "CSV / Excel"}
         </button>
       </div>
     </div>
