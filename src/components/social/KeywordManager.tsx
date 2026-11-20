@@ -40,6 +40,8 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
   // Fetch keywords from DB
   useEffect(() => {
     fetchKeywords();
+    // Initial load only; subsequent refreshes are explicit mutations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchKeywords = async () => {

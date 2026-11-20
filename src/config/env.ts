@@ -1,7 +1,6 @@
 // src/config/env.ts
 // Muğla Monitör v2 — Merkezi Ortam Değişkenleri Yapılandırması
-// GitHub, Vercel (Vite import.meta.env.VITE_*) ve Google AI Studio (process.env.GEMINI_API_KEY)
-// çalışma zamanlarını güvenli ve beyaz ekran hatası olmadan birleştirir.
+// GitHub/Vercel frontend ortam değişkenlerini güvenli ve beyaz ekran hatası olmadan birleştirir.
 
 type EnvRecord = Record<string, string | boolean | undefined>;
 
@@ -20,12 +19,6 @@ function readProcessEnv(key: string): string | undefined {
   // Vite `define` bloğu statik `process.env.<KEY>` ifadelerini derleme zamanında yerleştirir.
   try {
     if (typeof process !== "undefined") {
-      if (key === "GEMINI_API_KEY" && process.env?.GEMINI_API_KEY) {
-        return process.env.GEMINI_API_KEY;
-      }
-      if (key === "VITE_GEMINI_API_KEY" && process.env?.VITE_GEMINI_API_KEY) {
-        return process.env.VITE_GEMINI_API_KEY;
-      }
       if (key === "APP_URL" && process.env?.APP_URL) {
         return process.env.APP_URL;
       }
@@ -89,7 +82,7 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
  * Merkezi ENV nesnesi:
  * - VITE_SUPABASE_URL
  * - VITE_SUPABASE_ANON_KEY (VITE_SUPABASE_PUBLISHABLE_KEY yedeğiyle)
- * - VITE_GEMINI_API_KEY (AI Studio process.env.GEMINI_API_KEY yedeğiyle)
+ * - VITE_GEMINI_API_KEY (yalnızca açıkça frontend ortamına verilmiş legacy uyumluluk alanı)
  * - VITE_TOMTOM_API_KEY
  */
 export const ENV = {
@@ -118,10 +111,10 @@ export const ENV = {
     );
   },
   get VITE_GEMINI_API_KEY(): string {
-    return resolveEnv("VITE_GEMINI_API_KEY", "GEMINI_API_KEY");
+    return resolveEnv("VITE_GEMINI_API_KEY");
   },
   get GEMINI_API_KEY(): string {
-    return resolveEnv("VITE_GEMINI_API_KEY", "GEMINI_API_KEY");
+    return "";
   },
   get VITE_TOMTOM_API_KEY(): string {
     return resolveEnv("VITE_TOMTOM_API_KEY", "TOMTOM_API_KEY");
@@ -147,7 +140,7 @@ export const ENV = {
 };
 
 export function getGeminiApiKey(): string {
-  return ENV.VITE_GEMINI_API_KEY;
+  return "";
 }
 
 export function getAppUrl(): string {
@@ -183,7 +176,7 @@ export function validateEnvAndWarn(): string[] {
   }
   if (!ENV.VITE_GEMINI_API_KEY) {
     warnings.push(
-      "[ENV] VITE_GEMINI_API_KEY / GEMINI_API_KEY tanımlı değil — istemci tarafı olay ayrıştırıcısı yerel heuristik NLP yedeğini kullanacak."
+      "[ENV] VITE_GEMINI_API_KEY tanımlı değil — Gemini çağrıları server-side proxy üzerinden yapılacak."
     );
   }
   if (!ENV.VITE_TOMTOM_API_KEY) {

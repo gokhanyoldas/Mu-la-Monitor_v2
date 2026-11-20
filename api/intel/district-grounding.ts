@@ -58,7 +58,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return sendJson(res, 400, { ok: false, error: "districtName gereklidir." });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+  const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) {
     return sendJson(res, 200, {
       ok: false,
