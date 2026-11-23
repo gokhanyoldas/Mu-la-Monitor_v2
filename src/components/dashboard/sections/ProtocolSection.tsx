@@ -126,11 +126,11 @@ export const ProtocolSection = () => {
           <h3 className="text-sm font-mono font-bold">{t("Muğla İl Protokol Listesi")}</h3>
           <PanelHelpTooltip panelTitle="Muğla İl Protokol Listesi" />
           <span className="text-[10px] font-mono text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">
-            {isLoading ? "Denetleniyor..." : `${totalVisible} / ${fullData.length} Kişi`}
+            {isLoading ? t("Denetleniyor...") : `${totalVisible} / ${fullData.length} ${t("Kişi")}`}
           </span>
           <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
             <CheckCircle2 className="w-3 h-3" />
-            Kasım 2026 Doğrulandı
+            {t("Kasım 2026 Doğrulandı")}
           </span>
         </div>
 
@@ -141,10 +141,10 @@ export const ProtocolSection = () => {
               onClick={() => fetchProtocol(true)}
               disabled={isLoading}
               className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono bg-secondary hover:bg-secondary/80 border border-border/60 rounded text-foreground transition-colors disabled:opacity-50"
-              title="Muğla Valiliği resmi protokol kaynağından güncelliği sorgula"
+              title={t("Muğla Valiliği resmi protokol kaynağından güncelliği sorgula")}
             >
               <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin text-primary" : ""}`} />
-              <span>{isLoading ? "Denetleniyor..." : "Güncelliği Denetle"}</span>
+              <span>{isLoading ? t("Denetleniyor...") : t("Güncelliği Denetle")}</span>
             </button>
           )}
 
@@ -167,7 +167,7 @@ export const ProtocolSection = () => {
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="İsim, unvan (örn. Kaymakam, Başsavcı, Rektör) veya kategori ara..."
+          placeholder={t("İsim, unvan (örn. Kaymakam, Başsavcı, Rektör) veya kategori ara...")}
           className="w-full pl-8 pr-3 py-1.5 text-xs font-mono bg-background border border-border rounded-md focus:outline-none focus:border-primary"
         />
       </div>
@@ -175,12 +175,12 @@ export const ProtocolSection = () => {
       {/* Kontroller */}
       <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
         <div className="flex gap-2">
-          <button onClick={expandAll} className="text-primary hover:underline">Tümünü Aç</button>
+          <button onClick={expandAll} className="text-primary hover:underline">{t("Tümünü Aç")}</button>
           <span>|</span>
-          <button onClick={collapseAll} className="text-primary hover:underline">Tümünü Kapat</button>
+          <button onClick={collapseAll} className="text-primary hover:underline">{t("Tümünü Kapat")}</button>
         </div>
         <div>
-          Toplam <span className="font-bold text-foreground">{totalVisible}</span> kayıt listeleniyor
+          {t("Toplam")} <span className="font-bold text-foreground">{totalVisible}</span> {t("kayıt listeleniyor")}
         </div>
       </div>
 
@@ -220,7 +220,7 @@ export const ProtocolSection = () => {
                               <span>{member.isim}</span>
                               {member.sira && (
                                 <span className="text-[9px] font-normal text-muted-foreground/80 px-1 rounded bg-secondary/50">
-                                  Sıra: {member.sira}
+                                  {t("Sıra")}: {member.sira}
                                 </span>
                               )}
                               {matchedLinks.length > 0 && (
@@ -249,7 +249,7 @@ export const ProtocolSection = () => {
                             <a
                               href={`tel:${member.telefon.split(/[-–,]/)[0].trim().replace(/\s+/g, '')}`}
                               className="text-[9px] font-mono text-muted-foreground/80 hover:text-primary flex-shrink-0 flex items-center gap-1 bg-secondary/30 px-1.5 py-0.5 rounded border border-border/40 transition-colors"
-                              title="Aramak için tıklayın"
+                              title={t("Aramak için tıklayın")}
                             >
                               <Phone className="w-2.5 h-2.5" />
                               <span>{member.telefon}</span>
@@ -267,7 +267,7 @@ export const ProtocolSection = () => {
 
         {filtered.size === 0 && (
           <div className="p-8 text-center text-xs font-mono text-muted-foreground border border-dashed border-border/60 rounded-lg">
-            Arama kriterine uygun protokol üyesi bulunamadı.
+            {t("Arama kriterine uygun protokol üyesi bulunamadı.")}
           </div>
         )}
       </div>

@@ -119,7 +119,7 @@ export const InvestigationHub: React.FC = () => {
             }`}
           >
             <Network className="w-3.5 h-3.5" />
-            <span>13 İlçe Bağlantı Haritası</span>
+            <span>{t("13 İlçe Bağlantı Haritası")}</span>
           </button>
         </div>
       </div>

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/hooks/useTranslation";
 import { toast } from "sonner";
 
 interface InterrogationRoomConsoleProps {
@@ -47,6 +48,7 @@ export const InterrogationRoomConsole: React.FC<InterrogationRoomConsoleProps> =
   className = ""
 }) => {
   const { arbitratedEvents, activeDynamicDossierId, setActiveDynamicDossierId } = useUnifiedIntelligence();
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<InterrogationResult | null>(null);
@@ -139,13 +141,13 @@ ${result.recommendedAction}
             <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-600" />
           </span>
           <h3 className="text-sm font-bold tracking-wider text-rose-100 flex items-center gap-2">
-            <span>HABER DOĞRULAMA KONSOLU</span>
+            <span>{t("HABER DOĞRULAMA KONSOLU")}</span>
           </h3>
         </div>
 
         <div className="text-[11px] text-rose-300/70 flex items-center gap-1.5">
           <Scale className="w-3.5 h-3.5 text-amber-400" />
-          <span>Yerel Haberler · Sosyal Medya · Resmi Açıklamalar</span>
+          <span>{t("Yerel Haberler · Sosyal Medya · Resmi Açıklamalar")}</span>
         </div>
       </div>
 
@@ -159,7 +161,7 @@ ${result.recommendedAction}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleInterrogate(query)}
-              placeholder="Sorgulamak istediğiniz kulis dedikodusu, şüpheli haber veya iddiayı yazın..."
+              placeholder={t("Sorgulamak istediğiniz kulis dedikodusu, şüpheli haber veya iddiayı yazın...")}
               className="w-full pl-9 pr-3 py-2 text-xs font-mono bg-[#160d22] text-rose-100 border border-rose-900/60 rounded-lg focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 placeholder:text-rose-300/40"
             />
           </div>
@@ -173,14 +175,14 @@ ${result.recommendedAction}
             ) : (
               <Send className="w-4 h-4 text-white" />
             )}
-            <span>{loading ? "Sorgulanıyor..." : "Çapraz Sorgula"}</span>
+            <span>{loading ? t("Sorgulanıyor...") : t("Çapraz Sorgula")}</span>
           </Button>
         </div>
 
         {/* Örnek ve Güncel Konular */}
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className="text-slate-400 text-[10px] flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-amber-400" /> Örnek Konular:
+            <Sparkles className="w-3 h-3 text-amber-400" /> {t("Örnek Konular")} :
           </span>
           {arbitratedEvents.map((evt) => (
             <button
@@ -230,13 +232,13 @@ ${result.recommendedAction}
                   ? "bg-emerald-950/80 text-emerald-400 border-emerald-500"
                   : "bg-amber-950/80 text-amber-400 border-amber-500"
               }`}>
-                <div className="text-[9px] opacity-75">DOĞRULAMA SONUCU</div>
+                <div className="text-[9px] opacity-75">{t("DOĞRULAMA SONUCU")}</div>
                 <div className="text-sm sm:text-base">{result.verdict}</div>
               </div>
 
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400">Bölge:</span>
+                  <span className="text-[10px] text-slate-400">{t("Bölge")}:</span>
                   <span className="text-xs font-bold text-white">{result.matchedDossier?.districtName}</span>
                 </div>
                 <h4 className="text-xs sm:text-sm font-bold text-white mt-0.5">
@@ -252,7 +254,7 @@ ${result.recommendedAction}
                 className="h-7 text-xs font-mono font-bold bg-[#201132] hover:bg-[#2b1744] text-rose-200 border border-rose-800/60 cursor-pointer gap-1"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? "Kopyalandı" : "Tutanağı Kopyala"}</span>
+                <span>{copied ? t("Kopyalandı") : t("Tutanağı Kopyala")}</span>
               </Button>
             </div>
           </div>
@@ -266,7 +268,7 @@ ${result.recommendedAction}
               <div className="p-3 rounded-lg border border-amber-500/30 bg-[#161009] space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wide">
                   <AlertTriangle className="w-4 h-4 text-amber-400" />
-                  <span>Çapraz Teyitte Saptanan Çelişkiler</span>
+                  <span>{t("Çapraz Teyitte Saptanan Çelişkiler")}</span>
                 </div>
                 <ul className="space-y-1.5 text-[11px] text-amber-200/90 font-sans">
                   {result.contradictions.map((c, i) => (
@@ -283,9 +285,9 @@ ${result.recommendedAction}
                 <div className="flex items-center justify-between text-xs font-bold text-rose-300 uppercase tracking-wide">
                   <span className="flex items-center gap-1.5">
                     <FileCheck2 className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Kaynak Güvenilirlik & Kanıt Zinciri</span>
+                    <span>{t("Kaynak Güvenilirlik & Kanıt Zinciri")}</span>
                   </span>
-                  <span className="text-[10px] text-slate-400">{result.chainOfEvidence.length} Delil</span>
+                  <span className="text-[10px] text-slate-400">{result.chainOfEvidence.length} {t("Delil")}</span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -318,9 +320,9 @@ ${result.recommendedAction}
                 <div className="flex items-center justify-between pb-1.5 border-b border-rose-900/40 text-xs font-bold text-rose-300 uppercase tracking-wide">
                   <span className="flex items-center gap-1.5">
                     <Mic className="w-3.5 h-3.5 text-rose-500" />
-                    <span>Sorgu Odası Transkripti (Tarafların İfadeleri)</span>
+                    <span>{t("Sorgu Odası Transkripti (Tarafların İfadeleri)")}</span>
                   </span>
-                  <span className="text-[9px] font-mono text-rose-400">RESMİ ZABIT</span>
+                  <span className="text-[9px] font-mono text-rose-400">{t("RESMİ ZABIT")}</span>
                 </div>
 
                 <div className="space-y-2 mt-2.5">
@@ -340,7 +342,7 @@ ${result.recommendedAction}
               {/* Önerilen İstihbari Aksiyon */}
               <div className="p-2.5 rounded-lg border border-emerald-500/30 bg-[#081512] text-xs font-sans">
                 <span className="font-mono text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
-                  🎯 ÖNERİLEN İSTİHBARİ AKSİYON:
+                  🎯 {t("ÖNERİLEN İSTİHBARİ AKSİYON:")}
                 </span>
                 <p className="text-emerald-200/90 text-[11px] mt-0.5">
                   {result.recommendedAction}

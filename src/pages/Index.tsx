@@ -471,7 +471,7 @@ const Index = () => {
         {/* Apple Stili Sürükleme Hedefi Çizgisi / Yeri */}
         {isTargetSlot && !isBeingDragged && (
           <div className="h-10 border-2 border-dashed border-cyan-400/90 bg-cyan-500/15 rounded-lg flex items-center justify-center text-[10px] font-mono text-cyan-300 font-bold animate-pulse mb-2 shadow-sm">
-            + Buraya Yerleştir (#{idx + 1})
+            + {t("Buraya Yerleştir")} (#{idx + 1})
           </div>
         )}
 
@@ -505,7 +505,7 @@ const Index = () => {
                   onClick={() => shiftCol(colKey, -1, widgetId)}
                   disabled={colKey === "col1"}
                   className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
-                  title="Sola / Önceki sütuna taşı"
+                  title={t("Sola / Önceki sütuna taşı")}
                 >
                   ◀
                 </button>
@@ -514,7 +514,7 @@ const Index = () => {
                   onClick={() => moveWithinCol(colKey, idx, -1)}
                   disabled={idx === 0}
                   className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
-                  title="Yukarı taşı"
+                  title={t("Yukarı taşı")}
                 >
                   ▲
                 </button>
@@ -523,7 +523,7 @@ const Index = () => {
                   onClick={() => moveWithinCol(colKey, idx, 1)}
                   disabled={idx === totalCount - 1}
                   className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
-                  title="Aşağı taşı"
+                  title={t("Aşağı taşı")}
                 >
                   ▼
                 </button>
@@ -532,7 +532,7 @@ const Index = () => {
                   onClick={() => shiftCol(colKey, 1, widgetId)}
                   disabled={colKey === "col3"}
                   className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
-                  title="Sağa / Sonraki sütuna taşı"
+                  title={t("Sağa / Sonraki sütuna taşı")}
                 >
                   ▶
                 </button>
@@ -540,7 +540,7 @@ const Index = () => {
                   value={colKey}
                   onChange={(e) => moveToCol(colKey, e.target.value as "col1" | "col2" | "col3", widgetId)}
                   className="bg-background/90 border border-border/70 rounded px-1 py-0.5 text-[9px] text-foreground/90 focus:outline-none cursor-pointer"
-                  title="Doğrudan sütun seç"
+                  title={t("Doğrudan sütun seç")}
                 >
                   <option value="col1">S.1</option>
                   <option value="col2">S.2</option>
@@ -734,7 +734,7 @@ const Index = () => {
 
         {/* Sade Footer + Tek Göze Batmayan Geliştirici Sistem Durumu Bağlantısı */}
         <footer className="mt-8 pt-4 pb-3 border-t border-border/40 flex flex-wrap items-center justify-between gap-2 text-[11px] font-sans text-muted-foreground">
-          <span>Muğla Monitör · Şehir Bilgi Platformu</span>
+          <span>{t("Muğla Monitör · Şehir Bilgi Platformu")}</span>
           <button
             type="button"
             data-testid="footer-system-status-btn"
