@@ -21,6 +21,24 @@ export const AGENT_MODEL = "gemini-4-hydrogen";
 export const AGENT_SOURCE = "autonomous-intel-agent";
 export const MONTHLY_FREE_GROUNDING_QUOTA = 1500;
 
+export const SECTOR_TOPIC_QUERIES = {
+  environment_dams:
+    '"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı',
+  transport_infra:
+    '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
+};
+
+export const MUGLA_DAM_CAPACITIES = [
+  { id: "mumcular", name: "Mumcular Barajı", capacity_hm3: 18.6, district: "Bodrum", aliases: ["mumcular"] },
+  { id: "geyik", name: "Geyik Barajı", capacity_hm3: 40.8, district: "Milas", aliases: ["geyik"] },
+  { id: "akgedik", name: "Akgedik Barajı", capacity_hm3: 26.3, district: "Milas", aliases: ["akgedik"] },
+  { id: "marmaris", name: "Marmaris (Atatürk) Barajı", capacity_hm3: 30.0, district: "Marmaris", aliases: ["marmaris baraj", "atatürk baraj"] },
+  { id: "akkopru", name: "Akköprü Barajı ve HES", capacity_hm3: 384.5, district: "Dalaman", aliases: ["akköprü"] },
+  { id: "bayir", name: "Bayır Barajı", capacity_hm3: 7.1, district: "Menteşe", aliases: ["bayır"] },
+  { id: "esen1", name: "Eşen 1 Barajı ve HES", capacity_hm3: 22.9, district: "Seydikemer", aliases: ["eşen 1", "eşen-1"] },
+  { id: "esen2", name: "Eşen 2 Barajı ve HES", capacity_hm3: 6.4, district: "Seydikemer", aliases: ["eşen 2", "eşen-2"] },
+];
+
 export const DISTRICT_GROUPS = [
   {
     id: "A",
@@ -308,10 +326,46 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
     .filter(Boolean)
     .slice(0, 5);
 
+  const rawDamUpdates = Array.isArray(rawJson?.dam_updates) ? rawJson.dam_updates : [];
+  const damUpdates = rawDamUpdates
+    .map((item) => {
+      const rawName = typeof item?.dam_name === "string" ? item.dam_name.toLocaleLowerCase("tr-TR") : "";
+      const matchedDam = MUGLA_DAM_CAPACITIES.find((d) =>
+        d.aliases.some((alias) => rawName.includes(alias))
+      );
+      const rate = Number(item?.occupancy_rate);
+      const sourceUrl = isValidExternalSourceUrl(item?.source_url)
+        ? item.source_url.trim()
+        : fallbackUrls[0] || null;
+      if (!matchedDam || !Number.isFinite(rate) || rate < 0 || rate > 100) return null;
+      if (!allowUnverified && !sourceUrl) return null;
+      const measuredAt =
+        typeof item?.published_date === "string" && !Number.isNaN(new Date(item.published_date).getTime())
+          ? new Date(item.published_date).toISOString()
+          : new Date().toISOString();
+      return {
+        damId: matchedDam.id,
+        damName: matchedDam.name,
+        district: matchedDam.district,
+        capacityHm3: matchedDam.capacity_hm3,
+        occupancyRate: Math.round(rate * 10) / 10,
+        sourceName:
+          typeof item?.source_name === "string" && item.source_name.trim()
+            ? item.source_name.trim().slice(0, 80)
+            : "Yerel Basın/DSİ",
+        sourceUrl,
+        measuredAt,
+        confidence: item?.confidence === "medium" ? "medium" : "high",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 8);
+
   return {
     posts,
     keywords: Array.from(keywordMap.values()).slice(0, 16),
     alerts,
+    damUpdates,
     groundingUrls: Array.from(new Set(fallbackUrls)).slice(0, 10),
   };
 }
@@ -460,13 +514,15 @@ function buildGroundingPrompt(group) {
   const districtList = group.districts.join(", ");
   return [
     `Sen Muğla Monitör v2 için çalışan 7/24 otonom saha istihbarat ajanısın.`,
-    `Görev: Google Arama (Search Grounding) kullanarak son 24 saat içinde Muğla'nın şu ilçelerinde (${districtList}) yaşanan doğrulanmış, gerçek yerel haberleri, altyapı/su/elektrik kesintilerini, trafik/yol çalışmalarını, orman/çevre olaylarını ve belediye/valilik duyurularını tara.`,
+    `Görev: Google Arama (Search Grounding) kullanarak hem şu ilçelerdeki (${districtList}) güncel gelişmeleri hem de aşağıdaki 2 sektörel konuyu tara:`,
+    `- Çevre / Barajlar sorgusu: ${SECTOR_TOPIC_QUERIES.environment_dams}`,
+    `- Ulaşım / Altyapı sorgusu: ${SECTOR_TOPIC_QUERIES.transport_infra}`,
     `KESİN DOĞRULAMA KURALLARI:`,
     `1. Yalnızca arama sonuçlarında doğrudan yer alan, geçerli ve doğrulanabilir bir kaynak URL'sine (https://...) sahip gelişmeleri bildir; teyitsiz sosyal medya dedikodusu, varsayım veya sentetik uyarı ASLA üretme.`,
-    `2. Doğrulanmış kaynak bulunamazsa uydurma veri üretme; "posts", "new_keywords" ve "alerts" dizilerini boş ([]) döndür.`,
-    `3. Her gönderi ve her uyarı için ilçe adını tam olarak listeden seç (${districtList}) ve geçerli "source_url" alanını mutlaka doldur.`,
-    `4. Yeni karşılaştığın yerel mahalle/mevki adlarını, proje isimlerini, kurum veya saha kavramlarını yalnızca doğrulanmış haberlerden çıkarıp "new_keywords" listesine ekle.`,
-    `5. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, yangın/sel, kritik güvenlik olayı) "alerts" dizisine koy.`,
+    `2. Doğrulanmış kaynak bulunamazsa uydurma veri üretme; "posts", "new_keywords", "alerts" ve "dam_updates" dizilerini boş ([]) döndür.`,
+    `3. Her gönderi, uyarı ve baraj ölçümü için geçerli "source_url" alanını mutlaka doldur; ilçe adını listeden seç (${districtList}).`,
+    `4. Baraj doluluk oranı yalnızca yerel basın/kurum (Anter Haber, AA, MUSKİ, DSİ vb.) haberinde açıkça geçiyorsa "dam_updates" içine ekle.`,
+    `5. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, isale hattı patlaması, yangın/sel) "alerts" dizisine koy.`,
     `6. Yalnızca aşağıdaki geçerli JSON formatında yanıt ver (ek açıklama yazma):`,
     JSON.stringify(
       {
@@ -498,6 +554,16 @@ function buildGroundingPrompt(group) {
             severity: "high | critical",
             type: "altyapi | trafik | cevre | guvenlik",
             source_url: "https://...",
+          },
+        ],
+        dam_updates: [
+          {
+            dam_name: "Mumcular Barajı | Geyik Barajı | Akgedik Barajı | Marmaris (Atatürk) Barajı",
+            occupancy_rate: 80,
+            source_name: "Anter Haber | AA | MUSKİ | DSİ",
+            source_url: "https://...",
+            published_date: "YYYY-MM-DD",
+            confidence: "high | medium",
           },
         ],
       },
@@ -650,7 +716,6 @@ export async function runAutonomousAgent(options = {}) {
     contents: buildGroundingPrompt(group),
     config: {
       tools: [{ googleSearch: {} }],
-      temperature: 0.2,
     },
   });
 
@@ -668,7 +733,7 @@ export async function runAutonomousAgent(options = {}) {
     now,
   });
 
-  const inserted = { social_keywords: 0, social_posts: 0, alert_events: 0 };
+  const inserted = { social_keywords: 0, social_posts: 0, alert_events: 0, dam_updates: 0 };
 
   // 3. social_keywords tablosuna ekle (append-only, eski kelimeleri asla silmez)
   if (keywordRows.length > 0) {
@@ -697,6 +762,51 @@ export async function runAutonomousAgent(options = {}) {
       console.warn(`[1. Ajan] alert_events yazma uyarısı: ${error.message}`);
     } else {
       inserted.alert_events = alertRows.length;
+    }
+  }
+
+  // 6. Doğrulanmış baraj doluluk verisi yakalandıysa live_data_cache(dams) kaydını güncelle
+  if (findings.damUpdates && findings.damUpdates.length > 0) {
+    const updateById = new Map(findings.damUpdates.map((d) => [d.damId, d]));
+    const mergedDams = MUGLA_DAM_CAPACITIES.map((base) => {
+      const obs = updateById.get(base.id);
+      return {
+        name: base.name,
+        district: base.district,
+        capacity_hm3: base.capacity_hm3,
+        occupancy_rate: obs ? obs.occupancyRate : null,
+        source_name: obs?.sourceName ?? null,
+        source_url: obs?.sourceUrl ?? null,
+        measured_at: obs?.measuredAt ?? null,
+        estimated: !obs,
+      };
+    });
+    const verifiedRates = mergedDams.filter((d) => d.occupancy_rate !== null);
+    const avgOcc =
+      verifiedRates.length > 0
+        ? Math.round(
+            verifiedRates.reduce((acc, d) => acc + Number(d.occupancy_rate), 0) /
+              verifiedRates.length
+          )
+        : null;
+    const latestDamObs = findings.damUpdates[0];
+    const { error: damErr } = await supabase.from("live_data_cache").upsert(
+      {
+        data_type: "dams",
+        data: {
+          dams: mergedDams,
+          avg_occupancy: avgOcc,
+          source: latestDamObs.sourceName,
+          updated_at: latestDamObs.measuredAt,
+        },
+        fetched_at: now.toISOString(),
+      },
+      { onConflict: "data_type" }
+    );
+    if (damErr) {
+      console.warn(`[1. Ajan] live_data_cache(dams) güncelleme uyarısı: ${damErr.message}`);
+    } else {
+      inserted.dam_updates = findings.damUpdates.length;
     }
   }
 

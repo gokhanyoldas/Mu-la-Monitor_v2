@@ -64,6 +64,7 @@ import { ProtocolNetworkGraph } from "@/components/network/ProtocolNetworkGraph"
 
 import { EconomyOverviewPanel, RealEstatePanel } from "@/components/dashboard/sections/EconomySection";
 import { WeatherClimatePanel, AirQualityPanel, WaterDamsPanel } from "@/components/dashboard/sections/EnvironmentSection";
+import { useDamIntelligence } from "@/services/topicGroundingService";
 import { AgriculturePanel, CultureEventsPanel, CulturalHeritagePanel } from "@/components/dashboard/sections/CultureAgriSection";
 
 // Her sekme yalnızca kendi ana konusunu tekrarsız ve bol boşluklu gösterir
@@ -426,7 +427,7 @@ const Index = () => {
   const { data: weatherData } = useLiveData<any>("weather", { refetchInterval: 15 * 60 * 1000 });
   const { data: ecoData } = useLiveData<any>("economy", { refetchInterval: 30 * 60 * 1000 });
   const { data: aqData } = useLiveData<any>("air_quality", { refetchInterval: 30 * 60 * 1000 });
-  const { data: damData } = useLiveData<any>("dams", { refetchInterval: 60 * 60 * 1000 });
+  const damIntel = useDamIntelligence();
   const { data: tourismData } = useLiveData<any>("tourism", { refetchInterval: 60 * 60 * 1000 });
   const { data: demoData } = useLiveData<any>("demographics", { refetchInterval: 24 * 60 * 60 * 1000 });
 
@@ -436,10 +437,7 @@ const Index = () => {
   const temperature    = weatherData?.temperature ? `${weatherData.temperature}°C` : "14°C";
   const aqi            = aqData?.aqi ?? 42;
   const hotelOccupancy = tourismData?.hotel_occupancy ? `${tourismData.hotel_occupancy}%` : "38%";
-  const dams           = Array.isArray(damData) ? damData : damData?.dams || [];
-  const avgDam         = dams.length > 0
-    ? `${Math.round(dams.reduce((a: number, d: any) => a + (d.occupancy_rate ?? d.rate ?? 50), 0) / dams.length)}%`
-    : "54%";
+  const avgDam         = damIntel.avgOccupancy !== null ? `${damIntel.avgOccupancy}%` : "—";
 
   const allMetricsMap: Record<string, { label: string; value: string; color: string; category: string }> = {
     "Nüfus": { label: "Nüfus", value: population, color: "text-primary", category: "demographics" },

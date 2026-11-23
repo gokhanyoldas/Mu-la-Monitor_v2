@@ -6,6 +6,10 @@ import { useEffect, useState } from "react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { supabase } from "@/integrations/supabase/client";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import {
+  useTransportTopicGrounding,
+  formatShortTurkishDate,
+} from "@/services/topicGroundingService";
 
 type RoadWorksProject = {
   name: string;
@@ -29,6 +33,7 @@ const typeLabel: Record<string, string> = {
 export const TrafficSummaryPanel = () => {
   const { data: trafficData, isLoading: tLoading } = useLiveData<any>("traffic_density", { refetchInterval: 10 * 60 * 1000 });
   const { data: roadWorks, isLoading: rLoading } = useLiveData<any>("road_works", { refetchInterval: 15 * 60 * 1000 });
+  const { incidents: topicIncidents } = useTransportTopicGrounding();
 
   const hotspots = trafficData?.hotspots ?? trafficData?.zones ?? [];
   const avgDensity = Array.isArray(hotspots) && hotspots.length > 0
@@ -41,16 +46,24 @@ export const TrafficSummaryPanel = () => {
   const projects: RoadWorksProject[] =
     (roadWorks && Array.isArray(roadWorks.projects) ? roadWorks.projects : []) as RoadWorksProject[];
 
-  const roadItems = projects.length > 0
-    ? projects.slice(0, 5).map((p) => ({
-        label: p.name,
-        value: p.status === "tamamlandı" ? "TAMAMLANDI" : p.status === "devam" ? "DEVAM" : "İZLENİYOR",
-        status: (p.status === "tamamlandı" ? "ok" : p.status === "devam" ? "warning" : "info") as "ok" | "warning" | "critical" | "info",
-      }))
-    : [];
+  const groundedRoadItems = topicIncidents.slice(0, 3).map((inc) => ({
+    label: `${inc.district}: ${inc.title}`,
+    value: inc.status === "tamamlandı" ? "TAMAMLANDI" : inc.status === "uyarı" ? "UYARI" : "DEVAM",
+    status: (inc.status === "tamamlandı" ? "ok" : inc.status === "uyarı" ? "critical" : "warning") as "ok" | "warning" | "critical" | "info",
+  }));
+
+  const projectRoadItems = projects.slice(0, Math.max(0, 5 - groundedRoadItems.length)).map((p) => ({
+    label: p.name,
+    value: p.status === "tamamlandı" ? "TAMAMLANDI" : p.status === "devam" ? "DEVAM" : "İZLENİYOR",
+    status: (p.status === "tamamlandı" ? "ok" : p.status === "devam" ? "warning" : "info") as "ok" | "warning" | "critical" | "info",
+  }));
+
+  const roadItems = [...groundedRoadItems, ...projectRoadItems];
 
   const hasLiveTraffic = Array.isArray(hotspots) && hotspots.length > 0;
-  const hasRoadWorks = projects.length > 0;
+  const hasRoadWorks = projects.length > 0 || topicIncidents.length > 0;
+  const latestTopic = topicIncidents[0];
+  const latestTopicDate = latestTopic ? formatShortTurkishDate(latestTopic.publishedAt) : "";
 
   return (
     <DashboardPanel
@@ -58,7 +71,7 @@ export const TrafficSummaryPanel = () => {
       icon={<Car size={14} />}
       badge={hasLiveTraffic || hasRoadWorks ? "CANLI" : "BEKLEYEN"}
       badgeVariant={hasLiveTraffic || hasRoadWorks ? "live" : "warning"}
-      count={(hasLiveTraffic ? 1 : 0) + (hasRoadWorks ? projects.length : 0)}
+      count={(hasLiveTraffic ? 1 : 0) + projects.length + topicIncidents.length}
     >
       {(tLoading || rLoading) && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
@@ -91,7 +104,9 @@ export const TrafficSummaryPanel = () => {
           <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">Altyapı / Yol Durumu (basın takibi)</span>
           <StatusList items={roadItems} />
           <p className="text-[8px] font-mono text-muted-foreground/70 mt-1">
-            Durumlar Google News RSS'ten proje bazlı izlenir; "tamamlandı" yalnızca basın kanıtıyla işaretlenir.
+            {latestTopic
+              ? `Kaynak: ${latestTopic.sourceName}${latestTopicDate ? ` • ${latestTopicDate}` : ""} · Yol, isale hattı ve trafik taraması`
+              : 'Durumlar doğrulanmış yerel basın ve proje takibinden güncellenir.'}
           </p>
         </>
       ) : (
@@ -202,9 +217,31 @@ export const AirportsSummaryPanel = () => {
 
 export const InfrastructureProjectsPanel = () => {
   const { data: roadWorks, isLoading: rLoading } = useLiveData<any>("road_works", { refetchInterval: 15 * 60 * 1000 });
+  const { incidents: topicIncidents } = useTransportTopicGrounding();
   const hub = useOptionalUnifiedIntelligence();
-  const projects: RoadWorksProject[] =
+  const baseProjects: RoadWorksProject[] =
     (roadWorks && Array.isArray(roadWorks.projects) ? roadWorks.projects : []) as RoadWorksProject[];
+  const groundedProjects: RoadWorksProject[] = topicIncidents.map((inc) => ({
+    name: `${inc.district} — ${inc.title}`,
+    type: inc.category === "isale_hatti" ? "isale hattı" : inc.category === "trafik" ? "trafik" : "yol",
+    status: inc.status === "tamamlandı" ? "tamamlandı" : "devam",
+    progress: null,
+    confidence: inc.confidence,
+    expectedEnd: "",
+    discovered: true,
+    latest_news: [
+      {
+        title: `${inc.sourceName} • ${formatShortTurkishDate(inc.publishedAt)} — ${inc.title}`,
+        pubDate: inc.publishedAt,
+        link: inc.sourceUrl,
+      },
+    ],
+  }));
+  const seenNames = new Set(baseProjects.map((p) => p.name.toLocaleLowerCase("tr-TR")));
+  const projects: RoadWorksProject[] = [
+    ...groundedProjects.filter((gp) => !seenNames.has(gp.name.toLocaleLowerCase("tr-TR"))),
+    ...baseProjects,
+  ];
   const citizenInfraReports = (hub?.arbitratedEvents ?? []).flatMap((ev) =>
     ev.issues
       .filter((iss) => ["altyapi_yol", "belediye_proje", "trafik_uyumsuzluk"].includes(iss.category))

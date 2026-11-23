@@ -284,34 +284,29 @@ async function fetchTrends() {
 //  DAMS  —  DSİ static averages (no free RT API)
 // ─────────────────────────────────────────────
 async function fetchDams() {
-  // DSI does not expose a free real-time API.
-  // Values represent seasonal model based on DSI historical data.
-  // Update this monthly via manual observation or scraping dsi.gov.tr
-  const month = new Date().getMonth(); // 0 = Jan
-  const seasonalFactors = [0.70, 0.72, 0.78, 0.82, 0.75, 0.65, 0.55, 0.48, 0.50, 0.58, 0.64, 0.68];
-  const f = seasonalFactors[month];
-
-  // Doğrulanmış liste: Wikipedia "Kategori:Muğla ilindeki barajlar" (8 baraj)
-  // Önceki listede uydurma isimler vardı (Ören, Akgün, Yazır) — düzeltildi.
+  // DSİ ücretsiz canlı API sunmadığı için yalnızca doğrulanmış gerçek kapasiteler tutulur.
+  // Güncel doluluk yüzdeleri konu bazlı Search Grounding ve doğrulanmış yerel basın/DSİ
+  // kayıtları üzerinden (topic-grounding / autonomous-agent) güncellenir.
   const dams = [
-    { name: 'Mumcular Barajı',        base: 62, capacity_hm3: 70.2,  district: 'Bodrum' },
-    { name: 'Marmaris Barajı',        base: 58, capacity_hm3: 32.1,  district: 'Marmaris' },
-    { name: 'Geyik Barajı',           base: 55, capacity_hm3: 48.5,  district: 'Menteşe' },
-    { name: 'Akgedik Barajı',         base: 52, capacity_hm3: 15.3,  district: 'Yatağan' },
-    { name: 'Akköprü Barajı ve HES',  base: 68, capacity_hm3: 310.0, district: 'Dalaman' },
-    { name: 'Bayır Barajı',           base: 60, capacity_hm3: 22.7,  district: 'Menteşe' },
-    { name: 'Eşen 1 Barajı ve HES',   base: 65, capacity_hm3: 41.2,  district: 'Seydikemer' },
-    { name: 'Eşen 2 Barajı ve HES',   base: 63, capacity_hm3: 38.9,  district: 'Seydikemer' },
+    { name: 'Mumcular Barajı',            capacity_hm3: 18.6,  district: 'Bodrum' },
+    { name: 'Geyik Barajı',               capacity_hm3: 40.8,  district: 'Milas' },
+    { name: 'Akgedik Barajı',             capacity_hm3: 26.3,  district: 'Milas' },
+    { name: 'Marmaris (Atatürk) Barajı',  capacity_hm3: 30.0,  district: 'Marmaris' },
+    { name: 'Akköprü Barajı ve HES',      capacity_hm3: 384.5, district: 'Dalaman' },
+    { name: 'Bayır Barajı',               capacity_hm3: 7.1,   district: 'Menteşe' },
+    { name: 'Eşen 1 Barajı ve HES',       capacity_hm3: 22.9,  district: 'Seydikemer' },
+    { name: 'Eşen 2 Barajı ve HES',       capacity_hm3: 6.4,   district: 'Seydikemer' },
   ];
 
   return {
     dams: dams.map(d => ({
       ...d,
-      occupancy_rate: Math.min(100, Math.round(d.base * f + 5)),
+      occupancy_rate: null,
+      estimated: true,
     })),
-    avg_occupancy: Math.round(dams.reduce((a, d) => a + d.base, 0) / dams.length * f + 5),
-    note: 'Doğrulanmış liste: Wikipedia Kategori:Muğla ilindeki barajlar (8 baraj). DSİ aylık ortalamaları üzerinden mevsimsel model — gerçek zamanlı API mevcut değil.',
-    source: 'DSİ (Devlet Su İşleri) — Sezonsal Model',
+    avg_occupancy: null,
+    note: 'Doğrulanmış 8 Muğla barajı ve gerçek DSİ kapasiteleri (hm³). Canlı resmi API mevcut olmadığından doluluk oranları doğrulanmış yerel basın / DSİ ölçümleriyle güncellenir.',
+    source: 'DSİ Kapasite Envanteri (Canlı ölçüm yerel basın/DSİ taramasıyla güncellenir)',
     updated_at: new Date().toISOString(),
   };
 }
