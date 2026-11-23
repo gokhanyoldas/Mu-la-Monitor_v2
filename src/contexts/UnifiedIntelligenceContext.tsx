@@ -21,7 +21,24 @@ import type {
 } from "@/data/investigationData";
 import type { DistrictFeedItem } from "@/data/districtSocialBaselines";
 
-const HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v1";
+const LEGACY_HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v1";
+const HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v2";
+
+function isVerifiedArbitratedEvent(evt: ArbitratedFieldEvent | null | undefined): evt is ArbitratedFieldEvent {
+  if (!evt || typeof evt !== "object") return false;
+  if (evt.verification?.verified !== true) return false;
+  if (
+    evt.verification.verificationMethod !== "official_or_grounding_url" &&
+    evt.verification.verificationMethod !== "multi_source_corroborated"
+  ) {
+    return false;
+  }
+  const line = String(evt.pulseLine || "");
+  if (/SENSÖR UYUŞMAZLIĞI|İşini Doğru Yap|ÇAPRAZ DOĞRULAMA/i.test(line)) {
+    return false;
+  }
+  return true;
+}
 
 export interface HubTabNotification {
   id: string;
@@ -52,6 +69,9 @@ interface UnifiedIntelligenceContextValue {
     imageBase64?: string;
     imageMimeType?: string;
     imageName?: string;
+    sourceUrl?: string;
+    corroborationCount?: number;
+    isVerifiedSource?: boolean;
     tomtomHotspots?: Array<{ name: string; lat: number; lng: number; density: number; speed?: number }>;
   }) => Promise<ArbitratedFieldEvent>;
 
@@ -80,10 +100,15 @@ const UnifiedIntelligenceContext = createContext<UnifiedIntelligenceContextValue
 function loadStoredEvents(): ArbitratedFieldEvent[] {
   if (typeof window === "undefined") return [];
   try {
+    // Legacy v1 cache contained unverified/preset field submissions — purge it cleanly
+    if (window.localStorage.getItem(LEGACY_HUB_EVENTS_STORAGE_KEY) !== null) {
+      window.localStorage.removeItem(LEGACY_HUB_EVENTS_STORAGE_KEY);
+    }
     const raw = window.localStorage.getItem(HUB_EVENTS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.slice(0, 15) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isVerifiedArbitratedEvent).slice(0, 15);
   } catch {
     return [];
   }
@@ -101,11 +126,14 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
   const persistEvents = useCallback((next: ArbitratedFieldEvent[]) => {
     if (typeof window === "undefined") return;
     try {
-      // Avoid blowing localStorage quota with huge base64 images
-      const sanitized = next.slice(0, 12).map((evt) => ({
-        ...evt,
-        imagePreview: evt.imagePreview && evt.imagePreview.length > 80_000 ? undefined : evt.imagePreview,
-      }));
+      // Only verified events may ever be persisted; strip oversized base64 images
+      const sanitized = next
+        .filter(isVerifiedArbitratedEvent)
+        .slice(0, 12)
+        .map((evt) => ({
+          ...evt,
+          imagePreview: evt.imagePreview && evt.imagePreview.length > 80_000 ? undefined : evt.imagePreview,
+        }));
       window.localStorage.setItem(HUB_EVENTS_STORAGE_KEY, JSON.stringify(sanitized));
     } catch {
       // ignore quota error
@@ -130,6 +158,9 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
       imageBase64?: string;
       imageMimeType?: string;
       imageName?: string;
+      sourceUrl?: string;
+      corroborationCount?: number;
+      isVerifiedSource?: boolean;
       tomtomHotspots?: Array<{ name: string; lat: number; lng: number; density: number; speed?: number }>;
     }): Promise<ArbitratedFieldEvent> => {
       setIsIngesting(true);
@@ -138,6 +169,12 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
           ...params,
           lexiconTerms: lexicon.map((l) => l.term),
         });
+
+        // Strict Verification Gate: unverified / single-source social reports never publish
+        // into LivingLexicon, alerts, map patches, pulse injections, or localStorage.
+        if (!isVerifiedArbitratedEvent(event)) {
+          return event;
+        }
 
         // Step 1: Append extracted terms to LivingLexicon (append-only, never deletes)
         if (event.extractedLexiconTerms.length > 0) {
@@ -154,7 +191,7 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
           });
         }
 
-        // Prepend event & persist
+        // Prepend verified event & persist
         setArbitratedEvents((prev) => {
           const next = [event, ...prev].slice(0, 15);
           persistEvents(next);
@@ -244,13 +281,19 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
   );
 
   const cityPulseInjections = useMemo(
-    () => arbitratedEvents.map((e) => e.pulseLine).slice(0, 4),
+    () =>
+      arbitratedEvents
+        .filter(isVerifiedArbitratedEvent)
+        .map((e) => e.pulseLine)
+        .filter((line) => Boolean(line && line.trim().length > 0))
+        .slice(0, 4),
     [arbitratedEvents]
   );
 
   const tabNotifications = useMemo<HubTabNotification[]>(
     () =>
       arbitratedEvents
+        .filter(isVerifiedArbitratedEvent)
         .filter((e) => !dismissedNotifIds.has(e.id))
         .map((e) => ({
           id: `notif-${e.id}`,
@@ -258,8 +301,8 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
           dossierCode: e.dossier.code,
           districtName: e.districtName,
           title: e.trafficPatch?.sensorDiscrepancy
-            ? `${e.districtName}: ${e.trafficPatch.verdictMessage}`
-            : `${e.districtName} Saha Analizi (${e.issues.length} Sorun Ayrıştırıldı)`,
+            ? `${e.districtName} (${e.trafficPatch.location}) çevresinde yoğunluk bildirildi`
+            : `${e.districtName} için doğrulanmış saha güncellemesi`,
           updatedTabs: e.updatedTabs,
           hasSensorDiscrepancy: Boolean(e.trafficPatch?.sensorDiscrepancy),
           timestamp: e.timestamp,

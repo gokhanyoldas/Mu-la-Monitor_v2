@@ -143,12 +143,45 @@ export function extractJsonFromModelText(rawText) {
 }
 
 /**
- * Gemini Grounding çıktısını doğrular ve standart yapıya dönüştürür.
+ * Kaynak adresinin gerçekten geçerli, herkese açık bir http(s) URL'si olduğunu doğrular.
+ * Yerel adresleri (localhost/127.0.0.1) ve geçersiz metinleri reddeder.
  */
-export function normalizeAgentFindings(rawJson, group, groundingChunks = []) {
+export function isValidExternalSourceUrl(uri) {
+  if (typeof uri !== "string") return false;
+  const trimmed = uri.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    if (!host || !host.includes(".")) return false;
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host.endsWith(".local") ||
+      host.endsWith(".invalid")
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Gemini Grounding çıktısını doğrular ve standart yapıya dönüştürür.
+ * Canlı modda (allowDryRun !== true) doğrulanmış dış kaynak URL'si veya
+ * Google Search Grounding kaynağı olmayan hiçbir gönderi, uyarı veya kelime üretilmez.
+ */
+export function normalizeAgentFindings(rawJson, group, groundingChunks = [], options = {}) {
+  const allowUnverified = Boolean(options?.allowDryRun);
+
   const fallbackUrls = groundingChunks
     .map((chunk) => chunk?.web?.uri)
-    .filter((uri) => typeof uri === "string" && uri.startsWith("http"));
+    .filter((uri) => isValidExternalSourceUrl(uri))
+    .map((uri) => uri.trim());
 
   const allowedDistricts = new Set(Object.keys(DISTRICT_COORDS));
   const normalizeDistrict = (raw) => {
@@ -174,10 +207,13 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = []) {
       const category = VALID_CATEGORIES.has(item?.category) ? item.category : "genel";
       const sentiment = VALID_SENTIMENTS.has(item?.sentiment) ? item.sentiment : "neutral";
       const severity = VALID_SEVERITIES.has(item?.severity) ? item.severity : "medium";
-      const url =
-        typeof item?.source_url === "string" && item.source_url.startsWith("http")
-          ? item.source_url.trim()
-          : fallbackUrls[idx] || fallbackUrls[0] || null;
+      const url = isValidExternalSourceUrl(item?.source_url)
+        ? item.source_url.trim()
+        : fallbackUrls[idx] || fallbackUrls[0] || null;
+
+      // Doğrulanmış kaynak URL'si yoksa canlı modda kaydı tamamen reddet
+      if (!allowUnverified && !url) return null;
+
       const sourceName =
         typeof item?.source_name === "string" && item.source_name.trim()
           ? item.source_name.trim().slice(0, 120)
@@ -204,7 +240,8 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = []) {
     .filter(Boolean)
     .slice(0, 12);
 
-  const rawKeywords = Array.isArray(rawJson?.new_keywords) ? rawJson.new_keywords : [];
+  const hasVerifiedBacking = allowUnverified || posts.length > 0 || fallbackUrls.length > 0;
+  const rawKeywords = hasVerifiedBacking && Array.isArray(rawJson?.new_keywords) ? rawJson.new_keywords : [];
   const keywordMap = new Map();
 
   for (const entry of rawKeywords) {
@@ -252,6 +289,13 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = []) {
       const body = typeof item?.body === "string" ? item.body.trim().slice(0, 800) : "";
       if (!title) return null;
 
+      const sourceUrl = isValidExternalSourceUrl(item?.source_url)
+        ? item.source_url.trim()
+        : fallbackUrls[0] || null;
+
+      // Teyitli dış kaynak veya grounding URL'si olmadan asla uyarı üretme
+      if (!allowUnverified && !sourceUrl) return null;
+
       const district = allowedDistricts.has(item?.district) ? item.district : defaultDistrict;
       const severity = VALID_SEVERITIES.has(item?.severity) ? item.severity : "high";
       const type =
@@ -259,7 +303,7 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = []) {
           ? item.type.trim().slice(0, 50)
           : "field_intel";
 
-      return { title, body, district, severity, type };
+      return { title, body, district, severity, type, sourceUrl };
     })
     .filter(Boolean)
     .slice(0, 5);
@@ -283,8 +327,12 @@ export function buildSupabasePayloads({
   existingUrls = [],
   systemUserId = null,
   now = new Date(),
+  allowDryRun = false,
 }) {
   const nowIso = now.toISOString();
+  const validGroundingUrls = (findings.groundingUrls || []).filter((u) =>
+    isValidExternalSourceUrl(u)
+  );
   const existingKwSet = new Set(
     existingKeywords
       .filter((k) => typeof k === "string")
@@ -294,28 +342,9 @@ export function buildSupabasePayloads({
     existingUrls.filter((u) => typeof u === "string").map((u) => u.trim())
   );
 
-  const keywordRows = [];
-  for (const item of findings.keywords || []) {
-    const key = item.keyword.trim().toLocaleLowerCase("tr-TR");
-    if (!key || existingKwSet.has(key)) continue;
-    existingKwSet.add(key);
-
-    const row = {
-      keyword: item.keyword.trim(),
-      category: item.category || "genel",
-      region: item.region || group?.districts?.[0] || "Muğla",
-      platform: "all",
-      is_active: true,
-      created_by: AGENT_SOURCE,
-    };
-    if (systemUserId) {
-      row.user_id = systemUserId;
-    }
-    keywordRows.push(row);
-  }
-
   const postRows = [];
   for (const post of findings.posts || []) {
+    if (!allowDryRun && !isValidExternalSourceUrl(post.url)) continue;
     if (post.url && existingUrlSet.has(post.url)) continue;
     if (post.url) existingUrlSet.add(post.url);
 
@@ -343,9 +372,38 @@ export function buildSupabasePayloads({
     });
   }
 
+  const canEmitKeywords = allowDryRun || postRows.length > 0 || validGroundingUrls.length > 0;
+  const keywordRows = [];
+  if (canEmitKeywords) {
+    for (const item of findings.keywords || []) {
+      const key = item.keyword.trim().toLocaleLowerCase("tr-TR");
+      if (!key || existingKwSet.has(key)) continue;
+      existingKwSet.add(key);
+
+      const row = {
+        keyword: item.keyword.trim(),
+        category: item.category || "genel",
+        region: item.region || group?.districts?.[0] || "Muğla",
+        platform: "all",
+        is_active: true,
+        created_by: AGENT_SOURCE,
+      };
+      if (systemUserId) {
+        row.user_id = systemUserId;
+      }
+      keywordRows.push(row);
+    }
+  }
+
   const alertRows = [];
   for (const alert of findings.alerts || []) {
     if (alert.severity !== "high" && alert.severity !== "critical") continue;
+    const verifiedAlertUrl = isValidExternalSourceUrl(alert.sourceUrl)
+      ? alert.sourceUrl.trim()
+      : validGroundingUrls[0] || null;
+
+    if (!allowDryRun && !verifiedAlertUrl) continue;
+
     const coords = DISTRICT_COORDS[alert.district] || DISTRICT_COORDS.Menteşe;
 
     alertRows.push({
@@ -359,16 +417,20 @@ export function buildSupabasePayloads({
       metadata: {
         district: alert.district,
         regional_group: group?.id || "A",
-        grounding_urls: findings.groundingUrls || [],
+        source_url: verifiedAlertUrl,
+        verified: Boolean(verifiedAlertUrl),
+        grounding_urls: validGroundingUrls,
         collected_at: nowIso,
       },
     });
   }
 
-  // Kritik veya yüksek öncelikli gönderi olup ayrıca alert üretilmemişse 1 özet uyarı ekle
+  // Kritik veya yüksek öncelikli DOĞRULANMIŞ gönderi olup ayrıca alert üretilmemişse 1 özet uyarı ekle
   if (alertRows.length === 0) {
     const urgentPost = (findings.posts || []).find(
-      (p) => p.severity === "critical" || p.severity === "high"
+      (p) =>
+        (p.severity === "critical" || p.severity === "high") &&
+        (allowDryRun || isValidExternalSourceUrl(p.url))
     );
     if (urgentPost) {
       const coords = DISTRICT_COORDS[urgentPost.district] || DISTRICT_COORDS.Menteşe;
@@ -384,6 +446,7 @@ export function buildSupabasePayloads({
           district: urgentPost.district,
           regional_group: group?.id || "A",
           url: urgentPost.url,
+          verified: isValidExternalSourceUrl(urgentPost.url),
           collected_at: nowIso,
         },
       });
@@ -398,12 +461,13 @@ function buildGroundingPrompt(group) {
   return [
     `Sen Muğla Monitör v2 için çalışan 7/24 otonom saha istihbarat ajanısın.`,
     `Görev: Google Arama (Search Grounding) kullanarak son 24 saat içinde Muğla'nın şu ilçelerinde (${districtList}) yaşanan doğrulanmış, gerçek yerel haberleri, altyapı/su/elektrik kesintilerini, trafik/yol çalışmalarını, orman/çevre olaylarını ve belediye/valilik duyurularını tara.`,
-    `KESİN KURALLAR:`,
-    `1. Yalnızca arama sonuçlarında gerçekten geçen doğrulanmış gelişmeleri bildir; asla uydurma olay veya tarih üretme.`,
-    `2. Her gönderi için ilçe adını tam olarak listeden seç (${districtList}).`,
-    `3. Yeni karşılaştığın yerel mahalle/mevki adlarını, proje isimlerini, kurum veya saha jargonu kelimelerini "new_keywords" listesine ekle.`,
-    `4. Yalnızca acil/yüksek öncelikli olayları (su/elektrik kesintisi, yol kapanması, yangın/sel, kritik güvenlik olayı) "alerts" dizisine koy.`,
-    `5. Yalnızca aşağıdaki geçerli JSON formatında yanıt ver (ek açıklama yazma):`,
+    `KESİN DOĞRULAMA KURALLARI:`,
+    `1. Yalnızca arama sonuçlarında doğrudan yer alan, geçerli ve doğrulanabilir bir kaynak URL'sine (https://...) sahip gelişmeleri bildir; teyitsiz sosyal medya dedikodusu, varsayım veya sentetik uyarı ASLA üretme.`,
+    `2. Doğrulanmış kaynak bulunamazsa uydurma veri üretme; "posts", "new_keywords" ve "alerts" dizilerini boş ([]) döndür.`,
+    `3. Her gönderi ve her uyarı için ilçe adını tam olarak listeden seç (${districtList}) ve geçerli "source_url" alanını mutlaka doldur.`,
+    `4. Yeni karşılaştığın yerel mahalle/mevki adlarını, proje isimlerini, kurum veya saha kavramlarını yalnızca doğrulanmış haberlerden çıkarıp "new_keywords" listesine ekle.`,
+    `5. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, yangın/sel, kritik güvenlik olayı) "alerts" dizisine koy.`,
+    `6. Yalnızca aşağıdaki geçerli JSON formatında yanıt ver (ek açıklama yazma):`,
     JSON.stringify(
       {
         posts: [
@@ -433,6 +497,7 @@ function buildGroundingPrompt(group) {
             district: group.districts[0],
             severity: "high | critical",
             type: "altyapi | trafik | cevre | guvenlik",
+            source_url: "https://...",
           },
         ],
       },
@@ -493,13 +558,15 @@ export async function runAutonomousAgent(options = {}) {
         alerts: [],
       },
       group,
-      []
+      [],
+      { allowDryRun: true }
     );
     const payloads = buildSupabasePayloads({
       findings: sampleFindings,
       group,
       systemUserId: configuredSystemUserId,
       now,
+      allowDryRun: true,
     });
     console.log(
       `[1. Ajan] DRY-RUN tamamlandı. Hazırlanan kayıtlar -> social_keywords: ${payloads.keywordRows.length}, social_posts: ${payloads.postRows.length}, alert_events: ${payloads.alertRows.length}`

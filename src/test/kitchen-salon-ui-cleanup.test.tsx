@@ -14,11 +14,18 @@ import {
   loadLivingLexicon,
   appendToLivingLexicon,
 } from "@/services/livingLexiconService";
+import { AISummaryCard } from "@/components/AISummaryCard";
+import { FIELD_INGESTION_PRESETS } from "@/services/fieldArbitrationEngine";
 import { UnifiedIntelligenceProvider, useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { I18nProvider } from "@/hooks/useTranslation";
 import { AuthProvider } from "@/hooks/useAuth";
 import { AccessibilityProvider } from "@/contexts/AccessibilityContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  normalizeAgentFindings,
+  buildSupabasePayloads,
+  DISTRICT_GROUPS,
+} from "../../scripts/run-autonomous-agent.mjs";
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
@@ -63,7 +70,7 @@ const renderWithProviders = (node: React.ReactNode) => {
   );
 };
 
-// Helper component that injects a traffic discrepancy silently in the background once
+// Helper component that injects a VERIFIED traffic discrepancy silently in the background once
 const TrafficPatchSeeder = () => {
   const { ingestFieldSubmission } = useUnifiedIntelligence();
   const seededRef = React.useRef(false);
@@ -72,10 +79,47 @@ const TrafficPatchSeeder = () => {
     seededRef.current = true;
     void ingestFieldSubmission({
       text: "Aksaz yol ayrımında yoğun trafik ve uzun araç kuyruğu var, Yalancıboğaz yönü kilitlendi.",
+      sourceUrl: "https://mugla.bel.tr/duyurular/aksaz-yol-yogunlugu",
+      corroborationCount: 2,
       tomtomHotspots: [{ name: "Marmaris", lat: 36.85, lng: 28.27, density: 20, speed: 50 }],
     });
   }, [ingestFieldSubmission]);
   return null;
+};
+
+// Helper component that attempts an UNVERIFIED social submission and displays resulting counts
+const UnverifiedSubmissionProbe = () => {
+  const {
+    ingestFieldSubmission,
+    arbitratedEvents,
+    groundTruthPatches,
+    cityPulseInjections,
+    tabNotifications,
+  } = useUnifiedIntelligence();
+  const ranRef = React.useRef(false);
+  const [done, setDone] = React.useState(false);
+
+  React.useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
+    void (async () => {
+      await ingestFieldSubmission({
+        text: FIELD_INGESTION_PRESETS[1].text,
+        tomtomHotspots: [{ name: "Marmaris", lat: 36.85, lng: 28.27, density: 20, speed: 50 }],
+      });
+      setDone(true);
+    })();
+  }, [ingestFieldSubmission]);
+
+  return (
+    <div data-testid="unverified-probe">
+      <span data-testid="probe-done">{String(done)}</span>
+      <span data-testid="probe-events">{arbitratedEvents.length}</span>
+      <span data-testid="probe-patches">{groundTruthPatches.length}</span>
+      <span data-testid="probe-pulses">{cityPulseInjections.length}</span>
+      <span data-testid="probe-notifs">{tabNotifications.length}</span>
+    </div>
+  );
 };
 
 describe("Mutfak (Arka Plan) — Salon (Arayüz) UI Temizliği", () => {
@@ -175,5 +219,85 @@ describe("Mutfak (Arka Plan) — Salon (Arayüz) UI Temizliği", () => {
     expect(screen.queryByText(/OSINT & KULİS/i)).toBeNull();
     expect(screen.queryByText(/Sahadan Paylaşım \/ Görsel Besle/i)).toBeNull();
     expect(screen.queryByText(/SORGU HÜKMÜ/i)).toBeNull();
+  });
+
+  it("purges legacy v1 unverified localStorage alerts and never renders Güncel Şehir Notları / Çapraz Doğrulama in AISummaryCard", () => {
+    // Seed legacy v1 cache with the exact unverified Marmaris Aksaz warning from screenshot
+    window.localStorage.setItem(
+      "mugla_unified_hub_events_v1",
+      JSON.stringify([
+        {
+          id: "evt-legacy-1",
+          pulseLine:
+            "🚨 [ÇAPRAZ DOĞRULAMA · ODİT-MAR-01] Marmaris (Aksaz Yol Ayrımı - Yalancıboğaz): SENSÖR UYUŞMAZLIĞI / KÖR NOKTA TESPİT EDİLDİ (İşini Doğru Yap TomTom!)",
+        },
+      ])
+    );
+
+    renderWithProviders(<AISummaryCard type="pulse" />);
+
+    expect(window.localStorage.getItem("mugla_unified_hub_events_v1")).toBeNull();
+    expect(screen.queryByText(/Güncel Şehir Notları/i)).toBeNull();
+    expect(screen.queryByText(/ÇAPRAZ DOĞRULAMA/i)).toBeNull();
+    expect(screen.queryByText(/SENSÖR UYUŞMAZLIĞI/i)).toBeNull();
+    expect(screen.queryByText(/İşini Doğru Yap TomTom/i)).toBeNull();
+  });
+
+  it("blocks unverified / single-source social reports from creating events, map patches, pulse notes, or notifications", async () => {
+    renderWithProviders(<UnverifiedSubmissionProbe />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("probe-done").textContent).toBe("true");
+    });
+
+    expect(screen.getByTestId("probe-events").textContent).toBe("0");
+    expect(screen.getByTestId("probe-patches").textContent).toBe("0");
+    expect(screen.getByTestId("probe-pulses").textContent).toBe("0");
+    expect(screen.getByTestId("probe-notifs").textContent).toBe("0");
+  });
+
+  it("prevents the autonomous agent from emitting unverified posts, keywords, or alerts without external source URLs or grounding chunks", () => {
+    const groupB = DISTRICT_GROUPS[1];
+    const unverifiedFindings = normalizeAgentFindings(
+      {
+        posts: [
+          {
+            title: "Marmaris Aksaz yol ayrımında söylenti trafik iddiası",
+            summary: "Doğrulanmamış tekil sosyal medya paylaşımı.",
+            district: "Marmaris",
+            category: "ulasim",
+            sentiment: "negative",
+            severity: "critical",
+            source_name: "Anonim Hesap",
+            source_url: null,
+            keywords: ["aksaz", "tomtom"],
+          },
+        ],
+        new_keywords: [{ keyword: "teyitsiz-etiket", category: "ulasim", district: "Marmaris" }],
+        alerts: [
+          {
+            title: "Teyitsiz Marmaris Trafik Uyarısı",
+            body: "Kaynak URL olmadan üretilmiş uyarı.",
+            district: "Marmaris",
+            severity: "critical",
+            type: "trafik",
+          },
+        ],
+      },
+      groupB,
+      []
+    );
+
+    expect(unverifiedFindings.posts).toHaveLength(0);
+    expect(unverifiedFindings.keywords).toHaveLength(0);
+    expect(unverifiedFindings.alerts).toHaveLength(0);
+
+    const payloads = buildSupabasePayloads({
+      findings: unverifiedFindings,
+      group: groupB,
+    });
+    expect(payloads.postRows).toHaveLength(0);
+    expect(payloads.keywordRows).toHaveLength(0);
+    expect(payloads.alertRows).toHaveLength(0);
   });
 });

@@ -3,7 +3,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { ENV } from "@/config/env";
+import { ENV, normalizeSupabaseUrl } from "@/config/env";
 import { MUGLA_DISTRICTS } from "@/data/muglaDistricts";
 import { INVESTIGATION_DOSSIERS } from "@/data/investigationData";
 import { safeStorage } from "@/lib/safe-storage";
@@ -59,7 +59,7 @@ export interface SyncIntelResult {
  * Supabase istemci ortam değişkenlerinin tanımlı olup olmadığını kontrol eder.
  */
 export function checkSupabaseConfigured(): boolean {
-  return Boolean(ENV.VITE_SUPABASE_URL && ENV.VITE_SUPABASE_ANON_KEY);
+  return Boolean(normalizeSupabaseUrl(ENV.VITE_SUPABASE_URL) && ENV.VITE_SUPABASE_ANON_KEY);
 }
 
 export const isSupabaseConfigured: boolean = checkSupabaseConfigured();
@@ -69,11 +69,11 @@ let cachedSignature = "";
 
 /**
  * Güvenli Supabase istemci oluşturucu.
- * Anahtarlar eksikse `createClient("", "")` çağırıp uygulamanın çökmesini önler, `null` döner.
+ * Anahtarlar eksik veya URL geçersizse `createClient` çağırıp uygulamanın çökmesini önler, `null` döner.
  */
 export function getSupabaseClient(): SupabaseClient<Database> | null {
-  const url = ENV.VITE_SUPABASE_URL;
-  const anonKey = ENV.VITE_SUPABASE_ANON_KEY;
+  const url = normalizeSupabaseUrl(ENV.VITE_SUPABASE_URL);
+  const anonKey = ENV.VITE_SUPABASE_ANON_KEY.trim().replace(/^["'`]+|["'`]+$/g, "").trim();
 
   if (!url || !anonKey) {
     return null;

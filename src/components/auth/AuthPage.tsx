@@ -1,6 +1,11 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AUTH_CONFIG_FALLBACK_MESSAGE,
+  formatAuthErrorMessage,
+  getSafeEmailRedirectOrigin,
+} from "@/lib/supabase-auth-utils";
 import { Lock, Mail, Eye, EyeOff, Loader2 } from "lucide-react";
 
 interface AuthPageProps {
@@ -17,13 +22,27 @@ export const AuthPage = ({ onAuth }: AuthPageProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!isSupabaseClientConfigured) {
+      toast({
+        title: "Hata",
+        description: AUTH_CONFIG_FALLBACK_MESSAGE,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
+      const normalizedEmail = email.trim();
+
       if (mode === "register") {
+        const emailRedirectTo = getSafeEmailRedirectOrigin();
         const { error } = await supabase.auth.signUp({
-          email,
+          email: normalizedEmail,
           password,
+          ...(emailRedirectTo ? { options: { emailRedirectTo } } : {}),
         });
         if (error) throw error;
         toast({
@@ -32,19 +51,17 @@ export const AuthPage = ({ onAuth }: AuthPageProps) => {
         });
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: normalizedEmail,
           password,
         });
         if (error) throw error;
         toast({ title: "Giriş başarılı" });
         onAuth();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       toast({
         title: "Hata",
-        description: err.message === "Invalid login credentials" 
-          ? "E-posta veya şifre hatalı" 
-          : err.message,
+        description: formatAuthErrorMessage(err),
         variant: "destructive",
       });
     } finally {

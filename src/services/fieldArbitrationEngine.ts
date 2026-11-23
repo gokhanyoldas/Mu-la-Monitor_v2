@@ -70,6 +70,17 @@ export interface ProtocolAgendaLink {
   timestamp: string;
 }
 
+export interface EventVerificationMeta {
+  verified: boolean;
+  sourceUrl?: string;
+  corroborationCount: number;
+  verificationMethod:
+    | "official_or_grounding_url"
+    | "multi_source_corroborated"
+    | "unverified_single_report";
+  reason: string;
+}
+
 export interface ArbitratedFieldEvent {
   id: string;
   timestamp: string;
@@ -82,6 +93,7 @@ export interface ArbitratedFieldEvent {
   sentimentScore: number;
   executiveSummary: string;
   analysisSource: "gemini-multimodal" | "local-nlp-arbitrator";
+  verification: EventVerificationMeta;
 
   issues: IssueItem[];
   implicitSubtext: ImplicitSubtextItem[];
@@ -173,6 +185,30 @@ const LOCALITY_COORDS: Record<string, { lat: number; lng: number; districtSlug: 
 
 function normTr(s: string): string {
   return s.toLocaleLowerCase("tr-TR");
+}
+
+export function isValidVerificationUrl(url?: string | null): boolean {
+  if (typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    if (!host || !host.includes(".")) return false;
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host.endsWith(".local") ||
+      host.endsWith(".invalid")
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function matchProtocolOfficials(text: string, districtName: string): ProtocolAgendaLink[] {
@@ -271,13 +307,70 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
   imageBase64?: string;
   imageMimeType?: string;
   imageName?: string;
+  sourceUrl?: string;
+  corroborationCount?: number;
+  isVerifiedSource?: boolean;
   lexiconTerms: string[];
   tomtomHotspots?: Array<{ name: string; lat: number; lng: number; density: number; speed?: number }>;
 }): Promise<ArbitratedFieldEvent> {
-  const { text, imageBase64, imageMimeType, imageName, lexiconTerms, tomtomHotspots = [] } = params;
+  const {
+    text,
+    imageBase64,
+    imageMimeType,
+    imageName,
+    sourceUrl,
+    corroborationCount,
+    isVerifiedSource = false,
+    lexiconTerms,
+    tomtomHotspots = [],
+  } = params;
   const trimmedText = text.trim();
   const lower = normTr(trimmedText);
   const nowIso = new Date().toISOString();
+
+  const isPresetText = FIELD_INGESTION_PRESETS.some((preset) => {
+    const presetLower = normTr(preset.text.trim());
+    return lower === presetLower || (lower.length >= 60 && presetLower.startsWith(lower.slice(0, 60)));
+  });
+  const hasValidUrl = isValidVerificationUrl(sourceUrl);
+  const effectiveCorroboration =
+    typeof corroborationCount === "number" && Number.isFinite(corroborationCount)
+      ? Math.max(0, Math.floor(corroborationCount))
+      : hasValidUrl
+      ? 1
+      : 0;
+
+  let verification: EventVerificationMeta;
+  if (isPresetText && !isVerifiedSource) {
+    verification = {
+      verified: false,
+      corroborationCount: 0,
+      verificationMethod: "unverified_single_report",
+      reason: "Örnek veya test içeriği doğrulanmış resmi kaynak olmadan yayınlanamaz.",
+    };
+  } else if (hasValidUrl) {
+    verification = {
+      verified: true,
+      sourceUrl: sourceUrl!.trim(),
+      corroborationCount: Math.max(1, effectiveCorroboration),
+      verificationMethod: "official_or_grounding_url",
+      reason: "Doğrulanmış dış kaynak bağlantısı ile teyit edildi.",
+    };
+  } else if (isVerifiedSource || effectiveCorroboration >= 2) {
+    verification = {
+      verified: true,
+      corroborationCount: Math.max(2, effectiveCorroboration),
+      verificationMethod: "multi_source_corroborated",
+      reason: "Birden fazla bağımsız kaynakla çapraz teyit edildi.",
+    };
+  } else {
+    verification = {
+      verified: false,
+      corroborationCount: effectiveCorroboration,
+      verificationMethod: "unverified_single_report",
+      reason: "Teyitsiz veya tekil sosyal medya paylaşımı doğrulama olmadan yayınlanmaz.",
+    };
+  }
 
   // 1. 3-Tier Smart Fallback:
   //    Tier 1 -> /api/intel/analyze-post (Express / Vercel Serverless)
@@ -990,9 +1083,11 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
       : `${Array.from(updatedTabs).join(", ")} sekmelerinde ilgili bütçe/baraj/protokol birimleri uyarıldı ve LivingLexicon +${extractedLexiconTerms.length} terimle genişletildi.`,
   };
 
-  const pulseLine = trafficPatch?.sensorDiscrepancy
-    ? `🚨 [ÇAPRAZ DOĞRULAMA · ${dossierCode}] ${districtName} (${trafficPatch.location}): ${trafficPatch.verdictMessage}`
-    : `📡 [ÇAPRAZ DOĞRULAMA · ${dossierCode}] ${districtName} sahasından ${issues.length} sorun ayrıştırıldı (${issues.slice(0, 2).map((i) => i.topic.split(" ")[0]).join(", ")}) ve ${updatedTabs.size} modül güncellendi.`;
+  const pulseLine = !verification.verified
+    ? ""
+    : trafficPatch?.sensorDiscrepancy
+    ? `${districtName} (${trafficPatch.location}) çevresinde trafik yoğunluğu teyit edildi.`
+    : `${districtName} için doğrulanmış saha güncellemesi kaydedildi.`;
 
   return {
     id: `evt-${Date.now()}`,
@@ -1006,6 +1101,7 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
     sentimentScore: 0.84,
     executiveSummary: dossier.summary,
     analysisSource,
+    verification,
     issues,
     implicitSubtext,
     extractedLexiconTerms,

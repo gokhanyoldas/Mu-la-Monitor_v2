@@ -86,6 +86,80 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
 }
 
 /**
+ * Supabase URL değerini istemciye verilmeden önce temizler ve doğrular:
+ * - Baş/son boşlukları, tek/çift tırnakları ve sondaki `/` karakterlerini temizler.
+ * - Yanlışlıkla `https://supabase.com/dashboard/project/<PROJECT_REF>...` girildiyse
+ *   `<PROJECT_REF>` değerini ayıklayıp `https://<PROJECT_REF>.supabase.co` üretir.
+ * - Sonunda `/rest/v1`, `/auth/v1` vb. alt yollar varsa temiz `origin` döndürür.
+ * - Geçersiz veya boş URL durumunda `""` döndürerek güvenli fallback moduna geçişi sağlar.
+ */
+export function normalizeSupabaseUrl(rawUrl?: string | null): string {
+  if (!rawUrl || typeof rawUrl !== "string") {
+    return "";
+  }
+
+  let cleaned = rawUrl.replace(/[\r\n\t]+/g, "").trim();
+  // Yanlışlıkla "VITE_SUPABASE_URL=https://..." şeklinde yapıştırılan öneki temizle
+  cleaned = cleaned.replace(/^(?:VITE_)?SUPABASE_URL\s*=\s*/i, "").trim();
+
+  // Dış boşlukları, kaçışlı/düz/kıvrık tırnakları ve URL-encoded tırnak/boşlukları temizle
+  let prev = "";
+  while (cleaned !== prev) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(/^(?:%20|%22|%27)+|(?:%20|%22|%27)+$/gi, "")
+      .replace(/^[\s"'`\u201C\u201D\u2018\u2019\\]+|[\s"'`\u201C\u201D\u2018\u2019\\]+$/g, "")
+      .trim();
+  }
+
+  // Sondaki gereksiz slash'ları temizle
+  cleaned = cleaned.replace(/\/+$/, "").trim();
+  if (!cleaned) {
+    return "";
+  }
+
+  // Protokol unutulmuş bilinen Supabase adreslerini otomatik tamamla
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(cleaned)) {
+    if (
+      /^[a-z0-9-]+\.supabase\.co(?:\/.*)?$/i.test(cleaned) ||
+      /^(?:www\.|app\.)?supabase\.com\/(?:dashboard\/)?project\/[a-z0-9-]+/i.test(cleaned)
+    ) {
+      cleaned = `https://${cleaned}`;
+    } else {
+      return "";
+    }
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(cleaned);
+  } catch {
+    return "";
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return "";
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!host || (!host.includes(".") && host !== "localhost")) {
+    return "";
+  }
+
+  // Yanlışlıkla Supabase Dashboard URL'si girildiyse proje ref'ini çıkar
+  if (host === "supabase.com" || host === "www.supabase.com" || host === "app.supabase.com") {
+    const dashboardMatch = parsed.pathname.match(/^\/(?:dashboard\/)?project\/([a-z0-9][a-z0-9-]{2,62})(?:\/|$)/i);
+    if (dashboardMatch?.[1]) {
+      return `https://${dashboardMatch[1].toLowerCase()}.supabase.co`;
+    }
+    return "";
+  }
+
+  // Tüm alt yolları (/rest/v1, /auth/v1 vb.), query ve hash'i kaldırıp temiz origin döndür
+  return parsed.origin.replace(/\/+$/, "");
+}
+
+/**
  * Merkezi ENV nesnesi:
  * - VITE_SUPABASE_URL
  * - VITE_SUPABASE_ANON_KEY (VITE_SUPABASE_PUBLISHABLE_KEY yedeğiyle)
@@ -94,28 +168,37 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
  */
 export const ENV = {
   get VITE_SUPABASE_URL(): string {
-    return resolveEnv("VITE_SUPABASE_URL", "SUPABASE_URL");
+    return normalizeSupabaseUrl(resolveEnv("VITE_SUPABASE_URL", "SUPABASE_URL"));
   },
   get SUPABASE_URL(): string {
-    return resolveEnv("VITE_SUPABASE_URL", "SUPABASE_URL");
+    return normalizeSupabaseUrl(resolveEnv("VITE_SUPABASE_URL", "SUPABASE_URL"));
   },
   get VITE_SUPABASE_ANON_KEY(): string {
     return (
       resolveEnv("VITE_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY") ||
       resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY")
-    );
+    )
+      .replace(/[\r\n\t]+/g, "")
+      .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
+      .trim();
   },
   get SUPABASE_ANON_KEY(): string {
     return (
       resolveEnv("VITE_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY") ||
       resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY")
-    );
+    )
+      .replace(/[\r\n\t]+/g, "")
+      .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
+      .trim();
   },
   get VITE_SUPABASE_PUBLISHABLE_KEY(): string {
     return (
       resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY") ||
       resolveEnv("VITE_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
-    );
+    )
+      .replace(/[\r\n\t]+/g, "")
+      .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
+      .trim();
   },
   get VITE_GEMINI_API_KEY(): string {
     return resolveEnv("VITE_GEMINI_API_KEY", "GEMINI_API_KEY");

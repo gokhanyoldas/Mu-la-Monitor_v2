@@ -2,7 +2,6 @@ import { RefreshCw, Brain, AlertTriangle, CloudSun, MessageSquare, TrendingUp, A
 import { useAISummary, type SummaryType } from "@/hooks/useAISummary";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
-import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { PanelHelpTooltip } from "@/components/dashboard/PanelHelpTooltip";
 import { cn } from "@/lib/utils";
 
@@ -25,8 +24,6 @@ export function AISummaryCard({ type = "daily", className }: AISummaryCardProps)
   const { canGenerateAI } = useAuth();
   const { data, isLoading, error, refresh } = useAISummary(type);
   const { lang, t, translate } = useTranslation();
-  const hub = useOptionalUnifiedIntelligence();
-  const pulseInjections = type === "pulse" ? (hub?.cityPulseInjections ?? []) : [];
   const config = TYPE_CONFIG[type];
   const Icon = config.icon;
 
@@ -53,26 +50,14 @@ export function AISummaryCard({ type = "daily", className }: AISummaryCardProps)
         </div>
       </div>
       <div className="relative min-h-[60px] space-y-2">
-        {pulseInjections.length > 0 && (
-          <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 space-y-1">
-            <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-rose-300">
-              {t("Güncel Şehir Notları")} ({pulseInjections.length})
-            </div>
-            {pulseInjections.map((line, idx) => (
-              <p key={idx} className="text-xs font-mono leading-snug text-foreground">
-                • {line.replace(/\s*\[?ODİT-[A-Z0-9-]+\]?:?\s*/gi, " ").trim()}
-              </p>
-            ))}
-          </div>
-        )}
-        {isLoading && !data && pulseInjections.length === 0 && (
+        {isLoading && !data && (
           <div className="space-y-2">
             <div className="h-3 bg-muted/50 rounded animate-pulse w-full" />
             <div className="h-3 bg-muted/50 rounded animate-pulse w-4/5" />
             <div className="h-3 bg-muted/50 rounded animate-pulse w-3/5" />
           </div>
         )}
-        {error && !data && pulseInjections.length === 0 && (
+        {error && !data && (
           <div className="flex items-center gap-2 text-xs text-destructive">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             <span>AI özeti şu an yüklenemedi.</span>
