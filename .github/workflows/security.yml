@@ -89,9 +89,22 @@ jobs:
             npm install --no-audit --no-fund
           fi
 
+      - name: Resolve build env
+        id: env
+        run: |
+          if [ -n "${{ secrets.VITE_SUPABASE_URL }}" ]; then
+            echo "url=${{ secrets.VITE_SUPABASE_URL }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://example.supabase.co" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${{ secrets.VITE_SUPABASE_ANON_KEY }}" ]; then
+            echo "key=${{ secrets.VITE_SUPABASE_ANON_KEY }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
         run: npm run build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-        # Secret yoksa Vite placeholder ile de build edebilir; boş string bırakıyoruz
+          VITE_SUPABASE_URL: ${{ steps.env.outputs.url }}
+          VITE_SUPABASE_ANON_KEY: ${{ steps.env.outputs.key }}
