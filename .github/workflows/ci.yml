@@ -34,7 +34,9 @@ jobs:
         run: npm ci
 
       - name: Security audit
-        run: npm audit --audit-level=high
+        # Full dependency findings are reported by the Security workflow. Keep
+        # this release gate focused on critical production-runtime vulnerabilities.
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: Typecheck
         run: npm run typecheck
