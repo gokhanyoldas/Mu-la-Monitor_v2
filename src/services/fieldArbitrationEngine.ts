@@ -82,6 +82,12 @@ export interface ArbitratedFieldEvent {
   sentimentScore: number;
   executiveSummary: string;
   analysisSource: "gemini-multimodal" | "local-nlp-arbitrator";
+  verification: {
+    verified: boolean;
+    verificationMethod: "official_or_grounding_url" | "multi_source_corroborated" | "unverified";
+    sourceUrl?: string;
+    corroborationCount: number;
+  };
 
   issues: IssueItem[];
   implicitSubtext: ImplicitSubtextItem[];
@@ -173,6 +179,27 @@ const LOCALITY_COORDS: Record<string, { lat: number; lng: number; districtSlug: 
 
 function normTr(s: string): string {
   return s.toLocaleLowerCase("tr-TR");
+}
+
+export function isValidVerificationUrl(url?: string | null): boolean {
+  if (typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const host = parsed.hostname.toLowerCase();
+    return Boolean(
+      host &&
+        host.includes(".") &&
+        host !== "localhost" &&
+        host !== "127.0.0.1" &&
+        !host.endsWith(".local") &&
+        !host.endsWith(".invalid")
+    );
+  } catch {
+    return false;
+  }
 }
 
 function matchProtocolOfficials(text: string, districtName: string): ProtocolAgendaLink[] {
@@ -271,13 +298,38 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
   imageBase64?: string;
   imageMimeType?: string;
   imageName?: string;
+  sourceUrl?: string;
+  corroborationCount?: number;
+  isVerifiedSource?: boolean;
   lexiconTerms: string[];
   tomtomHotspots?: Array<{ name: string; lat: number; lng: number; density: number; speed?: number }>;
 }): Promise<ArbitratedFieldEvent> {
-  const { text, imageBase64, imageMimeType, imageName, lexiconTerms, tomtomHotspots = [] } = params;
+  const {
+    text,
+    imageBase64,
+    imageMimeType,
+    imageName,
+    sourceUrl,
+    corroborationCount = 0,
+    isVerifiedSource = false,
+    lexiconTerms,
+    tomtomHotspots = [],
+  } = params;
   const trimmedText = text.trim();
   const lower = normTr(trimmedText);
   const nowIso = new Date().toISOString();
+  const hasOfficialOrGroundingUrl = isVerifiedSource || isValidVerificationUrl(sourceUrl);
+  const hasMultiSourceCorroboration = corroborationCount >= 2;
+  const verification = {
+    verified: hasOfficialOrGroundingUrl || hasMultiSourceCorroboration,
+    verificationMethod: hasOfficialOrGroundingUrl
+      ? ("official_or_grounding_url" as const)
+      : hasMultiSourceCorroboration
+      ? ("multi_source_corroborated" as const)
+      : ("unverified" as const),
+    sourceUrl: isValidVerificationUrl(sourceUrl) ? sourceUrl!.trim() : undefined,
+    corroborationCount,
+  };
 
   // 1. Server-side Gemini proxy -> deterministic Turkish NLP fallback.
   let geminiRaw: any = null;
@@ -976,6 +1028,7 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
     sentimentScore: 0.84,
     executiveSummary: dossier.summary,
     analysisSource,
+    verification,
     issues,
     implicitSubtext,
     extractedLexiconTerms,
