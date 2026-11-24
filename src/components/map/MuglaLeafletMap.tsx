@@ -171,6 +171,8 @@ export const MuglaLeafletMap: React.FC<MuglaLeafletMapProps> = ({
       map.remove();
       mapRef.current = null;
     };
+    // Leaflet map construction is intentionally mount-only; callbacks are used by later layers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 2. Seçili İlçe Değiştiğinde GeoJSON Stillerini Güncelle ve Odaklan
@@ -378,6 +380,8 @@ export const MuglaLeafletMap: React.FC<MuglaLeafletMapProps> = ({
 
       districtPinsLayerRef.current!.addLayer(marker);
     });
+    // Parent callbacks are intentionally excluded; the layer redraw is state-driven.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDistrictPins, incidents, selectedDistrictId]);
 
   // 4. Olay Pinlerini Çiz (Yangın, Trafik, Altyapı vb.)

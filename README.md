@@ -64,3 +64,11 @@ node scripts/verify-build-assets.mjs --base=/
 DEPLOY_TARGET=gh-pages npm run build
 node scripts/verify-build-assets.mjs --base=/Mu-la-Monitor_v2/
 ```
+
+Production veya Vercel Preview smoke testi için:
+
+```sh
+SMOKE_BASE_URL=https://preview.example.com npm run smoke:production
+```
+
+Merge sırası, Vercel/Supabase ortam doğrulaması, rollback, monitoring ve veri kaynağı kesintisi prosedürleri için [`docs/operations/production-runbook-tr.md`](docs/operations/production-runbook-tr.md) dosyasına bakın.

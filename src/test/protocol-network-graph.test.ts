@@ -126,23 +126,14 @@ describe("Protokol ve Veri Ağı (Test) — Topoloji ve Gemini Analizi", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          candidates: [
-            {
-              content: {
-                parts: [
-                  {
-                    text: JSON.stringify({
-                      bullets: [
-                        "Bodrum ve Marmaris ile koordinasyon yüksek.",
-                        "AFAD ve MBB saha denetimleri aktif.",
-                        "OSINT gündem yoğunluğu izleniyor.",
-                      ],
-                    }),
-                  },
-                ],
-              },
-            },
-          ],
+          ok: true,
+          analysis: {
+            bullets: [
+              "Bodrum ve Marmaris ile koordinasyon yüksek.",
+              "AFAD ve MBB saha denetimleri aktif.",
+              "OSINT gündem yoğunluğu izleniyor.",
+            ],
+          },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       )

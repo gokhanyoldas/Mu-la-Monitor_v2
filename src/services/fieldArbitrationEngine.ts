@@ -70,17 +70,6 @@ export interface ProtocolAgendaLink {
   timestamp: string;
 }
 
-export interface EventVerificationMeta {
-  verified: boolean;
-  sourceUrl?: string;
-  corroborationCount: number;
-  verificationMethod:
-    | "official_or_grounding_url"
-    | "multi_source_corroborated"
-    | "unverified_single_report";
-  reason: string;
-}
-
 export interface ArbitratedFieldEvent {
   id: string;
   timestamp: string;
@@ -93,7 +82,12 @@ export interface ArbitratedFieldEvent {
   sentimentScore: number;
   executiveSummary: string;
   analysisSource: "gemini-multimodal" | "local-nlp-arbitrator";
-  verification: EventVerificationMeta;
+  verification: {
+    verified: boolean;
+    verificationMethod: "official_or_grounding_url" | "multi_source_corroborated" | "unverified";
+    sourceUrl?: string;
+    corroborationCount: number;
+  };
 
   issues: IssueItem[];
   implicitSubtext: ImplicitSubtextItem[];
@@ -195,17 +189,14 @@ export function isValidVerificationUrl(url?: string | null): boolean {
     const parsed = new URL(trimmed);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
     const host = parsed.hostname.toLowerCase();
-    if (!host || !host.includes(".")) return false;
-    if (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "0.0.0.0" ||
-      host.endsWith(".local") ||
-      host.endsWith(".invalid")
-    ) {
-      return false;
-    }
-    return true;
+    return Boolean(
+      host &&
+        host.includes(".") &&
+        host !== "localhost" &&
+        host !== "127.0.0.1" &&
+        !host.endsWith(".local") &&
+        !host.endsWith(".invalid")
+    );
   } catch {
     return false;
   }
@@ -319,7 +310,7 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
     imageMimeType,
     imageName,
     sourceUrl,
-    corroborationCount,
+    corroborationCount = 0,
     isVerifiedSource = false,
     lexiconTerms,
     tomtomHotspots = [],
@@ -327,94 +318,32 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
   const trimmedText = text.trim();
   const lower = normTr(trimmedText);
   const nowIso = new Date().toISOString();
+  const hasOfficialOrGroundingUrl = isVerifiedSource || isValidVerificationUrl(sourceUrl);
+  const hasMultiSourceCorroboration = corroborationCount >= 2;
+  const verification = {
+    verified: hasOfficialOrGroundingUrl || hasMultiSourceCorroboration,
+    verificationMethod: hasOfficialOrGroundingUrl
+      ? ("official_or_grounding_url" as const)
+      : hasMultiSourceCorroboration
+      ? ("multi_source_corroborated" as const)
+      : ("unverified" as const),
+    sourceUrl: isValidVerificationUrl(sourceUrl) ? sourceUrl!.trim() : undefined,
+    corroborationCount,
+  };
 
-  const isPresetText = FIELD_INGESTION_PRESETS.some((preset) => {
-    const presetLower = normTr(preset.text.trim());
-    return lower === presetLower || (lower.length >= 60 && presetLower.startsWith(lower.slice(0, 60)));
-  });
-  const hasValidUrl = isValidVerificationUrl(sourceUrl);
-  const effectiveCorroboration =
-    typeof corroborationCount === "number" && Number.isFinite(corroborationCount)
-      ? Math.max(0, Math.floor(corroborationCount))
-      : hasValidUrl
-      ? 1
-      : 0;
-
-  let verification: EventVerificationMeta;
-  if (isPresetText && !isVerifiedSource) {
-    verification = {
-      verified: false,
-      corroborationCount: 0,
-      verificationMethod: "unverified_single_report",
-      reason: "Örnek veya test içeriği doğrulanmış resmi kaynak olmadan yayınlanamaz.",
-    };
-  } else if (hasValidUrl) {
-    verification = {
-      verified: true,
-      sourceUrl: sourceUrl!.trim(),
-      corroborationCount: Math.max(1, effectiveCorroboration),
-      verificationMethod: "official_or_grounding_url",
-      reason: "Doğrulanmış dış kaynak bağlantısı ile teyit edildi.",
-    };
-  } else if (isVerifiedSource || effectiveCorroboration >= 2) {
-    verification = {
-      verified: true,
-      corroborationCount: Math.max(2, effectiveCorroboration),
-      verificationMethod: "multi_source_corroborated",
-      reason: "Birden fazla bağımsız kaynakla çapraz teyit edildi.",
-    };
-  } else {
-    verification = {
-      verified: false,
-      corroborationCount: effectiveCorroboration,
-      verificationMethod: "unverified_single_report",
-      reason: "Teyitsiz veya tekil sosyal medya paylaşımı doğrulama olmadan yayınlanmaz.",
-    };
-  }
-
-  // 1. 3-Tier Smart Fallback:
-  //    Tier 1 -> /api/intel/analyze-post (Express / Vercel Serverless)
-  //    Tier 2 -> Direct @google/genai SDK (Static Vercel / Vite when VITE_GEMINI_API_KEY exists)
-  //    Tier 3 -> Deterministic Turkish NLP Arbitrator
+  // 1. Server-side Gemini proxy -> deterministic Turkish NLP fallback.
   let geminiRaw: any = null;
   let analysisSource: ArbitratedFieldEvent["analysisSource"] = "local-nlp-arbitrator";
 
-  if (typeof fetch === "function") {
-    try {
-      const resp = await fetch("/api/intel/analyze-post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: trimmedText,
-          imageBase64,
-          imageMimeType,
-          lexiconTerms,
-        }),
-      });
-      if (resp.ok) {
-        const json = await resp.json();
-        if (json?.ok && json?.analysis) {
-          geminiRaw = json.analysis;
-          analysisSource = "gemini-multimodal";
-        }
-      }
-    } catch {
-      // Proceed to Tier 2 client fallback cleanly
-    }
-  }
-
-  // Tier 2: If server endpoint returned 404 / fallback / network error and client key exists
-  if (!geminiRaw && ENV.VITE_GEMINI_API_KEY) {
-    const clientAnalysis = await runClientGeminiPostAnalysis({
+  const clientAnalysis = await runClientGeminiPostAnalysis({
       text: trimmedText,
       imageBase64,
       imageMimeType,
       lexiconTerms,
-    });
-    if (clientAnalysis) {
-      geminiRaw = clientAnalysis;
-      analysisSource = "gemini-multimodal";
-    }
+  });
+  if (clientAnalysis) {
+    geminiRaw = clientAnalysis;
+    analysisSource = "gemini-multimodal";
   }
 
   // 2. District identification
@@ -1083,11 +1012,9 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
       : `${Array.from(updatedTabs).join(", ")} sekmelerinde ilgili bütçe/baraj/protokol birimleri uyarıldı ve LivingLexicon +${extractedLexiconTerms.length} terimle genişletildi.`,
   };
 
-  const pulseLine = !verification.verified
-    ? ""
-    : trafficPatch?.sensorDiscrepancy
-    ? `${districtName} (${trafficPatch.location}) çevresinde trafik yoğunluğu teyit edildi.`
-    : `${districtName} için doğrulanmış saha güncellemesi kaydedildi.`;
+  const pulseLine = trafficPatch?.sensorDiscrepancy
+    ? `🚨 [ÇAPRAZ DOĞRULAMA · ${dossierCode}] ${districtName} (${trafficPatch.location}): ${trafficPatch.verdictMessage}`
+    : `📡 [ÇAPRAZ DOĞRULAMA · ${dossierCode}] ${districtName} sahasından ${issues.length} sorun ayrıştırıldı (${issues.slice(0, 2).map((i) => i.topic.split(" ")[0]).join(", ")}) ve ${updatedTabs.size} modül güncellendi.`;
 
   return {
     id: `evt-${Date.now()}`,

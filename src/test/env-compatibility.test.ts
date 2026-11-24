@@ -6,20 +6,20 @@ describe("Merkezi ENV Yapılandırması (Vite + Vercel + AI Studio)", () => {
     vi.unstubAllEnvs();
   });
 
-  it("VITE_GEMINI_API_KEY tanımlıysa ENV üzerinden öncelikli olarak okur", () => {
+  it("VITE_GEMINI_API_KEY yalnızca açıkça frontend ortamına verilirse okunur", () => {
     vi.stubEnv("VITE_GEMINI_API_KEY", "vite-key-123");
     vi.stubEnv("GEMINI_API_KEY", "ai-studio-key-456");
 
     expect(ENV.VITE_GEMINI_API_KEY).toBe("vite-key-123");
-    expect(getGeminiApiKey()).toBe("vite-key-123");
+    expect(getGeminiApiKey()).toBe("");
   });
 
-  it("VITE_GEMINI_API_KEY yoksa AI Studio process.env.GEMINI_API_KEY değişkenine düşer", () => {
+  it("GEMINI_API_KEY server secret’ı frontend ENV fallback’i olarak okunmaz", () => {
     vi.stubEnv("VITE_GEMINI_API_KEY", "");
     vi.stubEnv("GEMINI_API_KEY", "ai-studio-key-456");
 
-    expect(ENV.VITE_GEMINI_API_KEY).toBe("ai-studio-key-456");
-    expect(getGeminiApiKey()).toBe("ai-studio-key-456");
+    expect(ENV.VITE_GEMINI_API_KEY).toBe("");
+    expect(getGeminiApiKey()).toBe("");
   });
 
   it("VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY ve VITE_TOMTOM_API_KEY değerlerini okur", () => {

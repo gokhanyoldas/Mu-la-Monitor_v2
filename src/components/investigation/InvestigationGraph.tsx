@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface InvestigationGraphProps {
   selectedDossierId?: string | null;
@@ -49,6 +50,7 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
   onSelectNode,
   className = ""
 }) => {
+  const { t } = useTranslation();
   const {
     dynamicDossiers,
     dynamicInvestigationNodes,
@@ -177,9 +179,9 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-rose-500 animate-pulse" />
             <h3 className="text-sm sm:text-base font-bold font-mono tracking-wide text-rose-100 flex items-center gap-2">
-              <span>İstihbarat & Dedektif Masası İlişki Ağı</span>
+              <span>{t("İstihbarat & Dedektif Masası İlişki Ağı")}</span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold">
-                CANLI OSINT DİYAGRAMI
+                {t("CANLI OSINT DİYAGRAMI")}
               </span>
             </h3>
           </div>
@@ -195,10 +197,10 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
             variant="ghost"
             onClick={handleResetPositions}
             className="h-7 text-xs gap-1 text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-            title="Düğümleri İlk Konumuna Getir"
+            title={t("Düğümleri İlk Konumuna Getir")}
           >
             <RotateCcw className="w-3 h-3" />
-            <span>Sıfırla</span>
+            <span>{t("Sıfırla")}</span>
           </Button>
 
           {allDossiers.map((dossier) => {
@@ -228,7 +230,7 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
       <div className="px-3 py-1.5 border-b border-rose-950/40 bg-[#09060d] flex flex-wrap items-center justify-between gap-1.5 text-[11px] font-mono">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] text-slate-400 flex items-center gap-1 mr-1">
-            <Filter className="w-3 h-3 text-rose-400" /> Düğüm Türü:
+            <Filter className="w-3 h-3 text-rose-400" /> {t("Düğüm Türü")} :
           </span>
           <button
             type="button"
@@ -265,8 +267,8 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
         </div>
 
         <div className="text-[10px] text-slate-400 hidden lg:flex items-center gap-2">
-          <span className="text-rose-400 font-bold">● Kırmızı İpler:</span> Çapraz Teyit & İddia Zinciri
-          <span className="text-amber-400 font-bold">-- Kesikli İpler:</span> Çelişki / Yalanlama
+          <span className="text-rose-400 font-bold">● {t("Kırmızı İpler")}:</span> {t("Çapraz Teyit & İddia Zinciri")}
+          <span className="text-amber-400 font-bold">-- {t("Kesikli İpler")}:</span> {t("Çelişki / Yalanlama")}
         </div>
       </div>
 
@@ -513,9 +515,9 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
             /* Bir İpin / İlişkinin Üzerindeyken */
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-rose-400">🧵 İLİŞKİ TESPİTİ:</span>
+                <span className="font-bold text-rose-400">🧵 {t("İLİŞKİ TESPİTİ:")}</span>
                 <span className="text-white font-bold">{activeHoveredLink.label}</span>
-                <span className="text-[10px] text-amber-300">Güvenilirlik: %{activeHoveredLink.confidence}</span>
+                <span className="text-[10px] text-amber-300">{t("Güvenilirlik")}: %{activeHoveredLink.confidence}</span>
               </div>
               <p className="text-[11px] text-slate-300 mt-0.5 truncate font-sans italic">
                 "{activeHoveredLink.evidenceQuote}"
@@ -536,7 +538,7 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
                 }`}>
                   {activeFocusedNodeData.status.toUpperCase()}
                 </span>
-                <span className="text-[10px] text-slate-400">Kaynak: {activeFocusedNodeData.source}</span>
+                <span className="text-[10px] text-slate-400">{t("Kaynak")}: {activeFocusedNodeData.source}</span>
               </div>
               <p className="text-[11px] text-slate-200 mt-0.5 truncate font-sans">
                 {activeFocusedNodeData.claimSummary}
@@ -560,7 +562,7 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
                 onClick={() => onSelectNode && onSelectNode(null)}
                 className="h-7 text-xs font-mono bg-black/40 hover:bg-black/60 text-slate-300 border-white/20 cursor-pointer"
               >
-                Vurguyu Kaldır
+                {t("Vurguyu Kaldır")}
               </Button>
             </div>
           )}

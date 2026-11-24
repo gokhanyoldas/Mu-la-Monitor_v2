@@ -508,20 +508,18 @@ export async function fetchDistrictSearchGroundedFeed(params: {
     }
   }
 
-  // Tier 2: Static Vercel / Vite deployment fallback using client-side @google/genai googleSearch tool
-  if (ENV.VITE_GEMINI_API_KEY) {
-    const clientRes = await runClientGeminiDistrictGrounding({
-      districtName: params.districtName,
-      aliases: params.aliases,
-      lexiconTerms: params.lexiconTerms,
-    });
-    if (clientRes) {
-      return {
-        posts: mapGroundedPosts(params.districtSlug, clientRes.posts, clientRes.groundingSources),
-        groundingSources: clientRes.groundingSources,
-        usedLiveSearch: true,
-      };
-    }
+  // Tier 2: Server-side proxy fallback; the browser never receives a Gemini key.
+  const clientRes = await runClientGeminiDistrictGrounding({
+    districtName: params.districtName,
+    aliases: params.aliases,
+    lexiconTerms: params.lexiconTerms,
+  });
+  if (clientRes) {
+    return {
+      posts: mapGroundedPosts(params.districtSlug, clientRes.posts, clientRes.groundingSources),
+      groundingSources: clientRes.groundingSources,
+      usedLiveSearch: true,
+    };
   }
 
   // Tier 3: Deterministic curated baseline fallback

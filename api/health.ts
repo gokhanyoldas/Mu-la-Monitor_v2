@@ -8,7 +8,7 @@ type VercelResponse = ServerResponse & {
 
 export default function handler(_req: VercelRequest, res: VercelResponse) {
   const model = process.env.GEMINI_MODEL || "gemini-4-hydrogen";
-  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY);
+  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
   const payload = { ok: true, geminiConfigured, model, runtime: "vercel-serverless" };
 
   if (typeof res.status === "function" && typeof res.json === "function") {

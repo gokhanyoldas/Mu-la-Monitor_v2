@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Typecheck, lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Build-time validation only; production secrets never belong in CI logs.
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder
+      VITE_APP_VERSION: ci
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Security audit
+        # Full dependency findings are reported by the Security workflow. Keep
+        # this release gate focused on critical production-runtime vulnerabilities.
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --run
+
+      - name: Production build
+        run: npm run build
+
+      - name: Verify root build assets
+        run: npm run verify:assets -- --base=/
+
+      - name: Verify GitHub Pages build assets
+        run: |
+          rm -rf dist
+          DEPLOY_TARGET=gh-pages npm run build
+          npm run verify:assets -- --base=/Mu-la-Monitor_v2/

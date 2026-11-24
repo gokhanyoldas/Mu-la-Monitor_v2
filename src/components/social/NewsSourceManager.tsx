@@ -37,6 +37,8 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
 
   useEffect(() => {
     fetchSources();
+    // Initial load only; subsequent refreshes are explicit mutations.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchSources = async () => {

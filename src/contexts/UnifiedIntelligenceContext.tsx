@@ -33,10 +33,6 @@ function isVerifiedArbitratedEvent(evt: ArbitratedFieldEvent | null | undefined)
   ) {
     return false;
   }
-  const line = String(evt.pulseLine || "");
-  if (/SENSÖR UYUŞMAZLIĞI|İşini Doğru Yap|ÇAPRAZ DOĞRULAMA/i.test(line)) {
-    return false;
-  }
   return true;
 }
 

@@ -1,26 +1,38 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
+  - package-ecosystem: npm
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Europe/Istanbul
     open-pull-requests-limit: 10
     labels:
-      - "dependencies"
-      - "security"
+      - dependencies
+      - javascript
     groups:
-      production-deps:
-        dependency-type: "production"
-      development-deps:
-        dependency-type: "development"
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
 
-  - package-ecosystem: "github-actions"
+  - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
+      interval: weekly
+      day: monday
+      time: "04:30"
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 10
     labels:
-      - "ci"
-      - "dependencies"
+      - dependencies
+      - github-actions
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+# Major updates intentionally remain outside groups. Dependabot creates one PR
+# per major update, so toolchain migrations can be tested and merged separately.
