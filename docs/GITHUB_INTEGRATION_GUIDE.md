@@ -8,9 +8,9 @@ Bu kılavuz, **Muğla Monitor** projesinin Google AI Studio ortamındaki son dur
 
 ### Mevcut Konfigürasyon
 Projenin veritabanı bağlantı ayarları tam uyumludur:
-* **Supabase Project ID:** `wivooargsmcwbiokpklu` (Gökhan Yoldaş adına kayıtlı proje)
-* **Yerel Konfigürasyon:** `/supabase/config.toml` içinde `project_id = "wivooargsmcwbiokpklu"` tanımlıdır.
-* **Frontend İstemcisi:** `/src/integrations/supabase/client.ts` dosyası, otomatik yedek (fallback) olarak `https://wivooargsmcwbiokpklu.supabase.co` adresini ve anon anahtarını kullanır.
+* **Supabase Project ID:** `ntheudveohozxdjgcvif` (Gökhan Yoldaş adına kayıtlı proje)
+* **Yerel Konfigürasyon:** `/supabase/config.toml` içinde `project_id = "ntheudveohozxdjgcvif"` tanımlıdır.
+* **Frontend İstemcisi:** `/src/integrations/supabase/client.ts` dosyası, otomatik yedek (fallback) olarak `https://ntheudveohozxdjgcvif.supabase.co` adresini ve anon anahtarını kullanır.
 
 ### Supabase Auto-Pause Engelleyici (Uptime Servisi) Kurulumu
 Ücretsiz Supabase planları 7 gün boyunca istek almazsa otomatik olarak durdurulur (Paused). Proje veri akışının kesilmemesi için şu adımları takip ederek ücretsiz bir UptimeRobot hesabı kurabilirsiniz:
@@ -20,7 +20,7 @@ Projenin veritabanı bağlantı ayarları tam uyumludur:
 3. Ayarları şu şekilde tanımlayın:
    * **Monitor Type:** `HTTP(s)`
    * **Friendly Name:** `Mugla Monitor Supabase API`
-   * **URL (or IP):** `https://wivooargsmcwbiokpklu.supabase.co/rest/v1/`
+   * **URL (or IP):** `https://ntheudveohozxdjgcvif.supabase.co/rest/v1/`
    * **Monitoring Interval:** `5 minutes` (veritabanını uyanık tutmaya yeterlidir)
 4. Monitörü kaydedin. Artık Supabase projeniz otomatik olarak uyanık kalacaktır.
 

@@ -19,7 +19,7 @@ import httpx
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-SUPABASE_URL        = os.environ.get("SUPABASE_URL", "https://wivooargsmcwbiokpklu.supabase.co")
+SUPABASE_URL        = os.environ.get("SUPABASE_URL", "https://ntheudveohozxdjgcvif.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 ISTANBUL = ZoneInfo("Europe/Istanbul")
