@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { safeStorage } from "@/lib/safe-storage";
 
 interface Props {
   children: ReactNode;
@@ -106,7 +107,7 @@ export class RootErrorBoundary extends Component<Props, State> {
               <button
                 type="button"
                 onClick={() => {
-                  try { localStorage.clear(); } catch {}
+                  try { safeStorage.clear(); } catch {}
                   try { sessionStorage.clear(); } catch {}
                   window.location.reload();
                 }}

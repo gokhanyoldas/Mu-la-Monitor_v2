@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useLiveData } from "@/hooks/useLiveData";
 import { isValidVerificationUrl } from "@/services/fieldArbitrationEngine";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type SectorTopicKey = "environment_dams" | "transport_infra";
 
@@ -468,7 +469,7 @@ interface TopicGroundingPayload {
 function readLocalTopicCache(topic: SectorTopicKey): TopicGroundingPayload | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(`${TOPIC_CACHE_PREFIX}${topic}`);
+    const raw = window.safeStorage.getItem(`${TOPIC_CACHE_PREFIX}${topic}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as TopicGroundingPayload;
     if (!parsed?.fetchedAt) return null;
@@ -483,7 +484,7 @@ function readLocalTopicCache(topic: SectorTopicKey): TopicGroundingPayload | nul
 function writeLocalTopicCache(topic: SectorTopicKey, payload: TopicGroundingPayload) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(`${TOPIC_CACHE_PREFIX}${topic}`, JSON.stringify(payload));
+    window.safeStorage.setItem(`${TOPIC_CACHE_PREFIX}${topic}`, JSON.stringify(payload));
   } catch {
     // ignore storage quota errors
   }

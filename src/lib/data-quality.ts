@@ -1,4 +1,5 @@
 import { DataQualityMetricSchema, type DataQualityMetric, type DataSource } from "./data-schemas";
+import { safeStorage } from "@/lib/safe-storage";
 
 interface DataQualityStatus {
   category: string;
@@ -154,10 +155,10 @@ class DataQualityTracker {
 
   private persistMetric(metric: DataQualityMetric) {
     try {
-      const stored = localStorage.getItem("dq_metrics");
+      const stored = safeStorage.getItem("dq_metrics");
       const metrics = stored ? JSON.parse(stored) : {};
       metrics[metric.category] = metric;
-      localStorage.setItem("dq_metrics", JSON.stringify(metrics));
+      safeStorage.setItem("dq_metrics", JSON.stringify(metrics));
     } catch (err) {
       console.error("Failed to persist quality metric:", err);
     }
@@ -165,7 +166,7 @@ class DataQualityTracker {
 
   loadPersistedMetrics() {
     try {
-      const stored = localStorage.getItem("dq_metrics");
+      const stored = safeStorage.getItem("dq_metrics");
       if (stored) {
         const metrics = JSON.parse(stored);
         Object.entries(metrics).forEach(([key, value]) => {
@@ -196,7 +197,7 @@ class DataQualityTracker {
   clearMetrics() {
     this.metrics.clear();
     this.sources.clear();
-    localStorage.removeItem("dq_metrics");
+    safeStorage.removeItem("dq_metrics");
   }
 }
 

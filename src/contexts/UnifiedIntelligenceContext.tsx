@@ -20,6 +20,7 @@ import type {
   InvestigationLink,
 } from "@/data/investigationData";
 import type { DistrictFeedItem } from "@/data/districtSocialBaselines";
+import { safeStorage } from "@/lib/safe-storage";
 
 const LEGACY_HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v1";
 const HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v2";
@@ -97,10 +98,10 @@ function loadStoredEvents(): ArbitratedFieldEvent[] {
   if (typeof window === "undefined") return [];
   try {
     // Legacy v1 cache contained unverified/preset field submissions — purge it cleanly
-    if (window.localStorage.getItem(LEGACY_HUB_EVENTS_STORAGE_KEY) !== null) {
-      window.localStorage.removeItem(LEGACY_HUB_EVENTS_STORAGE_KEY);
+    if (window.safeStorage.getItem(LEGACY_HUB_EVENTS_STORAGE_KEY) !== null) {
+      window.safeStorage.removeItem(LEGACY_HUB_EVENTS_STORAGE_KEY);
     }
-    const raw = window.localStorage.getItem(HUB_EVENTS_STORAGE_KEY);
+    const raw = window.safeStorage.getItem(HUB_EVENTS_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -130,7 +131,7 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
           ...evt,
           imagePreview: evt.imagePreview && evt.imagePreview.length > 80_000 ? undefined : evt.imagePreview,
         }));
-      window.localStorage.setItem(HUB_EVENTS_STORAGE_KEY, JSON.stringify(sanitized));
+      window.safeStorage.setItem(HUB_EVENTS_STORAGE_KEY, JSON.stringify(sanitized));
     } catch {
       // ignore quota error
     }
@@ -167,7 +168,7 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
         });
 
         // Strict Verification Gate: unverified / single-source social reports never publish
-        // into LivingLexicon, alerts, map patches, pulse injections, or localStorage.
+        // into LivingLexicon, alerts, map patches, pulse injections, or safeStorage.
         if (!isVerifiedArbitratedEvent(event)) {
           return event;
         }

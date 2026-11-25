@@ -3,6 +3,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { dataQualityTracker } from "@/lib/data-quality";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type SubsystemId =
   | "weather"
@@ -286,16 +287,16 @@ class SystemAgentService {
 
   private loadFromStorage() {
     try {
-      const h = localStorage.getItem(STORAGE_KEYS.HEALTH);
+      const h = safeStorage.getItem(STORAGE_KEYS.HEALTH);
       this.health = h ? JSON.parse(h) : DEFAULT_SUBSYSTEMS;
 
-      const a = localStorage.getItem(STORAGE_KEYS.ACTIONS);
+      const a = safeStorage.getItem(STORAGE_KEYS.ACTIONS);
       this.actions = a ? JSON.parse(a) : DEFAULT_ACTIONS;
 
-      const p = localStorage.getItem(STORAGE_KEYS.PROPOSALS);
+      const p = safeStorage.getItem(STORAGE_KEYS.PROPOSALS);
       this.proposals = p ? JSON.parse(p) : DEFAULT_PROPOSALS;
 
-      const s = localStorage.getItem(STORAGE_KEYS.STATE);
+      const s = safeStorage.getItem(STORAGE_KEYS.STATE);
       if (s) {
         this.state = { ...this.state, ...JSON.parse(s) };
       } else {
@@ -311,10 +312,10 @@ class SystemAgentService {
 
   private saveToStorage() {
     try {
-      localStorage.setItem(STORAGE_KEYS.HEALTH, JSON.stringify(this.health));
-      localStorage.setItem(STORAGE_KEYS.ACTIONS, JSON.stringify(this.actions));
-      localStorage.setItem(STORAGE_KEYS.PROPOSALS, JSON.stringify(this.proposals));
-      localStorage.setItem(STORAGE_KEYS.STATE, JSON.stringify(this.state));
+      safeStorage.setItem(STORAGE_KEYS.HEALTH, JSON.stringify(this.health));
+      safeStorage.setItem(STORAGE_KEYS.ACTIONS, JSON.stringify(this.actions));
+      safeStorage.setItem(STORAGE_KEYS.PROPOSALS, JSON.stringify(this.proposals));
+      safeStorage.setItem(STORAGE_KEYS.STATE, JSON.stringify(this.state));
     } catch {
       // ignore
     }

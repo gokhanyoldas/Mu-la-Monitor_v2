@@ -2,6 +2,7 @@
 // Eski terimleri asla silmez (append-only); her yeni sosyal paylaşım, görsel veya tarama sonucu sözlüğü büyütür.
 
 import { supabase } from "@/integrations/supabase/client";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type LexiconLayer =
   | "core"             // (a) Çekirdek Sözlük: 13 ilçe, resmi kurumlar, temel sektörler (asla silinmez)
@@ -245,9 +246,9 @@ function mergeAppendOnly(
 export function loadLivingLexicon(): LexiconEntry[] {
   if (typeof window === "undefined") return [...INITIAL_LIVING_LEXICON];
   try {
-    const raw = window.localStorage.getItem(LEXICON_STORAGE_KEY);
+    const raw = window.safeStorage.getItem(LEXICON_STORAGE_KEY);
     if (!raw) {
-      window.localStorage.setItem(LEXICON_STORAGE_KEY, JSON.stringify(INITIAL_LIVING_LEXICON));
+      window.safeStorage.setItem(LEXICON_STORAGE_KEY, JSON.stringify(INITIAL_LIVING_LEXICON));
       return [...INITIAL_LIVING_LEXICON];
     }
     const parsed = JSON.parse(raw) as LexiconEntry[];
@@ -263,7 +264,7 @@ export function loadLivingLexicon(): LexiconEntry[] {
 export function saveLivingLexicon(entries: LexiconEntry[]): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(LEXICON_STORAGE_KEY, JSON.stringify(entries));
+    window.safeStorage.setItem(LEXICON_STORAGE_KEY, JSON.stringify(entries));
     window.dispatchEvent(new CustomEvent("living-lexicon-updated", { detail: { total: entries.length } }));
   } catch {
     // ignore quota errors safely

@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { notificationService } from "@/services/notification-service";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type DataCategory =
   | "weather" | "economy" | "tourism" | "environment"
@@ -252,14 +253,14 @@ class IntelligenceHub {
 
     categories.forEach(category => {
       try {
-        const cached = localStorage.getItem(`ih_${category}`);
+        const cached = safeStorage.getItem(`ih_${category}`);
         if (cached) {
           const entry = JSON.parse(cached);
           if (Date.now() - entry.timestamp < entry.ttl) {
             this.dataCache.set(category, entry);
             this.notifySubscribers(category, entry.data, false);
           } else {
-            localStorage.removeItem(`ih_${category}`);
+            safeStorage.removeItem(`ih_${category}`);
           }
         }
       } catch (err) {
@@ -463,7 +464,7 @@ class IntelligenceHub {
     this.dataCache.set(intelligence.category, entry);
 
     try {
-      localStorage.setItem(
+      safeStorage.setItem(
         `ih_${intelligence.category}`,
         JSON.stringify(entry)
       );
@@ -614,11 +615,11 @@ class IntelligenceHub {
 
   private persistAnomalyAlert(alert: AnomalyAlert) {
     try {
-      const stored = localStorage.getItem("ih_anomalies");
+      const stored = safeStorage.getItem("ih_anomalies");
       const alerts = stored ? JSON.parse(stored) : [];
       alerts.unshift(alert);
       if (alerts.length > 100) alerts.pop();
-      localStorage.setItem("ih_anomalies", JSON.stringify(alerts));
+      safeStorage.setItem("ih_anomalies", JSON.stringify(alerts));
     } catch (err) {
       console.error("Failed to persist anomaly alert:", err);
     }
@@ -684,7 +685,7 @@ class IntelligenceHub {
 
   clearAnomalies() {
     this.anomalyAlerts = [];
-    localStorage.removeItem("ih_anomalies");
+    safeStorage.removeItem("ih_anomalies");
   }
 
   // ─── 5 Strateji Uygulama Motoru (AI Strategy Action Engine) ──────────
@@ -692,7 +693,7 @@ class IntelligenceHub {
   public setSensitivity(mode: SensitivityMode) {
     this.sensitivityMode = mode;
     try {
-      localStorage.setItem("ih_sensitivity_mode", mode);
+      safeStorage.setItem("ih_sensitivity_mode", mode);
     } catch (e) {
       console.debug("Failed to set sensitivity:", e);
     }
@@ -700,7 +701,7 @@ class IntelligenceHub {
 
   public getSensitivity(): SensitivityMode {
     try {
-      const stored = localStorage.getItem("ih_sensitivity_mode") as SensitivityMode;
+      const stored = safeStorage.getItem("ih_sensitivity_mode") as SensitivityMode;
       if (stored && ["sensitive", "balanced", "high"].includes(stored)) {
         this.sensitivityMode = stored;
       }
@@ -832,7 +833,7 @@ class IntelligenceHub {
     };
 
     try {
-      localStorage.setItem("ih_social_realtime_status", JSON.stringify(status));
+      safeStorage.setItem("ih_social_realtime_status", JSON.stringify(status));
     } catch (e) {
       console.debug("Failed to store social realtime status:", e);
     }
@@ -898,7 +899,7 @@ class IntelligenceHub {
     });
 
     try {
-      localStorage.setItem("ih_fire_protocol", JSON.stringify(protocolStatus));
+      safeStorage.setItem("ih_fire_protocol", JSON.stringify(protocolStatus));
     } catch (e) {
       console.debug("Failed to store fire protocol:", e);
     }
@@ -966,7 +967,7 @@ class IntelligenceHub {
     };
 
     try {
-      localStorage.setItem("ih_integrated_mobility", JSON.stringify(mobilityData));
+      safeStorage.setItem("ih_integrated_mobility", JSON.stringify(mobilityData));
     } catch (e) {
       console.debug("Failed to store mobility data:", e);
     }
@@ -1033,7 +1034,7 @@ class IntelligenceHub {
     };
 
     try {
-      localStorage.setItem("ih_daily_economic_summary", JSON.stringify(summary));
+      safeStorage.setItem("ih_daily_economic_summary", JSON.stringify(summary));
     } catch (e) {
       console.debug("Failed to store economic summary:", e);
     }
@@ -1112,7 +1113,7 @@ class IntelligenceHub {
     };
 
     try {
-      localStorage.setItem("ih_presidential_briefing", JSON.stringify(briefing));
+      safeStorage.setItem("ih_presidential_briefing", JSON.stringify(briefing));
     } catch (e) {
       console.debug("Failed to store presidential briefing:", e);
     }
@@ -1154,7 +1155,7 @@ class IntelligenceHub {
     };
 
     try {
-      localStorage.setItem("ih_ml_model_snapshot", JSON.stringify(snapshot));
+      safeStorage.setItem("ih_ml_model_snapshot", JSON.stringify(snapshot));
     } catch (e) {
       console.debug("Failed to store ML model snapshot:", e);
     }

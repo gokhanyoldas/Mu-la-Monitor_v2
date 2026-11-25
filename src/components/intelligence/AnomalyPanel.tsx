@@ -5,6 +5,7 @@ import { CircleAlert as AlertCircle, TriangleAlert as AlertTriangle, Info, Bell,
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { safeStorage } from "@/lib/safe-storage";
 
 export const AnomalyPanel = () => {
   const [anomalies, setAnomalies] = useState<AnomalyAlert[]>([]);
@@ -14,7 +15,7 @@ export const AnomalyPanel = () => {
   useEffect(() => {
     const loadStoredAnomalies = () => {
       try {
-        const stored = localStorage.getItem("ih_anomalies");
+        const stored = safeStorage.getItem("ih_anomalies");
         if (stored) {
           const alerts = JSON.parse(stored);
           setAnomalies(alerts);

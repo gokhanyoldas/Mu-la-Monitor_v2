@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { User, Settings, Bell, MapPin, Eye, EyeOff, Check, ChevronDown } from "lucide-react";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { DISTRICTS } from "@/data/districts";
+import { safeStorage } from "@/lib/safe-storage";
 
 interface UserPreferences {
   home_district: string;        // Favori ilçe
@@ -59,7 +60,7 @@ export const UserProfilePanel = () => {
       }
       // Fallback: localStorage (guest mode)
       try {
-        const stored = localStorage.getItem(PREFS_LOCAL_KEY);
+        const stored = safeStorage.getItem(PREFS_LOCAL_KEY);
         if (stored) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(stored) });
       } catch {}
     };
@@ -68,7 +69,7 @@ export const UserProfilePanel = () => {
 
   const savePrefs = async (next: UserPreferences) => {
     setIsSaving(true);
-    localStorage.setItem(PREFS_LOCAL_KEY, JSON.stringify(next));
+    safeStorage.setItem(PREFS_LOCAL_KEY, JSON.stringify(next));
 
     if (user) {
       await supabase.from("user_preferences").upsert(

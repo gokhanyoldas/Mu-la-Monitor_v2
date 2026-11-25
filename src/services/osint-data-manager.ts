@@ -1,4 +1,5 @@
 import { dataQualityTracker } from "@/lib/data-quality";
+import { safeStorage } from "@/lib/safe-storage";
 
 export interface IntelligenceItem {
   id: string;
@@ -140,7 +141,7 @@ class OsintDataManager {
   private persistFeeds() {
     try {
       const data = Object.fromEntries(this.feeds);
-      localStorage.setItem(this.cacheKey, JSON.stringify(data));
+      safeStorage.setItem(this.cacheKey, JSON.stringify(data));
     } catch (err) {
       console.error("Failed to persist OSINT feeds:", err);
     }
@@ -148,7 +149,7 @@ class OsintDataManager {
 
   private loadFromCache() {
     try {
-      const cached = localStorage.getItem(this.cacheKey);
+      const cached = safeStorage.getItem(this.cacheKey);
       if (cached) {
         const data = JSON.parse(cached);
         Object.entries(data).forEach(([key, value]) => {
@@ -244,7 +245,7 @@ class OsintDataManager {
 
   clearAllFeeds() {
     this.feeds.clear();
-    localStorage.removeItem(this.cacheKey);
+    safeStorage.removeItem(this.cacheKey);
   }
 
   getHealthStatus() {

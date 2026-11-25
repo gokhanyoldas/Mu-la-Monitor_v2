@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "@/hooks/useTranslation";
 import { DashboardHeader, type DashboardTab } from "@/components/dashboard/DashboardHeader";
@@ -60,12 +60,19 @@ import { UserProfilePanel } from "@/components/UserProfilePanel";
 import { AISummaryCard } from "@/components/AISummaryCard";
 import { InvestigationHub } from "@/components/investigation/InvestigationHub";
 import { MuglaNetworkDiagram } from "@/components/dashboard/MuglaNetworkDiagram";
-import { ProtocolNetworkGraph } from "@/components/network/ProtocolNetworkGraph";
+// 1400+ satırlık canvas tabanlı protokol grafığı yalnızca "Ağ Grafiği" sekmesinde
+// görünür; lazy import ile ilk sayfa yüklemesinden çıkarıldı (build optimizasyonu).
+const ProtocolNetworkGraph = lazy(() =>
+  import("@/components/network/ProtocolNetworkGraph").then((m) => ({
+    default: m.ProtocolNetworkGraph,
+  })),
+);
 
 import { EconomyOverviewPanel, RealEstatePanel } from "@/components/dashboard/sections/EconomySection";
 import { WeatherClimatePanel, AirQualityPanel, WaterDamsPanel } from "@/components/dashboard/sections/EnvironmentSection";
 import { useDamIntelligence } from "@/services/topicGroundingService";
 import { AgriculturePanel, CultureEventsPanel, CulturalHeritagePanel } from "@/components/dashboard/sections/CultureAgriSection";
+import { safeStorage } from "@/lib/safe-storage";
 
 // Her sekme yalnızca kendi ana konusunu tekrarsız ve bol boşluklu gösterir
 const getTwoColumnTabContent = (tab: Exclude<DashboardTab, "genel" | "protokol" | "diyagram" | "ag_grafigi">): { col1: React.ReactNode[]; col2: React.ReactNode[] } => {
@@ -239,7 +246,7 @@ const Index = () => {
   // Genel Bakış için ferah Sütun 1 - 2 - 3 yerleşim durumu
   const [columns, setColumns] = useState<ColumnLayout>(() => {
     try {
-      const savedV7 = localStorage.getItem("mugla_dashboard_columns_v7");
+      const savedV7 = safeStorage.getItem("mugla_dashboard_columns_v7");
       if (savedV7) return JSON.parse(savedV7);
     } catch {}
     return DEFAULT_COLUMNS;
@@ -248,7 +255,7 @@ const Index = () => {
   // Üst Sayaç Göstergeleri Sıralaması
   const [metricOrder, setMetricOrder] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem("mugla_metric_order_v3");
+      const saved = safeStorage.getItem("mugla_metric_order_v3");
       if (saved) return JSON.parse(saved);
     } catch {}
     return DEFAULT_METRIC_ORDER;
@@ -270,14 +277,14 @@ const Index = () => {
   const saveColumns = (newCols: ColumnLayout) => {
     setColumns(newCols);
     try {
-      localStorage.setItem("mugla_dashboard_columns_v7", JSON.stringify(newCols));
+      safeStorage.setItem("mugla_dashboard_columns_v7", JSON.stringify(newCols));
     } catch {}
   };
 
   const saveMetricOrder = (newOrder: string[]) => {
     setMetricOrder(newOrder);
     try {
-      localStorage.setItem("mugla_metric_order_v3", JSON.stringify(newOrder));
+      safeStorage.setItem("mugla_metric_order_v3", JSON.stringify(newOrder));
     } catch {}
   };
 
@@ -709,7 +716,15 @@ const Index = () => {
             </div>
           ) : activeTab === "ag_grafigi" ? (
             <div className="space-y-5">
-              <ProtocolNetworkGraph />
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
+                    Ağ grafiği yükleniyor…
+                  </div>
+                }
+              >
+                <ProtocolNetworkGraph />
+              </Suspense>
             </div>
           ) : (
             (() => {
