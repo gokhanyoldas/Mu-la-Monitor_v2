@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed:live": "tsx scripts/seed-live-feeds.ts",
+    "agent:run": "node scripts/run-autonomous-agent.mjs",
     "audit": "npm audit --audit-level=moderate",
     "audit:prod": "npm audit --omit=dev --audit-level=high"
   },

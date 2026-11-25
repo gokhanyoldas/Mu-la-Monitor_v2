@@ -1,7 +1,12 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
+import {
+  isSupabaseRuntimeAvailable,
+  markSupabaseUnavailableIfFatal,
+} from "@/lib/supabase-runtime-guard";
+import { loadLivingLexicon } from "@/services/livingLexiconService";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, X, Tag, Loader2 } from "lucide-react";
+import { Plus, X, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Keyword {
@@ -28,6 +33,34 @@ const categories = [
   { value: "environment", label: "Çevre", color: "border-emerald-500/40 text-emerald-400" },
 ];
 
+const buildFallbackKeywords = (): Keyword[] => {
+  const entries = loadLivingLexicon().slice(0, 24);
+  return entries.map((entry, idx) => {
+    const low = entry.term.toLocaleLowerCase("tr-TR");
+    const category =
+      low.includes("yangın") || low.includes("afad") || low.includes("asayiş")
+        ? "crisis"
+        : low.includes("turizm") || low.includes("marina") || low.includes("kruvaziyer")
+        ? "tourism"
+        : low.includes("bütçe") || low.includes("tarım") || low.includes("ekonomi")
+        ? "economy"
+        : low.includes("baraj") || low.includes("çevre") || low.includes("su")
+        ? "environment"
+        : "general";
+    return {
+      id: `local-kw-${idx}`,
+      keyword: entry.term,
+      category,
+      region: entry.district ?? null,
+      is_active: true,
+      created_by: "system",
+      platform: "all",
+      created_at: entry.addedAt,
+      user_id: "local",
+    };
+  });
+};
+
 export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
   const { canManageData } = useAuth();
   const [keywords, setKeywords] = useState<Keyword[]>([]);
@@ -44,22 +77,45 @@ export const KeywordManager = ({ onKeywordsChange }: KeywordManagerProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const applyFallback = () => {
+    const fallback = buildFallbackKeywords();
+    setKeywords(fallback);
+    onKeywordsChange?.(fallback.filter((k) => k.is_active).map((k) => k.keyword));
+  };
+
   const fetchKeywords = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("social_keywords")
-      .select("*")
-      .order("category", { ascending: true })
-      .order("keyword", { ascending: true });
+    if (!isSupabaseRuntimeAvailable(isSupabaseClientConfigured)) {
+      applyFallback();
+      setLoading(false);
+      return;
+    }
 
-    if (error) {
-      console.error("Keywords fetch error:", error);
-      // Fallback to default
-      setKeywords([]);
-    } else {
-      setKeywords(data || []);
-      const activeKws = (data || []).filter(k => k.is_active).map(k => k.keyword);
-      onKeywordsChange?.(activeKws);
+    try {
+      const { data, error } = await supabase
+        .from("social_keywords")
+        .select("*")
+        .order("category", { ascending: true })
+        .order("keyword", { ascending: true });
+
+      if (error) {
+        if (!markSupabaseUnavailableIfFatal(error, "social_keywords")) {
+          console.warn(
+            "[KeywordManager] Anahtar kelimeler okunamadı, yerel sözlük kullanılıyor:",
+            error.message || error
+          );
+        }
+        applyFallback();
+      } else {
+        setKeywords(data || []);
+        const activeKws = (data || []).filter((k) => k.is_active).map((k) => k.keyword);
+        onKeywordsChange?.(activeKws);
+      }
+    } catch (err) {
+      if (!markSupabaseUnavailableIfFatal(err, "social_keywords")) {
+        console.warn("[KeywordManager] Anahtar kelime isteği başarısız, yerel sözlük kullanılıyor:", err);
+      }
+      applyFallback();
     }
     setLoading(false);
   };

@@ -2,6 +2,21 @@
 // Muğla Monitör v2 — Merkezi Ortam Değişkenleri Yapılandırması
 // GitHub/Vercel frontend ortam değişkenlerini güvenli ve beyaz ekran hatası olmadan birleştirir.
 
+import {
+  normalizeSupabaseUrl,
+  sanitizeSupabaseKey,
+  isSupabaseKeyCompatibleWithUrl as checkSupabaseKeyCompatibleWithUrl,
+} from "./supabase-env-utils";
+
+export { normalizeSupabaseUrl, sanitizeSupabaseKey };
+
+export function isSupabaseKeyCompatibleWithUrl(
+  urlOrKey?: string | null,
+  keyOrUrl?: string | null
+): boolean {
+  return checkSupabaseKeyCompatibleWithUrl(urlOrKey, keyOrUrl);
+}
+
 type EnvRecord = Record<string, string | boolean | undefined>;
 
 function readImportMetaEnv(): EnvRecord {
@@ -15,10 +30,52 @@ function readImportMetaEnv(): EnvRecord {
   return {};
 }
 
+function readStaticImportMetaEnv(key: string): string | undefined {
+  // Vite üretim derlemelerinde statik `import.meta.env.VITE_*` erişimleri garanti olarak gömülür.
+  try {
+    if (typeof import.meta !== "undefined" && import.meta.env) {
+      switch (key) {
+        case "VITE_SUPABASE_URL":
+          return import.meta.env.VITE_SUPABASE_URL;
+        case "VITE_SUPABASE_ANON_KEY":
+          return import.meta.env.VITE_SUPABASE_ANON_KEY;
+        case "VITE_SUPABASE_PUBLISHABLE_KEY":
+          return import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        case "VITE_GEMINI_API_KEY":
+          return import.meta.env.VITE_GEMINI_API_KEY;
+        case "VITE_TOMTOM_API_KEY":
+          return import.meta.env.VITE_TOMTOM_API_KEY;
+        case "VITE_APP_URL":
+          return import.meta.env.VITE_APP_URL;
+        case "VITE_APP_VERSION":
+          return import.meta.env.VITE_APP_VERSION;
+        case "VITE_SENTRY_DSN":
+          return import.meta.env.VITE_SENTRY_DSN;
+        default: {
+          const val = (import.meta.env as EnvRecord)[key];
+          return typeof val === "string" ? val : undefined;
+        }
+      }
+    }
+  } catch {
+    // import.meta erişilemeyen ortamlarda sessizce geç
+  }
+  return undefined;
+}
+
 function readProcessEnv(key: string): string | undefined {
   // Vite `define` bloğu statik `process.env.<KEY>` ifadelerini derleme zamanında yerleştirir.
   try {
     if (typeof process !== "undefined") {
+      if (key === "VITE_SUPABASE_URL" && process.env?.VITE_SUPABASE_URL) {
+        return process.env.VITE_SUPABASE_URL;
+      }
+      if (key === "VITE_SUPABASE_ANON_KEY" && process.env?.VITE_SUPABASE_ANON_KEY) {
+        return process.env.VITE_SUPABASE_ANON_KEY;
+      }
+      if (key === "VITE_SUPABASE_PUBLISHABLE_KEY" && process.env?.VITE_SUPABASE_PUBLISHABLE_KEY) {
+        return process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      }
       if (key === "APP_URL" && process.env?.APP_URL) {
         return process.env.APP_URL;
       }
@@ -54,7 +111,7 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
     }
   }
 
-  const fromMeta = metaEnv[viteKey];
+  const fromMeta = readStaticImportMetaEnv(viteKey);
   if (typeof fromMeta === "string" && fromMeta.trim().length > 0) {
     return fromMeta.trim();
   }
@@ -65,7 +122,7 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
   }
 
   if (fallbackProcessKey) {
-    const fromMetaFallback = metaEnv[fallbackProcessKey];
+    const fromMetaFallback = readStaticImportMetaEnv(fallbackProcessKey);
     if (typeof fromMetaFallback === "string" && fromMetaFallback.trim().length > 0) {
       return fromMetaFallback.trim();
     }
@@ -78,84 +135,27 @@ export function resolveEnv(viteKey: string, fallbackProcessKey?: string): string
   return "";
 }
 
-/**
- * Supabase URL değerini istemciye verilmeden önce temizler ve doğrular:
- * - Baş/son boşlukları, tek/çift tırnakları ve sondaki `/` karakterlerini temizler.
- * - Yanlışlıkla `https://supabase.com/dashboard/project/<PROJECT_REF>...` girildiyse
- *   `<PROJECT_REF>` değerini ayıklayıp `https://<PROJECT_REF>.supabase.co` üretir.
- * - Sonunda `/rest/v1`, `/auth/v1` vb. alt yollar varsa temiz `origin` döndürür.
- * - Geçersiz veya boş URL durumunda `""` döndürerek güvenli fallback moduna geçişi sağlar.
- */
-export function normalizeSupabaseUrl(rawUrl?: string | null): string {
-  if (!rawUrl || typeof rawUrl !== "string") {
-    return "";
-  }
+function resolveSupabaseClientKey(): string {
+  const normalizedUrl = normalizeSupabaseUrl(resolveEnv("VITE_SUPABASE_URL", "SUPABASE_URL"));
+  const candidates = [
+    sanitizeSupabaseKey(resolveEnv("VITE_SUPABASE_ANON_KEY")),
+    sanitizeSupabaseKey(resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY")),
+    sanitizeSupabaseKey(resolveEnv("SUPABASE_ANON_KEY", "SUPABASE_PUBLISHABLE_KEY")),
+  ].filter(Boolean);
 
-  let cleaned = rawUrl.replace(/[\r\n\t]+/g, "").trim();
-  // Yanlışlıkla "VITE_SUPABASE_URL=https://..." şeklinde yapıştırılan öneki temizle
-  cleaned = cleaned.replace(/^(?:VITE_)?SUPABASE_URL\s*=\s*/i, "").trim();
+  if (candidates.length === 0) return "";
+  if (!normalizedUrl) return candidates[0];
 
-  // Dış boşlukları, kaçışlı/düz/kıvrık tırnakları ve URL-encoded tırnak/boşlukları temizle
-  let prev = "";
-  while (cleaned !== prev) {
-    prev = cleaned;
-    cleaned = cleaned
-      .replace(/^(?:%20|%22|%27)+|(?:%20|%22|%27)+$/gi, "")
-      .replace(/^[\s"'`\u201C\u201D\u2018\u2019\\]+|[\s"'`\u201C\u201D\u2018\u2019\\]+$/g, "")
-      .trim();
-  }
-
-  // Sondaki gereksiz slash'ları temizle
-  cleaned = cleaned.replace(/\/+$/, "").trim();
-  if (!cleaned) {
-    return "";
-  }
-
-  // Protokol unutulmuş bilinen Supabase adreslerini otomatik tamamla
-  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(cleaned)) {
-    if (
-      /^[a-z0-9-]+\.supabase\.co(?:\/.*)?$/i.test(cleaned) ||
-      /^(?:www\.|app\.)?supabase\.com\/(?:dashboard\/)?project\/[a-z0-9-]+/i.test(cleaned)
-    ) {
-      cleaned = `https://${cleaned}`;
-    } else {
-      return "";
-    }
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(cleaned);
-  } catch {
-    return "";
-  }
-
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return "";
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (!host || (!host.includes(".") && host !== "localhost")) {
-    return "";
-  }
-
-  // Yanlışlıkla Supabase Dashboard URL'si girildiyse proje ref'ini çıkar
-  if (host === "supabase.com" || host === "www.supabase.com" || host === "app.supabase.com") {
-    const dashboardMatch = parsed.pathname.match(/^\/(?:dashboard\/)?project\/([a-z0-9][a-z0-9-]{2,62})(?:\/|$)/i);
-    if (dashboardMatch?.[1]) {
-      return `https://${dashboardMatch[1].toLowerCase()}.supabase.co`;
-    }
-    return "";
-  }
-
-  // Tüm alt yolları (/rest/v1, /auth/v1 vb.), query ve hash'i kaldırıp temiz origin döndür
-  return parsed.origin.replace(/\/+$/, "");
+  const compatible = candidates.find((candidate) =>
+    isSupabaseKeyCompatibleWithUrl(candidate, normalizedUrl)
+  );
+  return compatible ?? "";
 }
 
 /**
  * Merkezi ENV nesnesi:
- * - VITE_SUPABASE_URL
- * - VITE_SUPABASE_ANON_KEY (VITE_SUPABASE_PUBLISHABLE_KEY yedeğiyle)
+ * - VITE_SUPABASE_URL (normalizeSupabaseUrl ile otomatik temizlenmiş kök adres)
+ * - VITE_SUPABASE_ANON_KEY (VITE_SUPABASE_ANON_KEY || VITE_SUPABASE_PUBLISHABLE_KEY)
  * - VITE_GEMINI_API_KEY (yalnızca açıkça frontend ortamına verilmiş legacy uyumluluk alanı)
  * - VITE_TOMTOM_API_KEY
  */
@@ -167,31 +167,17 @@ export const ENV = {
     return normalizeSupabaseUrl(resolveEnv("VITE_SUPABASE_URL", "SUPABASE_URL"));
   },
   get VITE_SUPABASE_ANON_KEY(): string {
-    return (
-      resolveEnv("VITE_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY") ||
-      resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY")
-    )
-      .replace(/[\r\n\t]+/g, "")
-      .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
-      .trim();
+    return resolveSupabaseClientKey();
   },
   get SUPABASE_ANON_KEY(): string {
-    return (
-      resolveEnv("VITE_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY") ||
-      resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY")
-    )
-      .replace(/[\r\n\t]+/g, "")
-      .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
-      .trim();
+    return resolveSupabaseClientKey();
   },
   get VITE_SUPABASE_PUBLISHABLE_KEY(): string {
     return (
-      resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY") ||
-      resolveEnv("VITE_SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY")
-    )
-      .replace(/[\r\n\t]+/g, "")
-      .replace(/^["'`\u201C\u201D\u2018\u2019]+|["'`\u201C\u201D\u2018\u2019]+$/g, "")
-      .trim();
+      sanitizeSupabaseKey(resolveEnv("VITE_SUPABASE_PUBLISHABLE_KEY")) ||
+      sanitizeSupabaseKey(resolveEnv("VITE_SUPABASE_ANON_KEY")) ||
+      sanitizeSupabaseKey(resolveEnv("SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY"))
+    );
   },
   get VITE_GEMINI_API_KEY(): string {
     return resolveEnv("VITE_GEMINI_API_KEY");

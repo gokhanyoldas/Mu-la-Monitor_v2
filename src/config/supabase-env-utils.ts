@@ -173,16 +173,39 @@ export function extractJwtProjectRef(rawKey?: string | null): string | null {
 }
 
 /**
- * Verilen Supabase API anahtarının hedef URL ile uyumlu olup olmadığını kontrol eder.
- * Eğer anahtar bir JWT ise ve `ref` alanı `https://<ref>.supabase.co` ile uyuşmuyorsa
- * başka bir Supabase projesine ait olduğu için `false` döner.
+ * Verilen Supabase URL ve anon/publishable anahtarının uyumlu olup olmadığını kontrol eder.
+ * - Her iki parametre sırasını da destekler: `(url, key)` veya `(key, url)`.
+ * - URL veya anahtar boş/geçersizse `false` döner.
+ * - `sb_publishable_*` anahtarlarını güvenli biçimde doğrular (`true`).
+ * - Klasik JWT (`eyJ...`) anahtarlarında `ref` alanının `https://<ref>.supabase.co` ile eşleşmesini doğrular.
  */
 export function isSupabaseKeyCompatibleWithUrl(
-  rawKey?: string | null,
-  normalizedUrl?: string | null
+  urlOrKey?: string | null,
+  keyOrUrl?: string | null
 ): boolean {
-  const key = sanitizeSupabaseKey(rawKey);
-  if (!key) return false;
+  if (!urlOrKey || !keyOrUrl) return false;
+
+  const firstAsUrl = normalizeSupabaseUrl(urlOrKey);
+  const secondAsUrl = normalizeSupabaseUrl(keyOrUrl);
+
+  let normalizedUrl = "";
+  let key = "";
+
+  if (firstAsUrl && !secondAsUrl) {
+    normalizedUrl = firstAsUrl;
+    key = sanitizeSupabaseKey(keyOrUrl);
+  } else if (secondAsUrl && !firstAsUrl) {
+    normalizedUrl = secondAsUrl;
+    key = sanitizeSupabaseKey(urlOrKey);
+  } else {
+    return false;
+  }
+
+  if (!normalizedUrl || !key) return false;
+
+  if (key.startsWith("sb_publishable_")) {
+    return key.length > "sb_publishable_".length;
+  }
 
   const urlRef = extractSupabaseProjectRefFromUrl(normalizedUrl);
   if (!urlRef) return true;

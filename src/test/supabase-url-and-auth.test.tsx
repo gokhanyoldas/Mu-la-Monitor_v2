@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { ENV, normalizeSupabaseUrl } from "@/config/env";
+import {
+  ENV,
+  normalizeSupabaseUrl,
+  sanitizeSupabaseKey,
+  isSupabaseKeyCompatibleWithUrl,
+} from "@/config/env";
 import {
   AUTH_CONFIG_FALLBACK_MESSAGE,
   formatAuthErrorMessage,
@@ -223,6 +228,27 @@ describe("normalizeSupabaseUrl & Supabase Auth Güvenliği", () => {
     expect(ENV.VITE_SUPABASE_ANON_KEY).toBe("");
     expect(checkSupabaseConfigured()).toBe(false);
     expect(getSupabaseClient()).toBeNull();
+
+    // Doğrudan @/config/env üzerinden dışa aktarılan isSupabaseKeyCompatibleWithUrl kontrolleri
+    expect(sanitizeSupabaseKey(' "sb_publishable_abc123" ')).toBe("sb_publishable_abc123");
+    expect(
+      isSupabaseKeyCompatibleWithUrl("https://targetproj123.supabase.co", rightProjectJwt)
+    ).toBe(true);
+    expect(
+      isSupabaseKeyCompatibleWithUrl(rightProjectJwt, "https://targetproj123.supabase.co")
+    ).toBe(true);
+    expect(
+      isSupabaseKeyCompatibleWithUrl("https://targetproj123.supabase.co", wrongProjectJwt)
+    ).toBe(false);
+    expect(
+      isSupabaseKeyCompatibleWithUrl(
+        "https://targetproj123.supabase.co/rest/v1/",
+        "sb_publishable_valid_key"
+      )
+    ).toBe(true);
+    expect(isSupabaseKeyCompatibleWithUrl("https://targetproj123.supabase.co", "")).toBe(false);
+    expect(isSupabaseKeyCompatibleWithUrl("", "sb_publishable_valid_key")).toBe(false);
+    expect(isSupabaseKeyCompatibleWithUrl("", "")).toBe(false);
   });
 
   it("KeywordManager Invalid API key hatasında console.error fırlatmadan yerel sözlüğe düşer ve devre kesiciyi açar", async () => {

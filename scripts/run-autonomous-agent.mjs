@@ -13,13 +13,146 @@
  *   node scripts/run-autonomous-agent.mjs --dry-run --group=A
  */
 
-import { pathToFileURL } from "node:url";
-import { GoogleGenAI } from "@google/genai";
-import { createClient } from "@supabase/supabase-js";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 export const AGENT_MODEL = "gemini-4-hydrogen";
 export const AGENT_SOURCE = "autonomous-intel-agent";
 export const MONTHLY_FREE_GROUNDING_QUOTA = 1500;
+
+const INVISIBLE_ENV_CHARS_RE = /[\r\n\t\u200B-\u200D\uFEFF]+/g;
+const EDGE_QUOTES_AND_SPACE_RE =
+  /^[\s\u00A0"'`\u201C\u201D\u2018\u2019\\]+|[\s\u00A0"'`\u201C\u201D\u2018\u2019\\]+$/g;
+const EDGE_ENCODED_TOKENS_RE = /^(?:%20|%22|%27)+|(?:%20|%22|%27|%2F)+$/gi;
+
+/**
+ * Ortam değişkeni anahtarından dış boşluk, satır sonu, tırnak ve yanlışlıkla
+ * yapıştırılan KEY= önekini temizler.
+ */
+export function sanitizeEnvSecret(rawValue) {
+  if (!rawValue || typeof rawValue !== "string") return "";
+  let cleaned = rawValue.replace(INVISIBLE_ENV_CHARS_RE, "").replace(/\u00A0/g, " ").trim();
+  let prev = "";
+  while (cleaned !== prev) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(EDGE_ENCODED_TOKENS_RE, "")
+      .replace(EDGE_QUOTES_AND_SPACE_RE, "")
+      .replace(
+        /^(?:VITE_)?(?:SUPABASE_(?:SERVICE_ROLE|ANON|PUBLISHABLE)_KEY|GEMINI_API_KEY)\s*=\s*/i,
+        ""
+      )
+      .trim();
+  }
+  return cleaned;
+}
+
+/**
+ * SUPABASE_URL değerini temizler: baş/son boşluk ve tırnakları, sondaki `/`
+ * işaretini ve varsa `/rest/v1`, `/auth/v1` vb. alt yolları otomatik kaldırır;
+ * yalnızca temiz `https://<proje-id>.supabase.co` kök adresini döndürür.
+ */
+export function normalizeSupabaseUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return "";
+  let cleaned = rawUrl.replace(INVISIBLE_ENV_CHARS_RE, "").replace(/\u00A0/g, " ").trim();
+  let prev = "";
+  while (cleaned !== prev) {
+    prev = cleaned;
+    cleaned = cleaned
+      .replace(EDGE_ENCODED_TOKENS_RE, "")
+      .replace(EDGE_QUOTES_AND_SPACE_RE, "")
+      .replace(/^(?:VITE_)?SUPABASE_URL\s*=\s*/i, "")
+      .trim();
+  }
+  cleaned = cleaned.replace(/\/+$/, "").trim();
+  if (!cleaned) return "";
+
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(cleaned)) {
+    if (
+      /^[a-z0-9-]+\.supabase\.co(?:\/.*)?$/i.test(cleaned) ||
+      /^(?:www\.|app\.)?supabase\.com\/(?:dashboard\/)?project\/[a-z0-9-]+/i.test(cleaned)
+    ) {
+      cleaned = `https://${cleaned}`;
+    } else {
+      return "";
+    }
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(cleaned);
+  } catch {
+    return "";
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+  const host = parsed.hostname.toLowerCase();
+  if (!host || (!host.includes(".") && host !== "localhost")) return "";
+
+  if (host === "supabase.com" || host === "www.supabase.com" || host === "app.supabase.com") {
+    const dashboardMatch = parsed.pathname.match(
+      /^\/(?:dashboard\/)?project\/([a-z0-9][a-z0-9-]{2,62})(?:\/|$)/i
+    );
+    if (dashboardMatch?.[1]) {
+      return `https://${dashboardMatch[1].toLowerCase()}.supabase.co`;
+    }
+    return "";
+  }
+
+  if (host.endsWith(".supabase.co")) {
+    const portSuffix = parsed.port ? `:${parsed.port}` : "";
+    return `https://${host}${portSuffix}`;
+  }
+
+  return parsed.origin.replace(/\/+$/, "");
+}
+
+/**
+ * Çalıştırma ortamındaki Gemini ve Supabase değişkenlerini otomatik uyumlu biçimde çözer.
+ * SUPABASE_SERVICE_ROLE_KEY yoksa SUPABASE_ANON_KEY (veya VITE_ yedekleri) ile devam eder.
+ */
+export function resolveAgentEnv(env = process.env, options = {}) {
+  const geminiApiKey = sanitizeEnvSecret(options.geminiApiKey ?? env?.GEMINI_API_KEY ?? "");
+  const geminiModel =
+    sanitizeEnvSecret(options.model ?? env?.GEMINI_MODEL ?? "") || AGENT_MODEL;
+  const supabaseUrl = normalizeSupabaseUrl(
+    options.supabaseUrl ?? env?.SUPABASE_URL ?? env?.VITE_SUPABASE_URL ?? ""
+  );
+
+  const serviceKey = sanitizeEnvSecret(
+    options.supabaseServiceRoleKey ?? env?.SUPABASE_SERVICE_ROLE_KEY ?? ""
+  );
+  const explicitKey = sanitizeEnvSecret(options.supabaseKey ?? "");
+  const anonKey = sanitizeEnvSecret(
+    options.supabaseAnonKey ??
+      env?.SUPABASE_ANON_KEY ??
+      env?.VITE_SUPABASE_ANON_KEY ??
+      env?.SUPABASE_PUBLISHABLE_KEY ??
+      env?.VITE_SUPABASE_PUBLISHABLE_KEY ??
+      ""
+  );
+
+  const supabaseKey = explicitKey || serviceKey || anonKey;
+  const supabaseKeyType = explicitKey
+    ? "explicit"
+    : serviceKey
+    ? "service_role"
+    : anonKey
+    ? "anon"
+    : "missing";
+
+  const systemUserId =
+    sanitizeEnvSecret(options.systemUserId ?? env?.AGENT_SYSTEM_USER_ID ?? "") || null;
+
+  return {
+    geminiApiKey,
+    geminiModel,
+    supabaseUrl,
+    supabaseKey,
+    supabaseKeyType,
+    systemUserId,
+  };
+}
 
 export const SECTOR_TOPIC_QUERIES = {
   environment_dams:
@@ -283,48 +416,6 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
     })
     .filter(Boolean)
     .slice(0, 12);
-
-  const hasVerifiedBacking = allowUnverified || posts.length > 0 || fallbackUrls.length > 0;
-  const rawKeywords = hasVerifiedBacking && Array.isArray(rawJson?.new_keywords) ? rawJson.new_keywords : [];
-  const keywordMap = new Map();
-
-  for (const entry of rawKeywords) {
-    const keyword =
-      typeof entry === "string"
-        ? entry.trim()
-        : typeof entry?.keyword === "string"
-        ? entry.keyword.trim()
-        : "";
-    if (keyword.length < 2 || keyword.length > 60) continue;
-
-    const dedupeKey = keyword.toLocaleLowerCase("tr-TR");
-    if (keywordMap.has(dedupeKey)) continue;
-
-    const category =
-      typeof entry === "object" && VALID_CATEGORIES.has(entry?.category)
-        ? entry.category
-        : "genel";
-    const region =
-      typeof entry === "object" && allowedDistricts.has(entry?.district)
-        ? entry.district
-        : defaultDistrict;
-
-    keywordMap.set(dedupeKey, { keyword, category, region });
-  }
-
-  // Gönderilerdeki etiketlerden de eksik olanları sözlüğe ekle
-  for (const post of posts) {
-    for (const kw of post.keywords) {
-      const dedupeKey = kw.toLocaleLowerCase("tr-TR");
-      if (!keywordMap.has(dedupeKey) && keywordMap.size < 16) {
-        keywordMap.set(dedupeKey, {
-          keyword: kw,
-          category: post.category,
-          region: post.district,
-        });
-      }
-    }
-  }
 
   const rawAlerts = Array.isArray(rawJson?.alerts) ? rawJson.alerts : [];
   const alerts = rawAlerts
@@ -608,6 +699,59 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
     .filter(Boolean)
     .slice(0, 6);
 
+  const hasVerifiedBacking =
+    allowUnverified ||
+    posts.length > 0 ||
+    fallbackUrls.length > 0 ||
+    damUpdates.length > 0 ||
+    transportIncidents.length > 0 ||
+    energyOutages.length > 0 ||
+    securityEvents.length > 0 ||
+    Boolean(tourismMetrics) ||
+    Boolean(economyUpdates) ||
+    protocolActivities.length > 0;
+  const rawKeywords =
+    hasVerifiedBacking && Array.isArray(rawJson?.new_keywords) ? rawJson.new_keywords : [];
+  const keywordMap = new Map();
+
+  for (const entry of rawKeywords) {
+    const keyword =
+      typeof entry === "string"
+        ? entry.trim()
+        : typeof entry?.keyword === "string"
+        ? entry.keyword.trim()
+        : "";
+    if (keyword.length < 2 || keyword.length > 60) continue;
+
+    const dedupeKey = keyword.toLocaleLowerCase("tr-TR");
+    if (keywordMap.has(dedupeKey)) continue;
+
+    const category =
+      typeof entry === "object" && VALID_CATEGORIES.has(entry?.category)
+        ? entry.category
+        : "genel";
+    const region =
+      typeof entry === "object" && allowedDistricts.has(entry?.district)
+        ? entry.district
+        : defaultDistrict;
+
+    keywordMap.set(dedupeKey, { keyword, category, region });
+  }
+
+  // Gönderilerdeki etiketlerden de eksik olanları sözlüğe ekle
+  for (const post of posts) {
+    for (const kw of post.keywords) {
+      const dedupeKey = kw.toLocaleLowerCase("tr-TR");
+      if (!keywordMap.has(dedupeKey) && keywordMap.size < 16) {
+        keywordMap.set(dedupeKey, {
+          keyword: kw,
+          category: post.category,
+          region: post.district,
+        });
+      }
+    }
+  }
+
   return {
     posts,
     keywords: Array.from(keywordMap.values()).slice(0, 16),
@@ -679,7 +823,19 @@ export function buildSupabasePayloads({
     });
   }
 
-  const canEmitKeywords = allowDryRun || postRows.length > 0 || validGroundingUrls.length > 0;
+  const hasVerifiedTopicFindings =
+    (findings.damUpdates?.length || 0) > 0 ||
+    (findings.transportIncidents?.length || 0) > 0 ||
+    (findings.energyOutages?.length || 0) > 0 ||
+    (findings.securityEvents?.length || 0) > 0 ||
+    (findings.protocolActivities?.length || 0) > 0 ||
+    Boolean(findings.tourismMetrics) ||
+    Boolean(findings.economyUpdates);
+  const canEmitKeywords =
+    allowDryRun ||
+    postRows.length > 0 ||
+    validGroundingUrls.length > 0 ||
+    hasVerifiedTopicFindings;
   const keywordRows = [];
   if (canEmitKeywords) {
     for (const item of findings.keywords || []) {
@@ -907,8 +1063,9 @@ export function buildGroundingPrompt(group) {
     `2. Doğrulanmış kaynak bulunamazsa uydurma veri üretme; ilgili dizileri boş ([]) veya nesneleri null döndür.`,
     `3. Her kayıt için geçerli "source_url" alanını mutlaka doldur; ilçe adını listeden seç (${districtList}).`,
     `4. Yalnızca bu turda atanan sektörel konular (${assignedTopics.join(", ")}) için ilgili alanları doldur; diğer sektörel alanları boş bırak.`,
-    `5. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, isale hattı patlaması, yangın/sel, deprem) "alerts" dizisine koy.`,
-    `6. Yalnızca aşağıdaki geçerli JSON formatında yanıt ver (ek açıklama yazma):`,
+    `5. Hem bölgesel ilçe taramasında hem de barajlar, ulaşım/altyapı ve enerji kesintileri dahil taranan topic-grounding haberlerinde öne çıkan yeni yerel kavram, mevki veya kurum terimlerini "new_keywords" dizisine ekle.`,
+    `6. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, isale hattı patlaması, yangın/sel, deprem) "alerts" dizisine koy.`,
+    `7. Yalnızca aşağıdaki geçerli JSON formatında yanıt ver (ek açıklama yazma):`,
     JSON.stringify(
       {
         posts: [
@@ -1006,44 +1163,309 @@ function parseCliArgs(argv = process.argv.slice(2)) {
   return { dryRun, groupOverride };
 }
 
+function isRetryableHttpStatus(status) {
+  return status === 408 || status === 425 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+function isRateLimitMessage(errOrText) {
+  const msg = errOrText instanceof Error ? errOrText.message : String(errOrText || "");
+  return /RESOURCE_EXHAUSTED|"code"\s*:\s*429|\b429\b|exceeded your current quota|rate[- ]?limit/i.test(
+    msg
+  );
+}
+
+function sleep(ms) {
+  if (!ms || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Geçici ağ ve 5xx hatalarında üstel geri çekilme (exponential backoff) ile yeniden deneyen fetch sarmalayıcı.
+ * Ek bağımlılık gerektirmeden Node.js 20+ yerleşik `fetch` ve `AbortSignal.timeout` kullanır.
+ */
+export async function fetchWithRetry(fetchFn, url, init = {}, retryOpts = {}) {
+  const maxRetries = Number.isInteger(retryOpts.maxRetries) ? retryOpts.maxRetries : 2;
+  const baseDelayMs = Number.isFinite(retryOpts.retryDelayMs) ? retryOpts.retryDelayMs : 800;
+  const timeoutMs = Number.isFinite(retryOpts.timeoutMs) ? retryOpts.timeoutMs : 20000;
+  const label = retryOpts.label || "HTTP";
+
+  let lastError = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const requestInit = {
+        ...init,
+        signal:
+          init.signal ??
+          (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+            ? AbortSignal.timeout(timeoutMs)
+            : undefined),
+      };
+      const res = await fetchFn(url, requestInit);
+      if (isRetryableHttpStatus(res.status) && attempt < maxRetries) {
+        const delay = baseDelayMs * (attempt + 1);
+        console.warn(
+          `[1. Ajan] [${label}] Geçici HTTP ${res.status} yanıtı (deneme ${attempt + 1}/${maxRetries + 1}), ${delay}ms sonra tekrar deneniyor...`
+        );
+        await sleep(delay);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * (attempt + 1);
+        console.warn(
+          `[1. Ajan] [${label}] Geçici ağ hatası (deneme ${attempt + 1}/${maxRetries + 1}): ${err?.message || err} — ${delay}ms sonra tekrar deneniyor...`
+        );
+        await sleep(delay);
+        continue;
+      }
+    }
+  }
+  throw lastError || new Error(`${label} isteği başarısız oldu.`);
+}
+
+async function parseErrorBody(res) {
+  try {
+    const text = await res.text();
+    if (!text) return `HTTP ${res.status}`;
+    try {
+      const parsed = JSON.parse(text);
+      const detail =
+        parsed?.message ||
+        parsed?.error?.message ||
+        parsed?.hint ||
+        parsed?.details ||
+        text;
+      return `HTTP ${res.status}: ${String(detail).slice(0, 300)}`;
+    } catch {
+      return `HTTP ${res.status}: ${text.slice(0, 300)}`;
+    }
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
+/**
+ * Node.js 20+ üzerinde `@supabase/supabase-js` kurulumu gerektirmeden çalışan
+ * yerleşik PostgREST istemcisi.
+ */
+export function createSupabaseRestClient({
+  supabaseUrl,
+  supabaseKey,
+  fetchImpl = globalThis.fetch,
+  retryDelayMs = 800,
+  timeoutMs = 15000,
+}) {
+  const baseRestUrl = `${normalizeSupabaseUrl(supabaseUrl)}/rest/v1`;
+  const baseHeaders = {
+    apikey: supabaseKey,
+    Authorization: `Bearer ${supabaseKey}`,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+
+  return {
+    async select(table, queryString) {
+      const url = `${baseRestUrl}/${encodeURIComponent(table)}?${queryString}`;
+      const res = await fetchWithRetry(
+        fetchImpl,
+        url,
+        { method: "GET", headers: baseHeaders },
+        { label: `Supabase SELECT ${table}`, retryDelayMs, timeoutMs }
+      );
+      if (!res.ok) {
+        return { data: null, error: { status: res.status, message: await parseErrorBody(res) } };
+      }
+      const data = await res.json();
+      return { data: Array.isArray(data) ? data : [], error: null };
+    },
+
+    async insert(table, rows, { ignoreDuplicates = false } = {}) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return { error: null, count: 0 };
+      }
+      const url = `${baseRestUrl}/${encodeURIComponent(table)}`;
+      const prefer = ignoreDuplicates
+        ? "resolution=ignore-duplicates,return=minimal"
+        : "return=minimal";
+      const res = await fetchWithRetry(
+        fetchImpl,
+        url,
+        {
+          method: "POST",
+          headers: { ...baseHeaders, Prefer: prefer },
+          body: JSON.stringify(rows),
+        },
+        { label: `Supabase INSERT ${table}`, retryDelayMs, timeoutMs }
+      );
+      if (!res.ok) {
+        return { error: { status: res.status, message: await parseErrorBody(res) }, count: 0 };
+      }
+      return { error: null, count: rows.length };
+    },
+
+    async upsert(table, rowOrRows, { onConflict } = {}) {
+      const qs = onConflict ? `?on_conflict=${encodeURIComponent(onConflict)}` : "";
+      const url = `${baseRestUrl}/${encodeURIComponent(table)}${qs}`;
+      const res = await fetchWithRetry(
+        fetchImpl,
+        url,
+        {
+          method: "POST",
+          headers: {
+            ...baseHeaders,
+            Prefer: "resolution=merge-duplicates,return=minimal",
+          },
+          body: JSON.stringify(rowOrRows),
+        },
+        { label: `Supabase UPSERT ${table}`, retryDelayMs, timeoutMs }
+      );
+      if (!res.ok) {
+        return { error: { status: res.status, message: await parseErrorBody(res) } };
+      }
+      return { error: null };
+    },
+  };
+}
+
+/**
+ * Gemini Search Grounding çağrısı.
+ * Node.js 20+ üzerinde ek paket olmadan yerleşik `fetch` ile çalışır;
+ * `@google/genai` yüklüyse (ve özel `fetchImpl` enjekte edilmediyse) SDK üzerinden de çağırabilir.
+ */
+export async function callGeminiSearchGrounding({
+  apiKey,
+  model = AGENT_MODEL,
+  prompt,
+  fetchImpl = globalThis.fetch,
+  preferNativeFetch = false,
+  retryDelayMs = 1000,
+  timeoutMs = 45000,
+}) {
+  const useSdk = !preferNativeFetch && fetchImpl === globalThis.fetch;
+  if (useSdk) {
+    let sdkModule = null;
+    try {
+      sdkModule = await import("@google/genai");
+    } catch {
+      sdkModule = null;
+    }
+    if (sdkModule?.GoogleGenAI) {
+      const ai = new sdkModule.GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: { "User-Agent": "aistudio-build" },
+        },
+      });
+      const config = {
+        tools: [{ googleSearch: {} }],
+      };
+      if (model.startsWith("gemini-4") || model.startsWith("gemini-3")) {
+        config.thinkingConfig = {
+          thinkingLevel: sdkModule.ThinkingLevel?.LOW ?? "LOW",
+        };
+      }
+      let lastSdkErr = null;
+      for (let attempt = 0; attempt <= 2; attempt++) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config,
+          });
+          return {
+            text: response?.text || "",
+            groundingChunks:
+              response?.candidates?.[0]?.groundingMetadata?.groundingChunks || [],
+          };
+        } catch (err) {
+          lastSdkErr = err;
+          if (isRateLimitMessage(err) || attempt === 2) break;
+          const delay = retryDelayMs * (attempt + 1);
+          console.warn(
+            `[1. Ajan] [Gemini SDK] Geçici hata (deneme ${attempt + 1}/3): ${err?.message || err} — ${delay}ms sonra tekrar deneniyor...`
+          );
+          await sleep(delay);
+        }
+      }
+      throw lastSdkErr;
+    }
+  }
+
+  // Sıfır bağımlılıklı Node.js 20+ native fetch Gemini REST v1beta çağrısı
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    tools: [{ google_search: {} }],
+  };
+  if (model.startsWith("gemini-4") || model.startsWith("gemini-3")) {
+    body.generationConfig = {
+      thinkingConfig: { thinkingLevel: "LOW" },
+    };
+  }
+
+  const res = await fetchWithRetry(
+    fetchImpl,
+    endpoint,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+        "User-Agent": "aistudio-build",
+      },
+      body: JSON.stringify(body),
+    },
+    { label: "Gemini REST Grounding", retryDelayMs, timeoutMs }
+  );
+
+  if (!res.ok) {
+    const errMsg = await parseErrorBody(res);
+    const err = new Error(`Gemini API hatası: ${errMsg}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const payload = await res.json();
+  const candidate = payload?.candidates?.[0];
+  const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+  const text = parts
+    .map((p) => (typeof p?.text === "string" ? p.text : ""))
+    .filter(Boolean)
+    .join("\n");
+  const groundingChunks = Array.isArray(candidate?.groundingMetadata?.groundingChunks)
+    ? candidate.groundingMetadata.groundingChunks
+    : [];
+
+  return { text, groundingChunks };
+}
+
 export async function runAutonomousAgent(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const dryRun = Boolean(options.dryRun);
   const group = selectRegionalGroup(options.groupOverride || now);
+  const topics = selectTopicsForGroup(group);
   const quota = calculateMonthlyQuotaUsage();
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const retryDelayMs = Number.isFinite(options.retryDelayMs) ? options.retryDelayMs : 800;
 
   console.log(
-    `[1. Ajan] Başlatılıyor | Grup ${group.id} (${group.name}) | İlçeler: ${group.districts.join(", ")}`
+    `[1. Ajan] Başlatılıyor | Grup ${group.id} (${group.name}) | İlçeler: ${group.districts.join(", ")} | Konular: ${topics.join(", ")}`
   );
   console.log(
     `[1. Ajan] Aylık Kota Kontrolü: ${quota.monthlyCalls}/${quota.monthlyFreeQuota} (%${quota.percentUsed}) — Limit ≤ %15: ${quota.withinBudget ? "UYGUN" : "AŞIM"}`
   );
 
-  const geminiApiKey = options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? "";
-  const rawSupabaseUrl =
-    options.supabaseUrl ?? process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
-  const supabaseUrl = (() => {
-    const stripped = String(rawSupabaseUrl)
-      .replace(/[\r\n\t]+/g, "")
-      .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
-      .replace(/\/+$/, "");
-    if (!stripped) return "";
-    try {
-      const parsed = new URL(stripped);
-      return parsed.origin.replace(/\/+$/, "");
-    } catch {
-      return "";
-    }
-  })();
-  const supabaseServiceRoleKey = (
-    options.supabaseServiceRoleKey ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    ""
-  )
-    .replace(/[\r\n\t]+/g, "")
-    .replace(/^[\s"'`]+|[\s"'`]+$/g, "");
-  const configuredSystemUserId =
-    options.systemUserId ?? process.env.AGENT_SYSTEM_USER_ID ?? null;
+  const envConfig = resolveAgentEnv(options.env ?? process.env, options);
+  const {
+    geminiApiKey,
+    geminiModel,
+    supabaseUrl,
+    supabaseKey,
+    supabaseKeyType,
+    systemUserId: configuredSystemUserId,
+  } = envConfig;
 
   if (dryRun) {
     const sampleFindings = normalizeAgentFindings(
@@ -1083,56 +1505,88 @@ export async function runAutonomousAgent(options = {}) {
     return {
       status: "dry_run",
       group,
+      topics,
       quota,
       inserted: {
         social_keywords: 0,
         social_posts: 0,
         alert_events: 0,
+        dam_updates: 0,
+        topic_caches: 0,
       },
       planned: {
         social_keywords: payloads.keywordRows.length,
         social_posts: payloads.postRows.length,
         alert_events: payloads.alertRows.length,
       },
+      errors: [],
     };
   }
 
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
+  if (!supabaseUrl || !supabaseKey) {
     throw new Error(
-      "SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY ortam değişkenleri tanımlı olmalıdır."
+      "SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY (veya SUPABASE_ANON_KEY) ortam değişkenleri tanımlı olmalıdır."
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
+  console.log(
+    `[1. Ajan] Supabase hedefi hazır: ${supabaseUrl} (anahtar türü: ${supabaseKeyType})`
+  );
+
+  const supabase = createSupabaseRestClient({
+    supabaseUrl,
+    supabaseKey,
+    fetchImpl,
+    retryDelayMs,
   });
 
-  // 1. Supabase Keep-Alive + mevcut anahtar kelimeler & URL'ler (7 günlük uykuyu önler)
-  const { data: existingKwData, error: kwFetchError } = await supabase
-    .from("social_keywords")
-    .select("keyword, user_id")
-    .limit(500);
+  const errors = [];
+  const recordStepError = (step, err) => {
+    const message = err?.message || String(err);
+    errors.push({ step, message });
+    console.error(`[1. Ajan] [HATA] ${step}: ${message} — sonraki adıma devam ediliyor.`);
+  };
 
-  if (kwFetchError) {
-    console.warn(`[1. Ajan] social_keywords okuma uyarısı: ${kwFetchError.message}`);
-  } else {
-    console.log(
-      `[1. Ajan] Supabase Keep-Alive başarılı (${existingKwData?.length ?? 0} mevcut kelime okundu).`
+  // 1a. Supabase Keep-Alive + mevcut social_keywords (geçici ağ hatasında sonraki adımı durdurmaz)
+  let existingKwData = [];
+  try {
+    const { data, error } = await supabase.select(
+      "social_keywords",
+      "select=keyword,user_id&limit=500"
     );
+    if (error) {
+      recordStepError("social_keywords okuma", error);
+    } else {
+      existingKwData = data || [];
+      console.log(
+        `[1. Ajan] Supabase Keep-Alive başarılı (${existingKwData.length} mevcut kelime okundu).`
+      );
+    }
+  } catch (err) {
+    recordStepError("social_keywords okuma", err);
   }
 
-  const existingKeywords = (existingKwData || []).map((r) => r.keyword).filter(Boolean);
+  const existingKeywords = existingKwData.map((r) => r.keyword).filter(Boolean);
   const resolvedUserId =
     configuredSystemUserId ||
-    (existingKwData || []).find((r) => r.user_id)?.user_id ||
+    existingKwData.find((r) => r.user_id)?.user_id ||
     null;
 
-  const { data: recentPostsData } = await supabase
-    .from("social_posts")
-    .select("url")
-    .order("collected_at", { ascending: false })
-    .limit(200);
-  const existingUrls = (recentPostsData || []).map((r) => r.url).filter(Boolean);
+  // 1b. Mevcut son social_posts URL'leri (tekrarlı kayıt engelleme)
+  let existingUrls = [];
+  try {
+    const { data, error } = await supabase.select(
+      "social_posts",
+      "select=url&order=collected_at.desc&limit=200"
+    );
+    if (error) {
+      recordStepError("social_posts okuma", error);
+    } else {
+      existingUrls = (data || []).map((r) => r.url).filter(Boolean);
+    }
+  } catch (err) {
+    recordStepError("social_posts okuma", err);
+  }
 
   if (!geminiApiKey) {
     console.warn(
@@ -1141,30 +1595,73 @@ export async function runAutonomousAgent(options = {}) {
     return {
       status: "keepalive_only",
       group,
+      topics,
       quota,
-      inserted: { social_keywords: 0, social_posts: 0, alert_events: 0 },
+      inserted: {
+        social_keywords: 0,
+        social_posts: 0,
+        alert_events: 0,
+        dam_updates: 0,
+        topic_caches: 0,
+      },
+      errors,
     };
   }
 
   // 2. Tek bir ücretsiz kotaya uyumlu Gemini Search Grounding çağrısı
-  const ai = new GoogleGenAI({
-    apiKey: geminiApiKey,
-    httpOptions: {
-      headers: { "User-Agent": "aistudio-build" },
-    },
-  });
+  let groundingResponse = null;
+  try {
+    const prompt = buildGroundingPrompt(group);
+    if (typeof options.generateGrounding === "function") {
+      groundingResponse = await options.generateGrounding({
+        model: geminiModel,
+        prompt,
+        group,
+        topics,
+      });
+    } else {
+      groundingResponse = await callGeminiSearchGrounding({
+        apiKey: geminiApiKey,
+        model: geminiModel,
+        prompt,
+        fetchImpl,
+        preferNativeFetch: Boolean(options.fetchImpl) || Boolean(options.preferNativeFetch),
+        retryDelayMs,
+      });
+    }
+  } catch (err) {
+    if (isRateLimitMessage(err)) {
+      recordStepError("Gemini Search Grounding (429 kota limiti)", err);
+    } else {
+      recordStepError("Gemini Search Grounding", err);
+    }
+    return {
+      status: "partial_error",
+      group,
+      topics,
+      quota,
+      inserted: {
+        social_keywords: 0,
+        social_posts: 0,
+        alert_events: 0,
+        dam_updates: 0,
+        topic_caches: 0,
+      },
+      errors,
+    };
+  }
 
-  const response = await ai.models.generateContent({
-    model: AGENT_MODEL,
-    contents: buildGroundingPrompt(group),
-    config: {
-      tools: [{ googleSearch: {} }],
-    },
-  });
+  const groundingChunks = Array.isArray(groundingResponse?.groundingChunks)
+    ? groundingResponse.groundingChunks
+    : groundingResponse?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const rawModelText = groundingResponse?.text || "";
+  const parsedJson = extractJsonFromModelText(rawModelText);
+  if (!parsedJson && rawModelText.trim()) {
+    console.warn(
+      "[1. Ajan] Model yanıtı geçerli JSON olarak ayrıştırılamadı; doğrulanmamış veri yazımı atlanıyor."
+    );
+  }
 
-  const groundingChunks =
-    response?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-  const parsedJson = extractJsonFromModelText(response?.text || "");
   const findings = normalizeAgentFindings(parsedJson || {}, group, groundingChunks);
 
   const { keywordRows, postRows, alertRows, cacheRows } = buildSupabasePayloads({
@@ -1186,70 +1683,87 @@ export async function runAutonomousAgent(options = {}) {
 
   // 3. social_keywords tablosuna ekle (append-only, eski kelimeleri asla silmez)
   if (keywordRows.length > 0) {
-    const { error } = await supabase.from("social_keywords").insert(keywordRows);
-    if (error) {
-      console.warn(`[1. Ajan] social_keywords yazma uyarısı: ${error.message}`);
-    } else {
-      inserted.social_keywords = keywordRows.length;
+    try {
+      const { error, count } = await supabase.insert("social_keywords", keywordRows, {
+        ignoreDuplicates: true,
+      });
+      if (error) {
+        recordStepError("social_keywords yazma", error);
+      } else {
+        inserted.social_keywords = count;
+      }
+    } catch (err) {
+      recordStepError("social_keywords yazma", err);
     }
   }
 
-  // 4. social_posts tablosuna yaz
+  // 4. social_posts tablosuna yaz (önceki adım hata verse bile devam eder)
   if (postRows.length > 0) {
-    const { error } = await supabase.from("social_posts").insert(postRows);
-    if (error) {
-      console.warn(`[1. Ajan] social_posts yazma uyarısı: ${error.message}`);
-    } else {
-      inserted.social_posts = postRows.length;
+    try {
+      const { error, count } = await supabase.insert("social_posts", postRows);
+      if (error) {
+        recordStepError("social_posts yazma", error);
+      } else {
+        inserted.social_posts = count;
+      }
+    } catch (err) {
+      recordStepError("social_posts yazma", err);
     }
   }
 
   // 5. alert_events tablosuna yüksek öncelikli uyarıları yaz
   if (alertRows.length > 0) {
-    const { error } = await supabase.from("alert_events").insert(alertRows);
-    if (error) {
-      console.warn(`[1. Ajan] alert_events yazma uyarısı: ${error.message}`);
-    } else {
-      inserted.alert_events = alertRows.length;
+    try {
+      const { error, count } = await supabase.insert("alert_events", alertRows);
+      if (error) {
+        recordStepError("alert_events yazma", error);
+      } else {
+        inserted.alert_events = count;
+      }
+    } catch (err) {
+      recordStepError("alert_events yazma", err);
     }
   }
 
   // 6. Doğrulanmış baraj & sektörel topic_grounding snapshot'larını live_data_cache tablosuna yaz
-  // (Açık tarayıcılar Supabase Realtime üzerinden sayfa yenilemeden anında güncellenir)
   for (const cacheRow of cacheRows) {
-    const { error: cacheErr } = await supabase
-      .from("live_data_cache")
-      .upsert(cacheRow, { onConflict: "data_type" });
-    if (cacheErr) {
-      console.warn(
-        `[1. Ajan] live_data_cache(${cacheRow.data_type}) güncelleme uyarısı: ${cacheErr.message}`
-      );
-    } else {
-      inserted.topic_caches += 1;
-      if (cacheRow.data_type === "dams") {
-        inserted.dam_updates = findings.damUpdates?.length ?? 0;
+    try {
+      const { error: cacheErr } = await supabase.upsert("live_data_cache", cacheRow, {
+        onConflict: "data_type",
+      });
+      if (cacheErr) {
+        recordStepError(`live_data_cache(${cacheRow.data_type}) güncelleme`, cacheErr);
+      } else {
+        inserted.topic_caches += 1;
+        if (cacheRow.data_type === "dams") {
+          inserted.dam_updates = findings.damUpdates?.length ?? 0;
+        }
       }
+    } catch (err) {
+      recordStepError(`live_data_cache(${cacheRow.data_type}) güncelleme`, err);
     }
   }
 
+  const finalStatus = errors.length > 0 ? "partial_ok" : "ok";
   console.log(
-    `[1. Ajan] Tamamlandı | Grup ${group.id} | Konular: ${selectTopicsForGroup(group).join(", ")} | Yazılanlar -> social_keywords: ${inserted.social_keywords}, social_posts: ${inserted.social_posts}, alert_events: ${inserted.alert_events}, topic_caches: ${inserted.topic_caches}`
+    `[1. Ajan] Tamamlandı (${finalStatus}) | Grup ${group.id} | Konular: ${topics.join(", ")} | Yazılanlar -> social_keywords: ${inserted.social_keywords}, social_posts: ${inserted.social_posts}, alert_events: ${inserted.alert_events}, topic_caches: ${inserted.topic_caches} | Adım hataları: ${errors.length}`
   );
 
   return {
-    status: "ok",
+    status: finalStatus,
     group,
-    topics: selectTopicsForGroup(group),
+    topics,
     quota,
     inserted,
+    errors,
   };
 }
 
 // Doğrudan CLI olarak çalıştırıldığında başlat (Vitest importlarında çalışmaz)
 const isDirectExecution =
   typeof process !== "undefined" &&
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href;
+  Boolean(process.argv[1]) &&
+  path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectExecution) {
   const { dryRun, groupOverride } = parseCliArgs();

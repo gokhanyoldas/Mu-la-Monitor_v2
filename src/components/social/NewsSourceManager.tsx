@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
+import {
+  isSupabaseRuntimeAvailable,
+  markSupabaseUnavailableIfFatal,
+} from "@/lib/supabase-runtime-guard";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, X, Newspaper, Rss, Globe, Loader2, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -43,15 +47,26 @@ export const NewsSourceManager = ({ onSourcesChange }: NewsSourceManagerProps) =
 
   const fetchSources = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("news_sources")
-      .select("*")
-      .order("region", { ascending: true, nullsFirst: false })
-      .order("name", { ascending: true });
+    if (!isSupabaseRuntimeAvailable(isSupabaseClientConfigured)) {
+      setSources([]);
+      setLoading(false);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("news_sources")
+        .select("*")
+        .order("region", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true });
 
-    if (!error && data) {
-      setSources(data);
-      onSourcesChange?.(data.filter(s => s.is_active));
+      if (error) {
+        markSupabaseUnavailableIfFatal(error, "news_sources");
+      } else if (data) {
+        setSources(data);
+        onSourcesChange?.(data.filter((s) => s.is_active));
+      }
+    } catch (err) {
+      markSupabaseUnavailableIfFatal(err, "news_sources");
     }
     setLoading(false);
   };

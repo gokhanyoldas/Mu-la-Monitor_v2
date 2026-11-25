@@ -1,4 +1,4 @@
-import { normalizeSupabaseUrl, resolveSupabaseKeyFromRecord } from "./supabase-env-utils";
+import { normalizeSupabaseUrl, resolveSupabaseKeyFromRecord } from "./supabase-env-utils.ts";
 
 /**
  * Dağıtım hedefine göre Vite `base` yolunu belirler:

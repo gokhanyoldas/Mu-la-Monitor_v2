@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import fs from "node:fs";
@@ -19,6 +19,8 @@ import {
   extractJsonFromModelText,
   normalizeAgentFindings,
   buildSupabasePayloads,
+  normalizeSupabaseUrl,
+  resolveAgentEnv,
   runAutonomousAgent,
 } from "../../scripts/run-autonomous-agent.mjs";
 
@@ -294,7 +296,7 @@ describe("1. Ajan — 7/24 Free-Tier Otonom GitHub Actions İşçisi", () => {
     expect(payloads.alertRows[0].source).toBe("autonomous-intel-agent");
   });
 
-  it("dry-run modunda ağ veya veritabanı yazımı yapmadan başarıyla tamamlanır ve GitHub Actions workflow dosyası geçerlidir", async () => {
+  it("dry-run modunda ağ veya veritabanı yazımı yapmadan başarıyla tamamlanır ve .github/workflows oluşturmaz", async () => {
     const result = await runAutonomousAgent({ dryRun: true, groupOverride: "B" });
     expect(result.status).toBe("dry_run");
     expect(result.group.id).toBe("B");
@@ -303,16 +305,196 @@ describe("1. Ajan — 7/24 Free-Tier Otonom GitHub Actions İşçisi", () => {
     expect(result.planned.social_keywords).toBeGreaterThan(0);
     expect(result.planned.social_posts).toBeGreaterThan(0);
 
-    const workflowPath = path.resolve(
-      process.cwd(),
-      ".github/workflows/autonomous-intel-agent.yml"
+    const workflowsDir = path.resolve(process.cwd(), ".github/workflows");
+    expect(fs.existsSync(workflowsDir)).toBe(false);
+
+    const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"));
+    expect(pkg.scripts["agent:run"]).toBe("node scripts/run-autonomous-agent.mjs");
+  });
+
+  it("Node.js 20+ üzerinde ek kurulum gerektirmeden çalışır, SUPABASE_URL /rest/v1 ekini temizler ve SERVICE_ROLE yoksa ANON_KEY ile devam eder", () => {
+    const scriptSource = fs.readFileSync(
+      path.resolve(process.cwd(), "scripts/run-autonomous-agent.mjs"),
+      "utf-8"
     );
-    if (fs.existsSync(workflowPath)) {
-      const workflowYaml = fs.readFileSync(workflowPath, "utf-8");
-      expect(workflowYaml).toContain("0 */6 * * *");
-      expect(workflowYaml).toContain("scripts/run-autonomous-agent.mjs");
-      expect(workflowYaml).toContain("GEMINI_API_KEY");
-      expect(workflowYaml).toContain("SUPABASE_SERVICE_ROLE_KEY");
+    // Üst düzey üçüncü parti paket import'u bulunmaz (ek npm install gerektirmez)
+    expect(scriptSource).not.toMatch(/^\s*import\s+.*from\s+["']@google\/genai["']/m);
+    expect(scriptSource).not.toMatch(/^\s*import\s+.*from\s+["']@supabase\/supabase-js["']/m);
+
+    // URL temizliği (/rest/v1, /auth/v1, boşluk, tırnak)
+    expect(
+      normalizeSupabaseUrl('  "https://ntheudveohozxdjgcvif.supabase.co/rest/v1/"  ')
+    ).toBe("https://ntheudveohozxdjgcvif.supabase.co");
+    expect(
+      normalizeSupabaseUrl("https://ntheudveohozxdjgcvif.supabase.co/rest/v1")
+    ).toBe("https://ntheudveohozxdjgcvif.supabase.co");
+    expect(
+      normalizeSupabaseUrl("https://ntheudveohozxdjgcvif.supabase.co/auth/v1/")
+    ).toBe("https://ntheudveohozxdjgcvif.supabase.co");
+
+    // SERVICE_ROLE önceliği ve ANON_KEY yedeği
+    const withService = resolveAgentEnv({
+      GEMINI_API_KEY: "  gem-key-123  ",
+      SUPABASE_URL: "https://ntheudveohozxdjgcvif.supabase.co/rest/v1/",
+      SUPABASE_SERVICE_ROLE_KEY: "service-secret-key",
+      SUPABASE_ANON_KEY: "anon-fallback-key",
+    });
+    expect(withService.supabaseUrl).toBe("https://ntheudveohozxdjgcvif.supabase.co");
+    expect(withService.supabaseKey).toBe("service-secret-key");
+    expect(withService.supabaseKeyType).toBe("service_role");
+    expect(withService.geminiApiKey).toBe("gem-key-123");
+
+    const withAnonOnly = resolveAgentEnv({
+      GEMINI_API_KEY: "gem-key-123",
+      SUPABASE_URL: "https://ntheudveohozxdjgcvif.supabase.co/rest/v1",
+      SUPABASE_ANON_KEY: "anon-fallback-key",
+    });
+    expect(withAnonOnly.supabaseKey).toBe("anon-fallback-key");
+    expect(withAnonOnly.supabaseKeyType).toBe("anon");
+  });
+
+  it("geçici bir ağ hatasında açık log yazar ancak sonraki adımları durdurmadan social_keywords ve live_data_cache yazımını tamamlar", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const requestedUrls: Array<{ method: string; url: string; body?: string }> = [];
+    const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = (init?.method || "GET").toUpperCase();
+      requestedUrls.push({
+        method,
+        url,
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+
+      // Gemini REST Grounding çağrısı -> baraj + ulaşım/altyapı + yeni terimler döner
+      if (url.includes("generativelanguage.googleapis.com")) {
+        const modelPayload = {
+          posts: [
+            {
+              title: "Mumcular Barajı doluluk ve Bodrum isale hattı güncellemesi",
+              summary: "MUSKİ ve DSİ verilerine göre Mumcular Barajı %74 seviyesine ulaştı.",
+              district: "Bodrum",
+              category: "cevre",
+              sentiment: "positive",
+              severity: "high",
+              source_name: "Anter Haber",
+              source_url: "https://anterhaber.com/mumcular-baraji-74",
+              keywords: ["Mumcular Barajı", "Bodrum isale hattı"],
+            },
+          ],
+          new_keywords: [
+            { keyword: "Mumcular Terfi İstasyonu", category: "altyapi", district: "Bodrum" },
+            { keyword: "Mevcut Terim", category: "genel", district: "Bodrum" },
+          ],
+          alerts: [
+            {
+              title: "Bodrum ana isale hattında planlı bakım",
+              body: "6 saatlik basınç düşüşü bekleniyor.",
+              district: "Bodrum",
+              severity: "high",
+              type: "altyapi",
+              source_url: "https://anterhaber.com/mumcular-baraji-74",
+            },
+          ],
+          dam_updates: [
+            {
+              dam_name: "Mumcular Barajı",
+              occupancy_rate: 74,
+              source_name: "Anter Haber",
+              source_url: "https://anterhaber.com/mumcular-baraji-74",
+              published_date: "2026-11-25",
+              confidence: "high",
+            },
+          ],
+        };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [
+              {
+                content: { parts: [{ text: JSON.stringify(modelPayload) }] },
+                groundingMetadata: {
+                  groundingChunks: [
+                    { web: { uri: "https://anterhaber.com/mumcular-baraji-74", title: "Anter Haber" } },
+                  ],
+                },
+              },
+            ],
+          }),
+        } as unknown as Response;
+      }
+
+      // Supabase GET social_keywords -> 1 mevcut terim döner
+      if (method === "GET" && url.includes("/rest/v1/social_keywords")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ keyword: "Mevcut Terim", user_id: "u-1" }],
+        } as unknown as Response;
+      }
+
+      // Supabase GET social_posts -> geçici ağ hatası simülasyonu
+      if (method === "GET" && url.includes("/rest/v1/social_posts")) {
+        throw new Error("ECONNRESET temporary network blip");
+      }
+
+      // Supabase POST social_posts -> geçici ağ hatası simülasyonu (sonraki adımları durdurmamalı!)
+      if (method === "POST" && url.includes("/rest/v1/social_posts")) {
+        throw new Error("fetch failed: socket hang up");
+      }
+
+      // social_keywords, alert_events ve live_data_cache yazımları başarılı
+      return {
+        ok: true,
+        status: 201,
+        json: async () => [],
+        text: async () => "",
+      } as unknown as Response;
+    });
+
+    try {
+      const result = await runAutonomousAgent({
+        now: new Date("2026-11-25T00:05:00Z"), // Grup A (barajlar + ulaşım/altyapı)
+        env: {
+          GEMINI_API_KEY: "test-gemini-key",
+          SUPABASE_URL: "https://ntheudveohozxdjgcvif.supabase.co/rest/v1/",
+          SUPABASE_ANON_KEY: "test-anon-key",
+        },
+        fetchImpl: mockFetch,
+        retryDelayMs: 0,
+      });
+
+      // Çift /rest/v1/rest/v1 asla oluşmaz
+      expect(requestedUrls.some((r) => r.url.includes("/rest/v1/rest/v1"))).toBe(false);
+      expect(
+        requestedUrls.some((r) =>
+          r.url.startsWith("https://ntheudveohozxdjgcvif.supabase.co/rest/v1/social_keywords")
+        )
+      ).toBe(true);
+
+      // Geçici ağ hataları loglandı ancak sonraki adımlar durdurulmadı
+      expect(result.status).toBe("partial_ok");
+      expect(result.errors.length).toBeGreaterThanOrEqual(2);
+      expect(errorSpy).toHaveBeenCalled();
+
+      // Yeni terimler social_keywords tablosuna eklendi (mevcut terim tekrar eklenmedi)
+      expect(result.inserted.social_keywords).toBeGreaterThan(0);
+      const kwInsert = requestedUrls.find(
+        (r) => r.method === "POST" && r.url.includes("/rest/v1/social_keywords")
+      );
+      expect(kwInsert?.body).toContain("Mumcular Terfi İstasyonu");
+      expect(kwInsert?.body).not.toContain("Mevcut Terim");
+
+      // social_posts hata verse bile alert_events ve live_data_cache başarıyla yazıldı
+      expect(result.inserted.social_posts).toBe(0);
+      expect(result.inserted.alert_events).toBe(1);
+      expect(result.inserted.topic_caches).toBeGreaterThanOrEqual(2);
+    } finally {
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+      logSpy.mockRestore();
     }
   });
 });
