@@ -1,0 +1,29 @@
+name: Mugla Monitor 7/24 Otonom Ajan
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Her 6 saatte bir otomatik çalışır
+  workflow_dispatch: # İsterseniz Actions sekmesinden elle de tetikleyebilirsiniz
+
+jobs:
+  run-intel-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu Cek
+        uses: actions/checkout@v4
+
+      - name: Node.js Kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Bagimliliklari Yukle
+        run: npm ci --ignore-scripts
+
+      - name: Otonom Istihbarat Ajanini Calistir
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/run-autonomous-agent.mjs
