@@ -221,7 +221,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "Tehlikeli": "Tehlikeli",
 
     // Units
-    "Myr ₺": "Myr ₺",
+    "Milyar ₺": "Milyar ₺",
+    "Milyon ₺": "Milyon ₺",
     "₺/gece": "₺/gece",
     "TL/m²": "TL/m²",
     "ton/kişi": "ton/kişi",
@@ -479,7 +480,7 @@ export const translations: Record<Language, Record<string, string>> = {
     // Common labels & badges
     "Diyagram": "Diagram",
     "Sorgu Odası": "Interrogation Room",
-    "Protokol ve Veri Ağı (Test)": "Protocol & Data Network (Test)",
+    "Kamu Kurumları Ağı": "Public Institution Network",
     "Muğla İstihbarat & Çapraz Sorgu Odası": "Muğla Intelligence & Cross-Verification Room",
     "OSINT & KULİS ANALİZİ": "OSINT & RUMOR ANALYSIS",
     "Sorgu Odası & Kulis Ağı": "Interrogation Room & Network",
@@ -550,7 +551,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "Tehlikeli": "Hazardous",
 
     // Units
-    "Myr ₺": "Bn ₺",
+    "Milyar ₺": "Bn ₺",
+    "Milyon ₺": "M ₺",
     "₺/gece": "₺/night",
     "TL/m²": "TL/m²",
     "ton/kişi": "tons/capita",
@@ -800,7 +802,8 @@ export const translations: Record<Language, Record<string, string>> = {
     "Tehlikeli": "Gefährlich",
 
     // Units
-    "Myr ₺": "Bn ₺",
+    "Milyar ₺": "Mrd. ₺",
+    "Milyon ₺": "Mio. ₺",
     "₺/gece": "₺/night",
     "TL/m²": "TL/m²",
     "ton/kişi": "tons/capita",
@@ -1010,7 +1013,10 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
     const t = (key: any, fallback?: string): string => {
       if (key === null || key === undefined) return "";
       if (typeof key !== "string") return String(key);
-      if (lang === "tr") return maybeSimplify(fallback ?? key);
+      if (lang === "tr") {
+        const cleanKey = key.trim();
+        return maybeSimplify(translations.tr[cleanKey] ?? fallback ?? key);
+      }
 
       const cleanKey = key.trim();
       // 1. Exact match in target dictionary

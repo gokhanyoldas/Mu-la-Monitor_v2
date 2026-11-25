@@ -6,6 +6,7 @@ import { Gauge } from "../Gauge";
 import { Plane, Hotel, UtensilsCrossed } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { DataOriginBadge } from "../DataOriginBadge";
 
 const touristData = [
   { name: "Oca", value: 45 }, { name: "Şub", value: 52 }, { name: "Mar", value: 78 },
@@ -20,12 +21,14 @@ export const TourismMovementPanel = () => {
   const tourismRisks = (hub?.arbitratedEvents ?? [])
     .map((e) => e.tourismRiskAlert)
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
+  const isLive = Boolean(tourismData);
   const annualTourists = tourismData?.annual_tourists ?? "3.85M";
   const cruiseShips = tourismData?.cruise_ships ?? 130;
   const airportPassengers = tourismData?.airport_passengers ?? "4.45M";
 
   return (
-    <DashboardPanel title="Turizm" icon={<Plane size={14} />} badge={tourismData?.source_period ?? "Kültür-Turizm Bk. 2024"} badgeVariant="info" count={12}>
+    <DashboardPanel title="Turizm" icon={<Plane size={14} />} badge={isLive ? (tourismData?.source_period ?? "CANLI") : "REFERANS · 2024"} badgeVariant="info" count={12}>
+      <DataOriginBadge origin={isLive ? "live" : "reference"} className="mb-2" />
       {tourismRisks.length > 0 && (
         <div className="mb-2.5 rounded border border-amber-500/50 bg-amber-500/10 px-2.5 py-1.5 text-[10px] font-mono">
           <div className="font-bold text-amber-300">⚠ {tourismRisks[0].title} ({tourismRisks[0].districtName})</div>
@@ -57,12 +60,14 @@ export const AccommodationPanel = () => {
   const tourismRisks = (hub?.arbitratedEvents ?? [])
     .map((e) => e.tourismRiskAlert)
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
+  const isLive = Boolean(tourismData);
   const hotelOccupancy = tourismData?.hotel_occupancy ?? 38;
   const totalBeds = tourismData?.beds ?? 185_000;
   const totalBedsK = totalBeds >= 1000 ? `${Math.round(totalBeds / 1000)}K` : String(totalBeds);
 
   return (
-    <DashboardPanel title="Konaklama" icon={<Hotel size={14} />} badge={tourismRisks.length > 0 ? "ŞANTİYE RİSKİ" : "TÜRSAB 2024"} badgeVariant={tourismRisks.length > 0 ? "warning" : "info"}>
+    <DashboardPanel title="Konaklama" icon={<Hotel size={14} />} badge={tourismRisks.length > 0 ? "ŞANTİYE RİSKİ" : (isLive ? "CANLI" : "REFERANS · 2024")} badgeVariant={tourismRisks.length > 0 ? "warning" : "info"}>
+      <DataOriginBadge origin={isLive ? "live" : "reference"} className="mb-2" />
       <div className="flex justify-around mb-3">
         <Gauge value={hotelOccupancy} max={100} label="Otel Doluluk" variant="accent" />
         <Gauge value={72} max={100} label="Sezon Doluluk" variant="primary" />

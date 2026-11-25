@@ -55,35 +55,27 @@ export const SocialIntelSection = () => {
     ? dbData.totalMentions
     : hasLiveFeed
     ? rawLive.reduce((a: number, t: any) => a + (t.mentions || t.count || 0), 0)
-    : 1461;
+    : 0;
   const totalMentions = baseMentions + arbitratedEvents.length;
 
   // Step 1: Cumulative append-only LivingLexicon replaces fixed 8 fallback
   const activeKeywords = lexicon.length;
 
-  const positiveRate = (dbData?.positiveRatio ?? 0) > 0 ? dbData.positiveRatio : 62;
-  const negativeRate = (dbData?.negativeRatio ?? 0) > 0 ? dbData.negativeRatio : 16;
+  const positiveRate = dbData?.positiveRatio ?? 0;
+  const negativeRate = dbData?.negativeRatio ?? 0;
 
   const mentionTrend = (Array.isArray(dbData?.chartData) && dbData.chartData.length > 0 && dbData.chartData.some(d => d.value > 0))
     ? dbData.chartData
-    : [
-        { name: "Pzt", value: 168 }, { name: "Sal", value: 195 }, { name: "Çar", value: 214 },
-        { name: "Per", value: 186 }, { name: "Cum", value: 242 }, { name: "Cmt", value: 285 }, { name: "Paz", value: 171 },
-      ];
+    : [];
 
   const sentimentTrend = mentionTrend.map((d) => ({
     name: d.name,
-    value: positiveRate > 0 ? positiveRate : 60,
+    value: positiveRate,
   }));
 
-  const platformBreakdown = (Array.isArray(dbData?.platformBreakdown) && dbData.platformBreakdown.length > 0)
+  const platformBreakdown = Array.isArray(dbData?.platformBreakdown)
     ? dbData.platformBreakdown
-    : [
-        { label: "Yerel Basın & Haber Siteleri", value: `${totalMentions} içerik`, status: "ok" as const },
-        { label: "X (Twitter) Akışı", value: "İzleniyor", status: "ok" as const },
-        { label: "Instagram / Facebook Saha", value: arbitratedEvents.length > 0 ? `${arbitratedEvents.length} saha ihbarı` : "İzleniyor", status: "ok" as const },
-        { label: "Ekşi Sözlük & Şikayetvar", value: "İzleniyor", status: "info" as const },
-      ];
+    : [];
 
   return (
     <div className="space-y-3">
@@ -116,7 +108,13 @@ export const SocialIntelSection = () => {
           <Gauge value={negativeRate} max={100} label="Negatif Oran" variant="destructive" />
         </div>
 
-        <StatusList items={platformBreakdown} />
+        {platformBreakdown.length > 0 ? (
+          <StatusList items={platformBreakdown} />
+        ) : (
+          <div className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-2 text-[10px] font-mono text-muted-foreground">
+            Henüz doğrulanabilir sosyal içerik alınamadı. Kaynaklar yeniden denenecek.
+          </div>
+        )}
 
         <div className="mt-3">
           <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">Duygu Analizi Trendi</div>
@@ -134,4 +132,3 @@ export const SocialIntelSection = () => {
     </div>
   );
 };
-

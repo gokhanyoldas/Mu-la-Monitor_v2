@@ -52,17 +52,6 @@ export const TrendTopicsSection = () => {
 
   const hasLive = rawLive.length > 0;
   
-  const defaultTrends: TrendItem[] = [
-    { keyword: "#Muğla", mentions: 342, change: 18, sentiment: "positive" },
-    { keyword: "#Bodrum", mentions: 286, change: 14, sentiment: "positive" },
-    { keyword: "#Marmaris", mentions: 215, change: 9, sentiment: "neutral" },
-    { keyword: "#Fethiye", mentions: 198, change: 12, sentiment: "positive" },
-    { keyword: "#Trafik", mentions: 142, change: 24, sentiment: "negative" },
-    { keyword: "#YangınÖnlem", mentions: 118, change: 16, sentiment: "neutral" },
-    { keyword: "#TurizmSezonu", mentions: 96, change: 8, sentiment: "positive" },
-    { keyword: "#SuKesintisi", mentions: 64, change: 5, sentiment: "negative" },
-  ];
-
   const trends: TrendItem[] = (Array.isArray(dbTrends?.trends) && dbTrends.trends.length > 0 && dbTrends.trends.some(t => t.mentions > 0))
     ? dbTrends.trends
     : hasLive
@@ -72,7 +61,7 @@ export const TrendTopicsSection = () => {
         change: t.change || 12,
         sentiment: (t.sentiment as TrendItem["sentiment"]) || "neutral",
       }))
-    : defaultTrends;
+    : [];
 
   const isLive = hasLive || dbTrends.isLiveDb;
 
@@ -95,7 +84,7 @@ export const TrendTopicsSection = () => {
         <div className="text-[9px] font-mono text-muted-foreground mb-2 flex items-center gap-2">
           <span>{hasLive ? "Kaynak: Google News & Basın Taraması" : "Kaynak: Supabase Social Posts & Yerel Basın Akışı"}</span>
           <span className="w-1 h-1 rounded-full bg-muted-foreground" />
-          <span>Canlı Sinyal: {dbTrends.totalMentions > 0 ? dbTrends.totalMentions : 1461} Gönderi</span>
+          <span>Canlı Sinyal: {dbTrends.totalMentions} gönderi</span>
           {lastUpdate && (
             <>
               <span className="w-1 h-1 rounded-full bg-muted-foreground" />
@@ -108,8 +97,9 @@ export const TrendTopicsSection = () => {
         </div>
 
         {/* Trend list */}
-        <div className="space-y-1.5">
-          {trends.map((item, i) => (
+        {trends.length > 0 ? (
+          <div className="space-y-1.5">
+            {trends.map((item, i) => (
             <div key={i} className="flex items-center justify-between py-1.5 px-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-[10px] font-mono text-muted-foreground w-4 text-right shrink-0">{i + 1}</span>
@@ -129,8 +119,13 @@ export const TrendTopicsSection = () => {
                 </span>
               </div>
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-2 text-[10px] font-mono text-muted-foreground">
+            Henüz yeterli doğrulanabilir içerik yok; trendler veri toplandıkça görünecek.
+          </div>
+        )}
 
         <div className="mt-3">
           <div className="text-[9px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">Bahsetme Dağılımı</div>

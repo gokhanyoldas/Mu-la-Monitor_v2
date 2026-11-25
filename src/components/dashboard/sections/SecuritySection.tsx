@@ -6,6 +6,7 @@ import { Shield, AlertTriangle, Landmark, Newspaper, MapPin, Loader2 } from "luc
 import { useLiveData } from "@/hooks/useLiveData";
 import { useState, useEffect } from "react";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { DataOriginBadge } from "../DataOriginBadge";
 
 const radarPoints = [
   { name: "Bodrum - Milas Arası", lat: 37.28, lng: 27.67, type: "radar" },
@@ -96,7 +97,8 @@ const defaultNews = [
 
 export const SecurityOverviewPanel = () => {
   return (
-    <DashboardPanel title="Güvenlik & Asayiş" icon={<Shield size={14} />} badge="AKTİF" badgeVariant="active">
+    <DashboardPanel title="Güvenlik & Asayiş" icon={<Shield size={14} />} badge="REFERANS · 2024" badgeVariant="info">
+      <DataOriginBadge origin="reference" className="mb-2" />
       <div className="grid grid-cols-2 gap-2 mb-3">
         <StatCard label="Asayiş Olayı (Ay)" value="485" variant="primary" />
         <StatCard label="Trafik Kazası (Ay)" value="128" variant="warning" />
@@ -111,7 +113,8 @@ export const SecurityOverviewPanel = () => {
 
 export const RadarTrafficMapPanel = () => {
   return (
-    <DashboardPanel title="Radar & Trafik Denetim Haritası" icon={<MapPin size={14} />} badge="CANLI" badgeVariant="live">
+    <DashboardPanel title="Radar & Trafik Denetim Haritası" icon={<MapPin size={14} />} badge="REFERANS · HARİTA" badgeVariant="info">
+      <DataOriginBadge origin="reference" className="mb-2" />
       <TrafficMap />
       <div className="mt-2 grid grid-cols-2 gap-1.5">
         <StatCard label="Aktif Radar" value={`${radarPoints.filter(p => p.type === "radar").length}`} variant="destructive" />
@@ -162,8 +165,8 @@ export const LocalGovQuickPanel = () => {
   return (
     <DashboardPanel title="Yerel Yönetim" icon={<Landmark size={14} />}>
       <div className="grid grid-cols-2 gap-2 mb-3">
-        <StatCard label="Belediye Bütçesi" value="8.2" unit="Myr ₺" />
-        <StatCard label="Yatırım" value="1.4" unit="Myr ₺" variant="primary" />
+        <StatCard label="Belediye Bütçesi" value="8.2" unit="Milyar ₺" />
+        <StatCard label="Yatırım" value="1.4" unit="Milyar ₺" variant="primary" />
       </div>
       <StatusList items={[
         { label: "Altyapı Harcama", value: "32%", status: "ok" },
@@ -225,7 +228,8 @@ export const SecuritySection = () => {
       <SecurityOverviewPanel />
       <RadarTrafficMapPanel />
 
-      <DashboardPanel title="Yol Çalışmaları & Kapanmalar" icon={<AlertTriangle size={14} />} badge="AKTİF" badgeVariant="warning">
+      <DashboardPanel title="Yol Çalışmaları & Kapanmalar" icon={<AlertTriangle size={14} />} badge={liveRoadWorks?.length ? "CANLI" : "REFERANS · 2024"} badgeVariant={liveRoadWorks?.length ? "live" : "info"}>
+        {!liveRoadWorks?.length && <DataOriginBadge origin="reference" className="mb-2" />}
         {rwLoading && <Loader2 size={12} className="animate-spin text-muted-foreground mb-2" />}
         <div className="space-y-2">
           {roadWorkItems.map((item, i) => (

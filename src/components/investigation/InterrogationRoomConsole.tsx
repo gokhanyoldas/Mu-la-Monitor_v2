@@ -182,7 +182,7 @@ ${result.recommendedAction}
         {/* Örnek ve Güncel Konular */}
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           <span className="text-slate-400 text-[10px] flex items-center gap-1">
-            <Sparkles className="w-3 h-3 text-amber-400" /> {t("Örnek Konular")} :
+            <Sparkles className="w-3 h-3 text-amber-400" /> {t("Örnek Konular")} · DEMO :
           </span>
           {arbitratedEvents.map((evt) => (
             <button

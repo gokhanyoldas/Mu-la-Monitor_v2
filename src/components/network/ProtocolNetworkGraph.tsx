@@ -635,9 +635,9 @@ export const ProtocolNetworkGraph: React.FC = () => {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm sm:text-base font-mono font-bold tracking-wide text-foreground">
-                  {t("Protokol ve Veri Ağı (Test)")}
+                  {t("Kamu Kurumları Ağı")}
                 </h2>
-                <PanelHelpTooltip panelTitle="Protokol ve Veri Ağı (Test)" />
+                <PanelHelpTooltip panelTitle="Kamu Kurumları Ağı" />
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
                   {visibleNodes.length} {t("Düğüm")} · {visibleLinks.length} {t("Bağlantı")}
                 </span>
