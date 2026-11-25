@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -10,7 +10,126 @@ type VercelResponse = ServerResponse & {
   json?: (body: unknown) => void;
 };
 
+export type TopicGroundingKey =
+  | "environment_dams"
+  | "transport_infra"
+  | "energy_outages"
+  | "security_quakes"
+  | "tourism_occupancy"
+  | "economy_budget"
+  | "protocol_activity";
+
+const VALID_TOPICS = new Set<TopicGroundingKey>([
+  "environment_dams",
+  "transport_infra",
+  "energy_outages",
+  "security_quakes",
+  "tourism_occupancy",
+  "economy_budget",
+  "protocol_activity",
+]);
+
+export function normalizeTopicKey(raw: unknown): TopicGroundingKey {
+  if (typeof raw === "string" && VALID_TOPICS.has(raw as TopicGroundingKey)) {
+    return raw as TopicGroundingKey;
+  }
+  return "environment_dams";
+}
+
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-4-hydrogen";
+
+export const RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
+const TOPIC_RESULT_CACHE_TTL_MS = 30 * 60 * 1000;
+const DEFAULT_GROUNDING_SPACING_MS = 450;
+
+let geminiQuotaCooldownUntil = 0;
+let lastGroundedCallEndedAt = 0;
+let groundingQueueTail: Promise<void> = Promise.resolve();
+const topicResultCache = new Map<TopicGroundingKey, { expiresAt: number; payload: Record<string, unknown> }>();
+const inFlightTopicRequests = new Map<TopicGroundingKey, Promise<Record<string, unknown>>>();
+
+export function isGeminiRateLimitError(err: unknown): boolean {
+  if (!err) return false;
+  if (typeof err === "object") {
+    const obj = err as Record<string, unknown>;
+    if (obj.status === 429 || obj.code === 429) return true;
+    if (obj.status === "RESOURCE_EXHAUSTED") return true;
+    const nested = obj.error;
+    if (nested && typeof nested === "object") {
+      const n = nested as Record<string, unknown>;
+      if (n.code === 429 || n.status === 429 || n.status === "RESOURCE_EXHAUSTED") {
+        return true;
+      }
+    }
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  return /RESOURCE_EXHAUSTED|"code"\s*:\s*429|\b429\b|exceeded your current quota|rate[- ]?limit/i.test(
+    msg
+  );
+}
+
+export function getGeminiRateLimitState(now = Date.now()): {
+  rateLimited: boolean;
+  retryAfterMs: number;
+  cooldownUntil: number;
+} {
+  const retryAfterMs = Math.max(0, geminiQuotaCooldownUntil - now);
+  return {
+    rateLimited: retryAfterMs > 0,
+    retryAfterMs,
+    cooldownUntil: geminiQuotaCooldownUntil,
+  };
+}
+
+export function markGeminiRateLimited(cooldownMs = RATE_LIMIT_COOLDOWN_MS): number {
+  const nextUntil = Date.now() + Math.max(60_000, cooldownMs);
+  if (nextUntil > geminiQuotaCooldownUntil) {
+    geminiQuotaCooldownUntil = nextUntil;
+  }
+  return Math.max(0, geminiQuotaCooldownUntil - Date.now());
+}
+
+export function resetTopicGroundingRuntimeState() {
+  geminiQuotaCooldownUntil = 0;
+  lastGroundedCallEndedAt = 0;
+  groundingQueueTail = Promise.resolve();
+  topicResultCache.clear();
+  inFlightTopicRequests.clear();
+}
+
+function buildRateLimitedPayload(topic: TopicGroundingKey, retryAfterMs: number): Record<string, unknown> {
+  return {
+    ok: false,
+    fallback: true,
+    rateLimited: true,
+    retryAfterMs,
+    topic,
+    reason:
+      "Gemini API kota/hız limiti nedeniyle geçici bekleme modunda; mevcut doğrulanmış veriler korunuyor.",
+  };
+}
+
+function enqueueGroundedCall<T>(spacingMs: number, fn: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    if (spacingMs > 0 && lastGroundedCallEndedAt > 0) {
+      const waitMs = Math.max(0, spacingMs - (Date.now() - lastGroundedCallEndedAt));
+      if (waitMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      lastGroundedCallEndedAt = Date.now();
+    }
+  };
+  const next = groundingQueueTail.then(run, run);
+  groundingQueueTail = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+}
 
 const DAM_ALIASES: Array<{ id: string; name: string; aliases: string[] }> = [
   { id: "mumcular", name: "Mumcular Barajı", aliases: ["mumcular"] },
@@ -78,34 +197,26 @@ function matchDam(rawName: unknown): { id: string; name: string } | null {
   return null;
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    return sendJson(res, 405, { ok: false, error: "Method Not Allowed" });
+function parseIsoDateOrFallback(raw: unknown, fallbackIso: string): string {
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = new Date(raw.trim());
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
   }
+  return fallbackIso;
+}
 
-  const body = req.body && typeof req.body === "object" ? req.body : {};
-  const topic = body.topic === "transport_infra" ? "transport_infra" : "environment_dams";
+function cleanStr(raw: unknown, maxLen: number, fallback = ""): string {
+  if (typeof raw !== "string") return fallback;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed.slice(0, maxLen) : fallback;
+}
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
-  if (!apiKey) {
-    return sendJson(res, 200, {
-      ok: false,
-      fallback: true,
-      reason: "GEMINI_API_KEY tanımlı değil.",
-    });
-  }
-
-  try {
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: { "User-Agent": "aistudio-build" },
-      },
-    });
-
-    const prompt =
-      topic === "environment_dams"
-        ? `Google Arama aracını kullanarak şu sorguyu tara:
+function buildPromptForTopic(topic: TopicGroundingKey): string {
+  switch (topic) {
+    case "environment_dams":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
 "Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı
 
 GÖREV:
@@ -125,8 +236,10 @@ GÖREV:
       "headline": "Kısa haber başlığı"
     }
   ]
-}`
-        : `Google Arama aracını kullanarak şu sorguyu tara:
+}`;
+
+    case "transport_infra":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
 "Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik
 
 GÖREV:
@@ -148,30 +261,289 @@ GÖREV:
   ]
 }`;
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      },
-    });
+    case "energy_outages":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
+"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi
 
-    const metadata = response.candidates?.[0]?.groundingMetadata;
-    const chunks = Array.isArray(metadata?.groundingChunks) ? metadata.groundingChunks : [];
-    const groundingSources = chunks
-      .map((c: { web?: { uri?: string; title?: string } }) => ({
-        uri: c.web?.uri || "",
-        title: c.web?.title || "",
-      }))
-      .filter((s) => isValidExternalUrl(s.uri));
+GÖREV:
+- Yalnızca arama sonuçlarında doğrudan yer alan güncel ADM Elektrik Muğla planlı veya arızalı elektrik kesintisi duyurularını çıkar (Bodrum, Marmaris, Fethiye, Milas, Menteşe, Datça, Dalaman, Ortaca, Köyceğiz, Yatağan, Ula, Seydikemer, Kavaklıdere).
+- Asla tahmin veya uydurma kesinti üretme. Doğrulanmış kaynak URL'si olmayan kaydı ekleme (en fazla 8 kayıt).
+- SADECE aşağıdaki JSON yapısını döndür:
+{
+  "outages": [
+    {
+      "district": "İlçe adı",
+      "neighborhoods": "Etkilenen mahalleler / bölge özeti",
+      "type": "planli | ariza",
+      "status": "aktif | planli | giderildi",
+      "summary": "Kısa kesinti açıklaması ve saat aralığı",
+      "sourceName": "ADM Elektrik | Yerel Basın",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD",
+      "confidence": "high | medium"
+    }
+  ]
+}`;
 
-    const fallbackUrl = groundingSources[0]?.uri;
-    const nowIso = new Date().toISOString();
+    case "security_quakes":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
+("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" asayiş OR "Sahil Güvenlik" deniz güvenliği)
 
-    if (topic === "environment_dams") {
-      const parsed = extractJsonFromText<{ damUpdates?: Array<Record<string, unknown>> }>(
-        response.text ?? ""
-      );
+GÖREV:
+- Muğla ve kıyı ilçeleri (Bodrum, Marmaris, Datça, Fethiye, Milas, Menteşe, Dalaman, Ortaca, Köyceğiz, Ula, Yatağan, Seydikemer, Kavaklıdere) için son günlerdeki doğrulanmış AFAD/Kandilli depremleri ile Emniyet, Jandarma veya Sahil Güvenlik asayiş/deniz güvenliği gelişmelerini çıkar.
+- Asla uydurma olay veya istatistik üretme; yalnızca gerçek kaynak URL'si bulunan kayıtları ekle (en fazla 8 kayıt).
+- SADECE aşağıdaki JSON yapısını döndür:
+{
+  "events": [
+    {
+      "category": "deprem | asayis | deniz_guvenligi",
+      "title": "Kısa ve net olay başlığı",
+      "district": "İlçe veya deniz açıkları",
+      "magnitude": 3.4,
+      "depthKm": 7.2,
+      "severity": "kritik | yuksek | normal",
+      "sourceName": "AFAD | Kandilli | Sahil Güvenlik | Muğla Emniyet | AA | Yerel Basın",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD",
+      "confidence": "high | medium"
+    }
+  ]
+}`;
+
+    case "tourism_occupancy":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
+("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye") otel doluluk oranı OR turist sayısı TÜRSAB OR BODER OR GETOB
+
+GÖREV:
+- Muğla geneli ve Bodrum, Marmaris, Fethiye ilçeleri için güncel doğrulanmış otel doluluk oranlarını ve ziyaretçi/turist sayılarını yerel basın veya turizm birliklerinden (TÜRSAB, BODER, GETOB, Kültür ve Turizm Bakanlığı, AA, Anter Haber) çıkar.
+- Tahmini veya uydurma yüzde yazma; haberde doğrudan belirtilmemişse null bırak. Kaynak URL'si olmayan kaydı ekleme.
+- SADECE aşağıdaki JSON yapısını döndür:
+{
+  "hotelOccupancyPct": 68,
+  "annualTourists": "3.85M",
+  "sourceName": "BODER | GETOB | TÜRSAB | Kültür ve Turizm Bakanlığı | Yerel Basın",
+  "sourceUrl": "https://...",
+  "publishedDate": "YYYY-MM-DD",
+  "districtRates": [
+    {
+      "district": "Bodrum | Marmaris | Fethiye | Datça",
+      "occupancyPct": 72,
+      "sourceName": "Kaynak adı",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD"
+    }
+  ],
+  "headlines": [
+    {
+      "title": "Kısa turizm gelişmesi başlığı",
+      "district": "Muğla | Bodrum | Marmaris | Fethiye",
+      "sourceName": "Kaynak adı",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD"
+    }
+  ]
+}`;
+
+    case "economy_budget":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
+("Muğla Büyükşehir" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" OR "Fethiye Belediyesi") bütçe OR ihale OR yatırım OR ("Muğla" TÜİK işsizlik oranı)
+
+GÖREV:
+- Muğla Büyükşehir Belediyesi ve ilçe belediyelerinin güncel bütçe, ihale, yatırım duyuruları ile TÜİK Muğla (TR32) güncel işsizlik/işgücü verilerini çıkar.
+- Tahmini veya uydurma rakam yazma; yalnızca kaynakta yer alan bilgileri döndür ve her kayıt için gerçek kaynak URL'si ver (en fazla 6 kayıt).
+- SADECE aşağıdaki JSON yapısını döndür:
+{
+  "unemploymentRate": 7.9,
+  "unemploymentPeriod": "TÜİK 2025/Ç2",
+  "unemploymentSource": "TÜİK",
+  "sourceName": "Muğla Büyükşehir | TÜİK | Yerel Basın",
+  "sourceUrl": "https://...",
+  "publishedDate": "YYYY-MM-DD",
+  "items": [
+    {
+      "institution": "Muğla Büyükşehir Belediyesi | Bodrum Belediyesi | Fethiye Belediyesi | Marmaris Belediyesi | TÜİK",
+      "category": "butce | ihale | yatirim | isgucu",
+      "title": "Kısa ve net gelişme başlığı",
+      "amountLabel": "Varsa tutar örn. 240 Milyon ₺ veya boş",
+      "sourceName": "Kaynak adı",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD"
+    }
+  ]
+}`;
+
+    case "protocol_activity":
+      return `Google Arama aracını kullanarak şu sorguyu tara:
+("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat
+
+GÖREV:
+- Muğla il protokolündeki yöneticiler (Vali, Büyükşehir Belediye Başkanı, 13 İlçe Kaymakamı, 13 İlçe Belediye Başkanı, Rektör, Cumhuriyet Başsavcısı, İl Emniyet Müdürü, İl Jandarma Komutanı vb.) hakkında son 24-48 saatte yayınlanan doğrulanmış resmi ziyaret, açıklama veya görev değişikliği haberlerini çıkar.
+- Asla uydurma kayıt üretme; yalnızca gerçek kaynak URL'si bulunan haberleri döndür (en fazla 8 kayıt).
+- SADECE aşağıdaki JSON yapısını döndür:
+{
+  "activities": [
+    {
+      "actorName": "Kişinin tam adı (örn. İdris Akbıyık, Ahmet Aras)",
+      "actorTitle": "Görevi (örn. Muğla Valisi, Muğla Büyükşehir Belediye Başkanı, Bodrum Kaymakamı)",
+      "category": "ziyaret | aciklama | gorev_degisikligi",
+      "summary": "Kısa ve tek cümlelik özet",
+      "sourceName": "Muğla Valiliği | MBB | AA | Yerel Basın",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD"
+    }
+  ]
+}`;
+  }
+}
+
+export interface ExecuteTopicGroundingDeps {
+  generateContent?: (args: {
+    model: string;
+    contents: string;
+    config: Record<string, unknown>;
+  }) => Promise<{
+    text?: string;
+    candidates?: Array<{
+      groundingMetadata?: {
+        groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
+      };
+    }>;
+  }>;
+  spacingMs?: number;
+}
+
+export async function executeTopicGrounding(
+  rawTopic: unknown,
+  apiKey: string,
+  deps?: ExecuteTopicGroundingDeps
+): Promise<Record<string, unknown>> {
+  const topic = normalizeTopicKey(rawTopic);
+  if (!apiKey) {
+    return {
+      ok: false,
+      fallback: true,
+      topic,
+      reason: "GEMINI_API_KEY tanımlı değil.",
+    };
+  }
+
+  const cached = topicResultCache.get(topic);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.payload;
+  }
+
+  const limitState = getGeminiRateLimitState();
+  if (limitState.rateLimited) {
+    return buildRateLimitedPayload(topic, limitState.retryAfterMs);
+  }
+
+  const existingInFlight = inFlightTopicRequests.get(topic);
+  if (existingInFlight) {
+    return existingInFlight;
+  }
+
+  const spacingMs = deps?.spacingMs ?? DEFAULT_GROUNDING_SPACING_MS;
+  const task = enqueueGroundedCall(spacingMs, async () => {
+    const queuedCached = topicResultCache.get(topic);
+    if (queuedCached && queuedCached.expiresAt > Date.now()) {
+      return queuedCached.payload;
+    }
+
+    const queuedLimit = getGeminiRateLimitState();
+    if (queuedLimit.rateLimited) {
+      return buildRateLimitedPayload(topic, queuedLimit.retryAfterMs);
+    }
+
+    const payload = await runTopicGroundingCall(topic, apiKey, deps);
+    if (payload.ok) {
+      topicResultCache.set(topic, {
+        expiresAt: Date.now() + TOPIC_RESULT_CACHE_TTL_MS,
+        payload,
+      });
+    }
+    return payload;
+  }).finally(() => {
+    inFlightTopicRequests.delete(topic);
+  });
+
+  inFlightTopicRequests.set(topic, task);
+  return task;
+}
+
+async function runTopicGroundingCall(
+  topic: TopicGroundingKey,
+  apiKey: string,
+  deps?: ExecuteTopicGroundingDeps
+): Promise<Record<string, unknown>> {
+  const prompt = buildPromptForTopic(topic);
+  const config: Record<string, unknown> = {
+    tools: [{ googleSearch: {} }],
+  };
+  if (GEMINI_MODEL.startsWith("gemini-4") || GEMINI_MODEL.startsWith("gemini-3")) {
+    config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+  }
+
+  let response: {
+    text?: string;
+    candidates?: Array<{
+      groundingMetadata?: {
+        groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
+      };
+    }>;
+  };
+
+  try {
+    if (deps?.generateContent) {
+      response = await deps.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config,
+      });
+    } else {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: { "User-Agent": "aistudio-build" },
+        },
+      });
+      response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: prompt,
+        config,
+      });
+    }
+  } catch (err) {
+    if (isGeminiRateLimitError(err)) {
+      const wasAlreadyLimited = getGeminiRateLimitState().rateLimited;
+      const retryAfterMs = markGeminiRateLimited(RATE_LIMIT_COOLDOWN_MS);
+      if (!wasAlreadyLimited) {
+        console.warn(
+          `[/api/intel/topic-grounding] Gemini 429 RESOURCE_EXHAUSTED — ${Math.round(
+            retryAfterMs / 60000
+          )} dk bekleme modu aktif (konu: ${topic}).`
+        );
+      }
+      return buildRateLimitedPayload(topic, retryAfterMs);
+    }
+    throw err;
+  }
+
+  const metadata = response.candidates?.[0]?.groundingMetadata;
+  const chunks = Array.isArray(metadata?.groundingChunks) ? metadata.groundingChunks : [];
+  const groundingSources = chunks
+    .map((c: { web?: { uri?: string; title?: string } }) => ({
+      uri: c.web?.uri || "",
+      title: c.web?.title || "",
+    }))
+    .filter((s) => isValidExternalUrl(s.uri));
+
+  const fallbackUrl = groundingSources[0]?.uri;
+  const nowIso = new Date().toISOString();
+  const rawText = response.text ?? "";
+
+  switch (topic) {
+    case "environment_dams": {
+      const parsed = extractJsonFromText<{ damUpdates?: Array<Record<string, unknown>> }>(rawText);
       const rawList = Array.isArray(parsed?.damUpdates) ? parsed!.damUpdates : [];
       const damUpdates = rawList
         .map((item) => {
@@ -179,80 +551,325 @@ GÖREV:
           const rate = Number(item.occupancyRate);
           const url = isValidExternalUrl(item.sourceUrl) ? item.sourceUrl.trim() : fallbackUrl;
           if (!matched || !Number.isFinite(rate) || rate < 0 || rate > 100 || !url) return null;
-          const dateStr =
-            typeof item.publishedDate === "string" && !Number.isNaN(new Date(item.publishedDate).getTime())
-              ? new Date(item.publishedDate).toISOString()
-              : nowIso;
           return {
             damId: matched.id,
             damName: matched.name,
             occupancyRate: Math.round(rate * 10) / 10,
-            sourceName:
-              typeof item.sourceName === "string" && item.sourceName.trim()
-                ? item.sourceName.trim().slice(0, 60)
-                : "Yerel Basın/DSİ",
+            sourceName: cleanStr(item.sourceName, 60, "Yerel Basın/DSİ"),
             sourceUrl: url,
-            measuredAt: dateStr,
+            measuredAt: parseIsoDateOrFallback(item.publishedDate, nowIso),
             confidence: item.confidence === "medium" ? "medium" : "high",
-            headline: typeof item.headline === "string" ? item.headline.trim().slice(0, 160) : undefined,
+            headline: cleanStr(item.headline, 160) || undefined,
           };
         })
         .filter(Boolean);
 
-      return sendJson(res, 200, {
+      return {
         ok: true,
         topic,
         model: GEMINI_MODEL,
         fetchedAt: nowIso,
         damUpdates,
         groundingSources,
-      });
+      };
     }
 
-    const parsed = extractJsonFromText<{ incidents?: Array<Record<string, unknown>> }>(
-      response.text ?? ""
-    );
-    const rawIncidents = Array.isArray(parsed?.incidents) ? parsed!.incidents : [];
-    const transportIncidents = rawIncidents
-      .map((item, idx) => {
-        const title = typeof item.title === "string" ? item.title.trim().slice(0, 140) : "";
-        const url = isValidExternalUrl(item.sourceUrl) ? item.sourceUrl.trim() : fallbackUrl;
-        if (!title || !url) return null;
-        const publishedAt =
-          typeof item.publishedDate === "string" && !Number.isNaN(new Date(item.publishedDate).getTime())
-            ? new Date(item.publishedDate).toISOString()
-            : nowIso;
-        return {
-          id: `ti-${idx}-${Date.now()}`,
-          title,
-          district: typeof item.district === "string" && item.district.trim() ? item.district.trim() : "Muğla",
-          category:
-            item.category === "isale_hatti" || item.category === "trafik"
-              ? item.category
-              : "yol_calismasi",
-          status:
-            item.status === "tamamlandı" || item.status === "uyarı" ? item.status : "devam",
-          sourceName:
-            typeof item.sourceName === "string" && item.sourceName.trim()
-              ? item.sourceName.trim().slice(0, 60)
-              : "Yerel Basın",
-          sourceUrl: url,
-          publishedAt,
-          confidence: item.confidence === "medium" ? "medium" : "high",
-        };
-      })
-      .filter(Boolean)
-      .slice(0, 6);
+    case "transport_infra": {
+      const parsed = extractJsonFromText<{ incidents?: Array<Record<string, unknown>> }>(rawText);
+      const rawIncidents = Array.isArray(parsed?.incidents) ? parsed!.incidents : [];
+      const transportIncidents = rawIncidents
+        .map((item, idx) => {
+          const title = cleanStr(item.title, 140);
+          const url = isValidExternalUrl(item.sourceUrl) ? item.sourceUrl.trim() : fallbackUrl;
+          if (!title || !url) return null;
+          return {
+            id: `ti-${idx}-${Date.now()}`,
+            title,
+            district: cleanStr(item.district, 40, "Muğla"),
+            category:
+              item.category === "isale_hatti" || item.category === "trafik"
+                ? item.category
+                : "yol_calismasi",
+            status:
+              item.status === "tamamlandı" || item.status === "uyarı" ? item.status : "devam",
+            sourceName: cleanStr(item.sourceName, 60, "Yerel Basın"),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(item.publishedDate, nowIso),
+            confidence: item.confidence === "medium" ? "medium" : "high",
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 6);
 
-    return sendJson(res, 200, {
-      ok: true,
-      topic,
-      model: GEMINI_MODEL,
-      fetchedAt: nowIso,
-      transportIncidents,
-      groundingSources,
-    });
+      return {
+        ok: true,
+        topic,
+        model: GEMINI_MODEL,
+        fetchedAt: nowIso,
+        transportIncidents,
+        groundingSources,
+      };
+    }
+
+    case "energy_outages": {
+      const parsed = extractJsonFromText<{ outages?: Array<Record<string, unknown>> }>(rawText);
+      const rawOutages = Array.isArray(parsed?.outages) ? parsed!.outages : [];
+      const energyOutages = rawOutages
+        .map((item, idx) => {
+          const district = cleanStr(item.district, 40);
+          const summary = cleanStr(item.summary, 160);
+          const url = isValidExternalUrl(item.sourceUrl) ? item.sourceUrl.trim() : fallbackUrl;
+          if (!district || !summary || !url) return null;
+          return {
+            id: `eo-${idx}-${Date.now()}`,
+            district,
+            neighborhoods: cleanStr(item.neighborhoods, 100),
+            type: item.type === "ariza" ? "ariza" : "planli",
+            status:
+              item.status === "aktif" || item.status === "giderildi" ? item.status : "planli",
+            summary,
+            sourceName: cleanStr(item.sourceName, 60, "ADM Elektrik"),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(item.publishedDate, nowIso),
+            confidence: item.confidence === "medium" ? "medium" : "high",
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+
+      return {
+        ok: true,
+        topic,
+        model: GEMINI_MODEL,
+        fetchedAt: nowIso,
+        energyOutages,
+        groundingSources,
+      };
+    }
+
+    case "security_quakes": {
+      const parsed = extractJsonFromText<{ events?: Array<Record<string, unknown>> }>(rawText);
+      const rawEvents = Array.isArray(parsed?.events) ? parsed!.events : [];
+      const securityEvents = rawEvents
+        .map((item, idx) => {
+          const title = cleanStr(item.title, 150);
+          const url = isValidExternalUrl(item.sourceUrl) ? item.sourceUrl.trim() : fallbackUrl;
+          if (!title || !url) return null;
+          const rawMag = item.magnitude !== null && item.magnitude !== undefined ? Number(item.magnitude) : NaN;
+          const rawDepth = item.depthKm !== null && item.depthKm !== undefined ? Number(item.depthKm) : NaN;
+          return {
+            id: `sq-${idx}-${Date.now()}`,
+            category:
+              item.category === "deprem" || item.category === "deniz_guvenligi"
+                ? item.category
+                : "asayis",
+            title,
+            district: cleanStr(item.district, 50, "Muğla"),
+            magnitude: Number.isFinite(rawMag) && rawMag > 0 && rawMag < 10 ? Math.round(rawMag * 10) / 10 : null,
+            depthKm: Number.isFinite(rawDepth) && rawDepth >= 0 && rawDepth < 700 ? Math.round(rawDepth * 10) / 10 : null,
+            severity:
+              item.severity === "kritik" || item.severity === "yuksek" ? item.severity : "normal",
+            sourceName: cleanStr(item.sourceName, 60, "AFAD/Yerel Basın"),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(item.publishedDate, nowIso),
+            confidence: item.confidence === "medium" ? "medium" : "high",
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+
+      return {
+        ok: true,
+        topic,
+        model: GEMINI_MODEL,
+        fetchedAt: nowIso,
+        securityEvents,
+        groundingSources,
+      };
+    }
+
+    case "tourism_occupancy": {
+      const parsed = extractJsonFromText<Record<string, unknown>>(rawText) ?? {};
+      const topUrl = isValidExternalUrl(parsed.sourceUrl) ? parsed.sourceUrl.trim() : fallbackUrl;
+      const rawOcc =
+        parsed.hotelOccupancyPct !== null && parsed.hotelOccupancyPct !== undefined
+          ? Number(parsed.hotelOccupancyPct)
+          : NaN;
+      const validOcc =
+        topUrl && Number.isFinite(rawOcc) && rawOcc >= 0 && rawOcc <= 100
+          ? Math.round(rawOcc * 10) / 10
+          : null;
+      const annualTourists =
+        topUrl && typeof parsed.annualTourists === "string" && parsed.annualTourists.trim()
+          ? parsed.annualTourists.trim().slice(0, 24)
+          : null;
+
+      const rawDistrictRates = Array.isArray(parsed.districtRates) ? parsed.districtRates : [];
+      const districtRates = rawDistrictRates
+        .map((item: Record<string, unknown>) => {
+          const district = cleanStr(item?.district, 40);
+          const pct = Number(item?.occupancyPct);
+          const url = isValidExternalUrl(item?.sourceUrl) ? String(item.sourceUrl).trim() : topUrl;
+          if (!district || !Number.isFinite(pct) || pct < 0 || pct > 100 || !url) return null;
+          return {
+            district,
+            occupancyPct: Math.round(pct * 10) / 10,
+            sourceName: cleanStr(item?.sourceName, 60, cleanStr(parsed.sourceName, 60, "Yerel Basın")),
+            sourceUrl: url,
+            measuredAt: parseIsoDateOrFallback(item?.publishedDate ?? parsed.publishedDate, nowIso),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 6);
+
+      const rawHeadlines = Array.isArray(parsed.headlines) ? parsed.headlines : [];
+      const headlines = rawHeadlines
+        .map((item: Record<string, unknown>) => {
+          const title = cleanStr(item?.title, 150);
+          const url = isValidExternalUrl(item?.sourceUrl) ? String(item.sourceUrl).trim() : topUrl;
+          if (!title || !url) return null;
+          return {
+            title,
+            district: cleanStr(item?.district, 40, "Muğla"),
+            sourceName: cleanStr(item?.sourceName, 60, "Yerel Basın"),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(item?.publishedDate ?? parsed.publishedDate, nowIso),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 5);
+
+      return {
+        ok: true,
+        topic,
+        model: GEMINI_MODEL,
+        fetchedAt: nowIso,
+        tourismMetrics: {
+          hotelOccupancyPct: validOcc,
+          annualTourists,
+          districtRates,
+          headlines,
+          sourceName: topUrl ? cleanStr(parsed.sourceName, 60, "TÜRSAB / Yerel Basın") : undefined,
+          sourceUrl: topUrl || undefined,
+          measuredAt: topUrl ? parseIsoDateOrFallback(parsed.publishedDate, nowIso) : undefined,
+        },
+        groundingSources,
+      };
+    }
+
+    case "economy_budget": {
+      const parsed = extractJsonFromText<Record<string, unknown>>(rawText) ?? {};
+      const topUrl = isValidExternalUrl(parsed.sourceUrl) ? parsed.sourceUrl.trim() : fallbackUrl;
+      const rawUnemp =
+        parsed.unemploymentRate !== null && parsed.unemploymentRate !== undefined
+          ? Number(parsed.unemploymentRate)
+          : NaN;
+      const unemploymentRate =
+        topUrl && Number.isFinite(rawUnemp) && rawUnemp > 0 && rawUnemp < 60
+          ? Math.round(rawUnemp * 10) / 10
+          : null;
+
+      const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+      const items = rawItems
+        .map((item: Record<string, unknown>, idx: number) => {
+          const title = cleanStr(item?.title, 150);
+          const url = isValidExternalUrl(item?.sourceUrl) ? String(item.sourceUrl).trim() : topUrl;
+          if (!title || !url) return null;
+          const cat = item?.category;
+          return {
+            id: `eb-${idx}-${Date.now()}`,
+            institution: cleanStr(item?.institution, 60, "Muğla Büyükşehir"),
+            category:
+              cat === "butce" || cat === "ihale" || cat === "yatirim" || cat === "isgucu"
+                ? cat
+                : "yatirim",
+            title,
+            amountLabel: cleanStr(item?.amountLabel, 40) || undefined,
+            sourceName: cleanStr(item?.sourceName, 60, "Yerel Basın"),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(item?.publishedDate ?? parsed.publishedDate, nowIso),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 6);
+
+      return {
+        ok: true,
+        topic,
+        model: GEMINI_MODEL,
+        fetchedAt: nowIso,
+        economyUpdates: {
+          unemploymentRate,
+          unemploymentPeriod: unemploymentRate !== null ? cleanStr(parsed.unemploymentPeriod, 40, "TÜİK") : null,
+          unemploymentSource: unemploymentRate !== null ? cleanStr(parsed.unemploymentSource, 40, "TÜİK") : null,
+          items,
+          sourceName: topUrl ? cleanStr(parsed.sourceName, 60, "Muğla Büyükşehir / TÜİK") : undefined,
+          sourceUrl: topUrl || undefined,
+          measuredAt: topUrl ? parseIsoDateOrFallback(parsed.publishedDate, nowIso) : undefined,
+        },
+        groundingSources,
+      };
+    }
+
+    case "protocol_activity": {
+      const parsed = extractJsonFromText<{ activities?: Array<Record<string, unknown>> }>(rawText);
+      const rawActivities = Array.isArray(parsed?.activities) ? parsed!.activities : [];
+      const protocolActivities = rawActivities
+        .map((item, idx) => {
+          const actorName = cleanStr(item.actorName, 80);
+          const actorTitle = cleanStr(item.actorTitle, 100);
+          const summary = cleanStr(item.summary, 180);
+          const url = isValidExternalUrl(item.sourceUrl) ? item.sourceUrl.trim() : fallbackUrl;
+          if ((!actorName && !actorTitle) || !summary || !url) return null;
+          const cat = item.category;
+          return {
+            id: `pa-${idx}-${Date.now()}`,
+            actorName,
+            actorTitle,
+            category:
+              cat === "ziyaret" || cat === "gorev_degisikligi" ? cat : "aciklama",
+            summary,
+            sourceName: cleanStr(item.sourceName, 60, "Resmi Kaynak / Yerel Basın"),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(item.publishedDate, nowIso),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 8);
+
+      return {
+        ok: true,
+        topic,
+        model: GEMINI_MODEL,
+        fetchedAt: nowIso,
+        protocolActivities,
+        groundingSources,
+      };
+    }
+  }
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "POST") {
+    return sendJson(res, 405, { ok: false, error: "Method Not Allowed" });
+  }
+
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+
+  try {
+    const payload = await executeTopicGrounding(body.topic, apiKey);
+    return sendJson(res, 200, payload);
   } catch (err) {
+    if (isGeminiRateLimitError(err)) {
+      const retryAfterMs = markGeminiRateLimited(RATE_LIMIT_COOLDOWN_MS);
+      console.warn(
+        `[vercel /api/intel/topic-grounding] Gemini 429 RESOURCE_EXHAUSTED — ${Math.round(
+          retryAfterMs / 60000
+        )} dk bekleme modu.`
+      );
+      return sendJson(res, 200, buildRateLimitedPayload(normalizeTopicKey(body.topic), retryAfterMs));
+    }
     console.error("[vercel /api/intel/topic-grounding] error:", err);
     return sendJson(res, 200, {
       ok: false,

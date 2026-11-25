@@ -1,7 +1,20 @@
 // useAISummary.ts
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// Şehir Nabzı (pulse) tamamen canlı sensör/grounding state'inden dinamik üretilir:
+// Üst KPI kutularıyla asla çelişmez, sabit %44/%41/Dinar kalıntısı barındırmaz ve
+// Supabase Realtime güncellemelerinde ek Gemini kotası tüketmeden anında yenilenir.
+
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { cacheManager, TTL } from "@/lib/cache-manager";
+import { useLiveData } from "@/hooks/useLiveData";
+import {
+  useDamIntelligence,
+  useTourismIntelligence,
+  useSecurityIntelligence,
+  type DamIntelligenceSnapshot,
+  type TourismIntelligenceSnapshot,
+  type SecurityIntelligenceSnapshot,
+} from "@/services/topicGroundingService";
 
 export type SummaryType = "daily" | "social" | "earthquake" | "weather" | "pulse";
 
@@ -15,6 +28,188 @@ export interface AISummary {
 
 const SUMMARY_CACHE_KEY = (type: SummaryType) => `ai_summary_${type}`;
 
+const COMPASS_TR: Record<string, string> = {
+  N: "kuzeyi",
+  NNE: "kuzey-kuzeydoğusu",
+  NE: "kuzeydoğusu",
+  ENE: "doğu-kuzeydoğusu",
+  E: "doğusu",
+  ESE: "doğu-güneydoğusu",
+  SE: "güneydoğusu",
+  SSE: "güney-güneydoğusu",
+  S: "güneyi",
+  SSW: "güney-güneybatısı",
+  SW: "güneybatısı",
+  WSW: "batı-güneybatısı",
+  W: "batısı",
+  WNW: "batı-kuzeybatısı",
+  NW: "kuzeybatısı",
+  NNW: "kuzey-kuzeybatısı",
+};
+
+/**
+ * USGS/AFAD İngilizce konum metinlerini (ör. "10 km WSW of Bodrum, Turkey")
+ * doğal Türkçe formata dönüştürür ("Bodrum — 10 km batı-güneybatısı").
+ */
+export function formatQuakeLocationTr(rawLocation?: string | null): string {
+  if (!rawLocation || typeof rawLocation !== "string") return "Muğla çevresi";
+  const cleaned = rawLocation
+    .trim()
+    .replace(/,\s*Turkey$/i, "")
+    .replace(/,\s*Türkiye$/i, "")
+    .replace(/\bAegean Sea\b/gi, "Ege Denizi")
+    .replace(/\bMediterranean Sea\b/gi, "Akdeniz")
+    .replace(/\bDodecanese Islands,\s*Greece\b/gi, "On İki Adalar (Ege)")
+    .replace(/,\s*Greece$/i, " (Ege)")
+    .trim();
+
+  const usgsMatch = cleaned.match(
+    /^(\d+(?:[.,]\d+)?)\s*km\s+([NSEW]{1,3})\s+of\s+(.+)$/i
+  );
+  if (usgsMatch) {
+    const km = usgsMatch[1].replace(".", ",");
+    const dir = COMPASS_TR[usgsMatch[2].toUpperCase()] || usgsMatch[2];
+    const place = usgsMatch[3].trim();
+    return `${place} (${km} km ${dir})`;
+  }
+
+  return cleaned || "Muğla çevresi";
+}
+
+function getAqiLabelTr(aqi: number, fallbackLabel?: string): string {
+  if (fallbackLabel && fallbackLabel.trim()) return fallbackLabel.trim();
+  if (aqi <= 20) return "Çok İyi";
+  if (aqi <= 40) return "İyi";
+  if (aqi <= 60) return "Orta";
+  if (aqi <= 80) return "Hassas";
+  if (aqi <= 100) return "Kötü";
+  return "Çok Kötü";
+}
+
+export interface DynamicCityPulseInput {
+  weather?: { temperature?: number | string | null; condition?: string | null } | null;
+  airQuality?: { aqi?: number | string | null; aqi_label?: string | null } | null;
+  traffic?: { hotspots?: Array<{ name?: string; density?: number }> } | null;
+  dams: Pick<
+    DamIntelligenceSnapshot,
+    "avgOccupancy" | "latestSourceSummary" | "latestMeasuredAt" | "verifiedCount"
+  >;
+  tourism: Pick<
+    TourismIntelligenceSnapshot,
+    "hotelOccupancyPct" | "annualTourists" | "occupancySourceSummary" | "latestMeasuredAt"
+  >;
+  security: Pick<
+    SecurityIntelligenceSnapshot,
+    "latestQuake" | "publicOrderEvents" | "latestSourceSummary" | "latestMeasuredAt"
+  >;
+}
+
+/**
+ * Üst KPI kutularıyla birebir aynı canlı state kaynaklarından 4 maddelik
+ * dinamik Türkçe Şehir Nabzı metni üretir. Sabit %44 baraj, %41 otel veya
+ * İngilizce USGS kalıntısı asla içermez.
+ */
+export function buildDynamicCityPulse(input: DynamicCityPulseInput): AISummary {
+  const { weather, airQuality, traffic, dams, tourism, security } = input;
+
+  // 1. Hava & Hava Kalitesi
+  const tempNum =
+    weather?.temperature !== undefined && weather?.temperature !== null && weather?.temperature !== ""
+      ? Number(weather.temperature)
+      : NaN;
+  const hasTemp = Number.isFinite(tempNum);
+  const aqiNum =
+    airQuality?.aqi !== undefined && airQuality?.aqi !== null && airQuality?.aqi !== ""
+      ? Number(airQuality.aqi)
+      : NaN;
+  const hasAqi = Number.isFinite(aqiNum);
+
+  let p1: string;
+  if (hasTemp && hasAqi) {
+    const cond = weather?.condition ? ` (${weather.condition})` : "";
+    const label = getAqiLabelTr(aqiNum, airQuality?.aqi_label ?? undefined);
+    p1 = `1. Muğla genelinde sıcaklık ${weather!.temperature}°C${cond}, hava kalitesi EAQI ${aqiNum} (${label}) seviyesindedir.`;
+  } else if (hasTemp) {
+    const cond = weather?.condition ? ` (${weather.condition})` : "";
+    p1 = `1. Muğla genelinde sıcaklık ${weather!.temperature}°C${cond}; hava kalitesi için güncel ölçüm bekleniyor.`;
+  } else if (hasAqi) {
+    const label = getAqiLabelTr(aqiNum, airQuality?.aqi_label ?? undefined);
+    p1 = `1. Muğla hava kalitesi EAQI ${aqiNum} (${label}) seviyesindedir; güncel sıcaklık ölçümü bekleniyor.`;
+  } else {
+    p1 = "1. Muğla genelinde hava durumu ve hava kalitesi için canlı meteoroloji ölçümü bekleniyor.";
+  }
+
+  // 2. Su & Barajlar (üst KPI "Baraj" ile birebir senkron)
+  const p2 =
+    dams.avgOccupancy !== null
+      ? `2. Doğrulanmış kaynaklara göre Muğla barajlarında ortalama doluluk %${dams.avgOccupancy} seviyesindedir (${dams.latestSourceSummary}).`
+      : `2. Barajlar için güncel ölçüm bekleniyor (${dams.latestSourceSummary}).`;
+
+  // 3. Canlı Trafik (TomTom hotspots — sabit Menteşe %32 yok)
+  const validHotspots = Array.isArray(traffic?.hotspots)
+    ? traffic!.hotspots.filter(
+        (h) => h && typeof h.name === "string" && Number.isFinite(Number(h.density))
+      )
+    : [];
+  let p3: string;
+  if (validHotspots.length > 0) {
+    const avgDensity = Math.round(
+      validHotspots.reduce((acc, h) => acc + Number(h.density), 0) / validHotspots.length
+    );
+    const busiest = [...validHotspots].sort((a, b) => Number(b.density) - Number(a.density))[0];
+    const criticalCount = validHotspots.filter((h) => Number(h.density) >= 50).length;
+    p3 =
+      criticalCount > 0
+        ? `3. ${validHotspots.length} ilçede anlık ortalama trafik yoğunluğu %${avgDensity}; en yoğun nokta ${busiest.name} (%${busiest.density}) ve ${criticalCount} bölgede kritik yoğunluk izleniyor.`
+        : `3. ${validHotspots.length} ilçede anlık ortalama trafik yoğunluğu %${avgDensity} ile akıcı seyrediyor; en yoğun nokta ${busiest.name} (%${busiest.density}).`;
+  } else {
+    p3 = "3. İl genelinde canlı trafik yoğunluğu sensör verisi bekleniyor.";
+  }
+
+  // 4. Turizm & Deprem / Güvenlik (üst KPI "Otel Doluluk" ve "Güvenlik" ile birebir senkron)
+  let tourismPart: string;
+  if (tourism.hotelOccupancyPct !== null) {
+    const annualPart = tourism.annualTourists
+      ? `, yıllık ${tourism.annualTourists} ziyaretçi`
+      : "";
+    tourismPart = `Turizmde güncel otel doluluğu %${tourism.hotelOccupancyPct}${annualPart} (${tourism.occupancySourceSummary}).`;
+  } else if (tourism.annualTourists) {
+    tourismPart = `Turizmde otel doluluğu için güncel ölçüm bekleniyor; yıllık ziyaretçi verisi ${tourism.annualTourists}.`;
+  } else {
+    tourismPart = "Turizmde güncel otel doluluğu verisi bekleniyor.";
+  }
+
+  let securityPart: string;
+  if (security.latestQuake) {
+    const locTr = formatQuakeLocationTr(security.latestQuake.location);
+    const depthPart =
+      security.latestQuake.depthKm !== null
+        ? ` (${security.latestQuake.depthKm} km derinlik)`
+        : "";
+    securityPart = `Son deprem kaydı: ${locTr} — M${security.latestQuake.magnitude.toFixed(1)}${depthPart}.`;
+  } else if (security.publicOrderEvents.length > 0) {
+    securityPart = `Güvenlik ve asayişte ${security.publicOrderEvents.length} güncel gelişme takip ediliyor.`;
+  } else {
+    securityPart = "Muğla ve çevresinde güncel kritik deprem kaydı bulunmuyor.";
+  }
+  const p4 = `4. ${tourismPart} ${securityPart}`;
+
+  const timestamps = [
+    dams.latestMeasuredAt,
+    tourism.latestMeasuredAt,
+    security.latestMeasuredAt,
+  ]
+    .filter((ts): ts is string => Boolean(ts && !Number.isNaN(new Date(ts).getTime())))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+  return {
+    type: "pulse",
+    summary: `${p1}\n${p2}\n${p3}\n${p4}`,
+    generated_at: timestamps[0] || new Date().toISOString(),
+    sourceLabel: "Canlı Göstergeler & Doğrulanmış Kaynaklar",
+  };
+}
+
 function isCorruptedSummary(text?: string | null): boolean {
   if (!text || typeof text !== "string") return true;
   const lower = text.toLowerCase();
@@ -26,84 +221,76 @@ function isCorruptedSummary(text?: string | null): boolean {
     lower.includes("dijital veri akışının kesilmesi") ||
     lower.includes("özet üretilemedi") ||
     lower.includes("analiz edilecek sosyal medya verisi bulunamadı") ||
-    lower.includes("açık kaynak dinleme sistemlerinin acilen çeşitlendirilmesi")
+    lower.includes("açık kaynak dinleme sistemlerinin acilen çeşitlendirilmesi") ||
+    lower.includes("10 km wsw of dinar")
   );
 }
 
-async function buildContextForType(type: SummaryType): Promise<string> {
+async function buildContextForType(): Promise<string> {
+  if (!isSupabaseClientConfigured) {
+    return "Muğla için canlı sensör ve doğrulanmış kaynak verileri bekleniyor.";
+  }
   try {
     const { data: rows } = await supabase
       .from("live_data_cache")
       .select("data_type, data")
       .in("data_type", ["weather", "air_quality", "traffic_density", "dams", "tourism", "earthquakes", "economy"]);
-    const byType = new Map((rows as any[] || []).map((r) => [r.data_type, r.data]));
+    const byType = new Map(((rows as any[]) || []).map((r) => [r.data_type, r.data]));
     const w = byType.get("weather");
     const aq = byType.get("air_quality");
     const traf = byType.get("traffic_density");
-    const dams = byType.get("dams");
-    const tour = byType.get("tourism");
     const eq = byType.get("earthquakes");
 
-    const lines: string[] = [
-      `Hava: Muğla genelinde ${w?.temperature ?? "16.1"}°C (${w?.condition ?? "Açık"}), hava kalitesi EAQI ${aq?.aqi ?? "20"} (${aq?.aqi_label ?? "İyi"}).`,
-      `Barajlar: 8 baraj ortalama doluluk %${dams?.avg_occupancy ?? "44"}.`,
-      `Trafik: 13 ilçede TomTom verileri akıcı, ortalama yoğunluk %${traf?.hotspots ? "18" : "15"}.`,
-      `Turizm: Otel doluluğu %${tour?.hotel_occupancy ?? "42"}, yıllık 4.2M turist hedefi korunuyor.`,
-      `Deprem: Son dönemde kritik sarsıntı yok${eq?.earthquakes?.[0] ? `, en son ${eq.earthquakes[0].place} (M${Number(eq.earthquakes[0].magnitude).toFixed(1)})` : ""}.`,
-      `Sosyal Medya & Basın: Muğla genelinde dijital mecralar ve yerel basında kamuoyu %62 olumlu seyrediyor. Bodrum, Marmaris, Fethiye ve Menteşe hatlarında turizm hazırlıkları ve belediye hizmetleri öne çıkmakta, asayiş sakindir.`,
-    ];
-    return lines.join("\n");
+    const lines: string[] = [];
+    if (w?.temperature !== undefined && w?.temperature !== null) {
+      lines.push(`Hava: Muğla genelinde ${w.temperature}°C (${w.condition ?? "Açık"}).`);
+    }
+    if (aq?.aqi !== undefined && aq?.aqi !== null) {
+      lines.push(`Hava Kalitesi: EAQI ${aq.aqi} (${getAqiLabelTr(Number(aq.aqi), aq.aqi_label)}).`);
+    }
+    if (Array.isArray(traf?.hotspots) && traf.hotspots.length > 0) {
+      const avg = Math.round(
+        traf.hotspots.reduce((s: number, h: any) => s + Number(h.density || 0), 0) /
+          traf.hotspots.length
+      );
+      lines.push(`Trafik: ${traf.hotspots.length} ilçede ortalama yoğunluk %${avg}.`);
+    }
+    if (eq?.earthquakes?.[0]) {
+      const q = eq.earthquakes[0];
+      lines.push(
+        `Deprem: ${formatQuakeLocationTr(q.place || q.location)} (M${Number(q.magnitude).toFixed(1)}).`
+      );
+    }
+    return lines.length > 0
+      ? lines.join("\n")
+      : "Muğla genelinde canlı sensör verileri izleniyor.";
   } catch {
-    return "Muğla genelinde hava açık, barajlar %44, trafik akıcı, turizm ve kamuoyu %62 olumlu seyretmektedir.";
+    return "Muğla genelinde canlı sensör verileri izleniyor.";
   }
 }
 
 async function buildLiveFallback(type: SummaryType): Promise<AISummary> {
   try {
-    const { data: rows } = await supabase
-      .from("live_data_cache")
-      .select("data_type, data, fetched_at")
-      .in("data_type", ["weather", "air_quality", "traffic_density", "dams", "tourism", "earthquakes", "economy"]);
-
-    const byType = new Map(((rows as any[]) || []).map((r) => [r.data_type, r.data]));
-    const w = byType.get("weather");
-    const aq = byType.get("air_quality");
-    const traf = byType.get("traffic_density");
-    const dams = byType.get("dams");
-    const tour = byType.get("tourism");
-    const eq = byType.get("earthquakes");
-
-    if (type === "pulse") {
-      const p1 = w
-        ? `1. Muğla genelinde ${w.temperature ?? "16.1"}°C (${w.condition ?? "Açık"}) hava hakim olup, hava kalitesi EAQI ${aq?.aqi ?? "20"} (${aq?.aqi_label ?? "İyi"}) seviyesindedir.`
-        : "1. Muğla genelinde hava açık ve mevsim normallerinde (16.5°C), hava kalitesi EAQI 20 (İyi) seviyesindedir.";
-
-      const p2 = dams
-        ? `2. Muğla'daki 8 barajın ortalama doluluk oranı %${dams.avg_occupancy ?? "44"} seviyesinde dengeli olup, kentsel su arzı güvendedir.`
-        : "2. İl genelindeki 8 barajın ortalama doluluk oranı %44 seviyesinde dengeli seyrini korumaktadır.";
-
-      const busiestZone = traf?.hotspots?.find((h: any) => (h.density ?? 0) > 20);
-      const p3 = traf?.hotspots
-        ? `3. TomTom canlı verilerine göre 13 ilçede trafik geneli akıcıdır; ${busiestZone ? `${busiestZone.name} (%${busiestZone.density})` : "Menteşe (%32)"} haricinde kritik tıkanıklık bulunmamaktadır.`
-        : "3. TomTom canlı verilerine göre 13 ilçemizde ana arterler açık ve trafik akışı olağan seyrindedir.";
-
-      const latestEq = eq?.earthquakes?.[0];
-      const p4 = tour
-        ? `4. Sezon sonu otel doluluğu %${tour.hotel_occupancy ?? "42"} seviyesinde seyrederken, yıllık ${tour.annual_tourists ?? "4.2M"} turist projeksiyonu korunmaktadır${latestEq ? `; son ${latestEq.place} (M${Number(latestEq.magnitude).toFixed(1)}) sarsıntısı ilde olumsuzluğa yol açmamıştır.` : "."}`
-        : "4. İl genelinde sosyal medya ve yerel basın kamuoyu akışı %62 olumlu seyretmekte olup, kentin operasyonel süreçleri olağan devam etmektedir.";
-
-      return {
-        type: "pulse",
-        summary: `${p1}\n${p2}\n${p3}\n${p4}`,
-        generated_at: new Date().toISOString(),
-        sourceLabel: "Canlı Sensörler & İl Göstergeleri",
-      };
+    let byType = new Map<string, any>();
+    if (isSupabaseClientConfigured) {
+      const { data: rows } = await supabase
+        .from("live_data_cache")
+        .select("data_type, data, fetched_at")
+        .in("data_type", ["weather", "air_quality", "traffic_density", "dams", "tourism", "earthquakes", "economy"]);
+      byType = new Map(((rows as any[]) || []).map((r) => [r.data_type, r.data]));
     }
+    const w = byType.get("weather");
+    const eq = byType.get("earthquakes");
 
     if (type === "weather") {
       return {
         type: "weather",
-        summary: `Muğla merkezde sıcaklık ${w?.temperature ?? 16.5}°C (${w?.condition ?? "Açık"}), nem %${w?.humidity ?? 58}, rüzgar hızı ${w?.windspeed ?? 12} km/s. Önümüzdeki günlerde açık ve mevsim normallerinde hava koşulları beklenmektedir.`,
+        summary:
+          w?.temperature !== undefined && w?.temperature !== null
+            ? `Muğla merkezde sıcaklık ${w.temperature}°C (${w.condition ?? "Açık"})${
+                w.humidity !== undefined ? `, nem %${w.humidity}` : ""
+              }${w.windspeed !== undefined ? `, rüzgar hızı ${w.windspeed} km/s` : ""}.`
+            : "Muğla için güncel meteoroloji ölçümü bekleniyor.",
         generated_at: new Date().toISOString(),
         sourceLabel: "Open-Meteo Canlı",
       };
@@ -114,33 +301,36 @@ async function buildLiveFallback(type: SummaryType): Promise<AISummary> {
       return {
         type: "earthquake",
         summary: latest
-          ? `Bölgeye yakın son sarsıntı ${latest.place} mevkiinde M${Number(latest.magnitude).toFixed(1)} şiddetinde kaydedilmiş olup, Muğla genelinde kritik bir sismik hareketlilik gözlenmemiştir.`
-          : "Son 24 saat içerisinde Muğla ve yakın çevresinde kritik bir deprem kaydı bulunmamaktadır.",
+          ? `Bölgeye yakın son sarsıntı ${formatQuakeLocationTr(latest.place || latest.location)} mevkiinde M${Number(latest.magnitude).toFixed(1)} büyüklüğünde kaydedilmiştir.`
+          : "Son 24 saat içerisinde Muğla ve yakın çevresinde yeni bir deprem kaydı bulunmamaktadır.",
         generated_at: new Date().toISOString(),
-        sourceLabel: "USGS Deprem İzleme",
+        sourceLabel: "AFAD / USGS Deprem İzleme",
       };
     }
 
     if (type === "social") {
       return {
         type: "social",
-        summary: "Muğla genelinde dijital mecralar ve yerel basında kamuoyu duygu dağılımı %62 pozitif, %16 negatif ağırlıkta dengelidir. #Bodrum ve #Fethiye ilçelerinde turizm hazırlıkları ve kültürel etkinlikler olumlu karşılanırken, D-400 karayolu ulaşımı ve MUSKİ altyapı çalışmaları düzenli takip edilmektedir.",
+        summary:
+          "Muğla genelinde yerel basın ve sosyal medya gündemi 13 ilçe bazında izlenmektedir; doğrulanmış yeni paylaşımlar geldikçe özet güncellenir.",
         generated_at: new Date().toISOString(),
-        sourceLabel: "Muğla OSINT & Kamuoyu Takibi",
+        sourceLabel: "Muğla Kamuoyu Takibi",
       };
     }
 
-    // Default daily
     return {
       type: "daily",
-      summary: `Muğla merkezde sıcaklık ${w?.temperature ?? 16.5}°C (${w?.condition ?? "Açık"}), 8 baraj genel doluluğu %${dams?.avg_occupancy ?? 44} seviyesindedir. 13 ilçemizde kentsel akış ve turizm hareketliliği olağan seyrinde devam etmekte olup, herhangi bir kriz veya asayiş sorunu bulunmamaktadır.`,
+      summary:
+        w?.temperature !== undefined && w?.temperature !== null
+          ? `Muğla merkezde güncel sıcaklık ${w.temperature}°C (${w.condition ?? "Açık"}). 13 ilçede canlı sensör ve doğrulanmış yerel basın akışı izlenmektedir.`
+          : "Muğla 13 ilçesi için canlı sensör ve doğrulanmış yerel kaynak verileri izlenmektedir.",
       generated_at: new Date().toISOString(),
-      sourceLabel: "İl Göstergeleri & Günlük Özet",
+      sourceLabel: "Canlı Göstergeler",
     };
   } catch {
     return {
       type,
-      summary: "Muğla genelinde hava koşulları mevsim normallerinde, baraj rezervleri dengeli ve 13 ilçemizde kentsel akış sakin ve olağan seyrindedir.",
+      summary: "Muğla 13 ilçesi için canlı sensör ve doğrulanmış yerel kaynak verileri izlenmektedir.",
       generated_at: new Date().toISOString(),
       sourceLabel: "Canlı Şehir Nabzı",
     };
@@ -148,87 +338,136 @@ async function buildLiveFallback(type: SummaryType): Promise<AISummary> {
 }
 
 export function useAISummary(type: SummaryType = "daily") {
+  const isPulse = type === "pulse";
+
+  // Pulse modu doğrudan üst KPI kutularıyla aynı canlı state katmanına bağlanır (0 ek Gemini kotası)
+  const { data: weatherData, isLoading: weatherLoading } = useLiveData<any>("weather", {
+    refetchInterval: 15 * 60 * 1000,
+    enabled: isPulse,
+  });
+  const { data: aqData, isLoading: aqLoading } = useLiveData<any>("air_quality", {
+    refetchInterval: 30 * 60 * 1000,
+    enabled: isPulse,
+  });
+  const { data: trafficData } = useLiveData<any>("traffic_density", {
+    refetchInterval: 5 * 60 * 1000,
+    enabled: isPulse,
+  });
+  const damIntel = useDamIntelligence();
+  const tourismIntel = useTourismIntelligence();
+  const securityIntel = useSecurityIntelligence();
+
+  const livePulseSummary = useMemo<AISummary | null>(() => {
+    if (!isPulse) return null;
+    return buildDynamicCityPulse({
+      weather: weatherData,
+      airQuality: aqData,
+      traffic: trafficData,
+      dams: damIntel,
+      tourism: tourismIntel,
+      security: securityIntel,
+    });
+  }, [isPulse, weatherData, aqData, trafficData, damIntel, tourismIntel, securityIntel]);
+
   const [data, setData] = useState<AISummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchSummary = useCallback(async (forceRefresh = false) => {
-    const cacheKey = SUMMARY_CACHE_KEY(type);
+  const fetchSummary = useCallback(
+    async (forceRefresh = false) => {
+      if (isPulse) return;
 
-    if (!forceRefresh) {
-      const cached = cacheManager.getMeta<AISummary>(cacheKey);
-      if (cached) {
-        if (!isCorruptedSummary(cached.data.summary)) {
-          setData({ ...cached.data, isStale: cached.ageMs > TTL.LONG / 2 });
-          if (cached.ageMs < TTL.LONG) return;
-        } else {
-          cacheManager.delete(cacheKey);
-        }
-      }
-    }
+      const cacheKey = SUMMARY_CACHE_KEY(type);
 
-    setIsLoading(true);
-    setError(null);
-
-    try {
       if (!forceRefresh) {
-        const today = new Date().toISOString().split("T")[0];
-        const { data: row } = await supabase
-          .from("ai_summaries")
-          .select("type, summary, generated_at")
-          .eq("type", type)
-          .eq("date", today)
-          .maybeSingle();
-
-        if (row?.summary && !isCorruptedSummary(row.summary)) {
-          const summary: AISummary = {
-            type: row.type as SummaryType,
-            summary: row.summary,
-            generated_at: row.generated_at,
-            sourceLabel: "Gemini 3.5 Flash Lite",
-          };
-          setData(summary);
-          cacheManager.set(cacheKey, summary, TTL.LONG);
-          return;
+        const cached = cacheManager.getMeta<AISummary>(cacheKey);
+        if (cached) {
+          if (!isCorruptedSummary(cached.data.summary)) {
+            setData({ ...cached.data, isStale: cached.ageMs > TTL.LONG / 2 });
+            if (cached.ageMs < TTL.LONG) return;
+          } else {
+            cacheManager.delete(cacheKey);
+          }
         }
       }
 
-      // Edge Function yalnızca doğrulanmış kullanıcı oturumu varsa çağrılır; misafirler
-      // veritabanı özetini veya canlı gösterge tabanlı özeti görür.
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        const context = await buildContextForType(type);
-        const { data: fnData, error: fnError } = await supabase.functions.invoke("ai-summary", {
-          body: { type, context },
-        });
-
-        if (!fnError && fnData?.summary && !isCorruptedSummary(fnData.summary)) {
-          const summary: AISummary = {
-            ...(fnData as AISummary),
-            sourceLabel: "Gemini 3.5 Flash Lite",
-          };
-          setData(summary);
-          cacheManager.set(cacheKey, summary, TTL.LONG);
-          return;
-        }
-      }
-
-      // Edge Function veya Gemini meşgulse canlı veri katmanından dinamik nabız üret
-      const liveFallback = await buildLiveFallback(type);
-      setData(liveFallback);
-      cacheManager.set(cacheKey, liveFallback, TTL.MEDIUM);
-      return;
-    } catch {
-      // Hata durumunda da garantili canlı veri katmanını sun
-      const liveFallback = await buildLiveFallback(type);
-      setData(liveFallback);
+      setIsLoading(true);
       setError(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [type]);
 
-  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+      try {
+        if (!forceRefresh && isSupabaseClientConfigured) {
+          const today = new Date().toISOString().split("T")[0];
+          const { data: row } = await supabase
+            .from("ai_summaries")
+            .select("type, summary, generated_at")
+            .eq("type", type)
+            .eq("date", today)
+            .maybeSingle();
+
+          if (row?.summary && !isCorruptedSummary(row.summary)) {
+            const summary: AISummary = {
+              type: row.type as SummaryType,
+              summary: row.summary,
+              generated_at: row.generated_at,
+              sourceLabel: "Gemini 3.5 Flash Lite",
+            };
+            setData(summary);
+            cacheManager.set(cacheKey, summary, TTL.LONG);
+            return;
+          }
+        }
+
+        if (isSupabaseClientConfigured) {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            const context = await buildContextForType();
+            const { data: fnData, error: fnError } = await supabase.functions.invoke("ai-summary", {
+              body: { type, context },
+            });
+
+            if (!fnError && fnData?.summary && !isCorruptedSummary(fnData.summary)) {
+              const summary: AISummary = {
+                ...(fnData as AISummary),
+                sourceLabel: "Gemini 3.5 Flash Lite",
+              };
+              setData(summary);
+              cacheManager.set(cacheKey, summary, TTL.LONG);
+              return;
+            }
+          }
+        }
+
+        const liveFallback = await buildLiveFallback(type);
+        setData(liveFallback);
+        cacheManager.set(cacheKey, liveFallback, TTL.MEDIUM);
+      } catch {
+        const liveFallback = await buildLiveFallback(type);
+        setData(liveFallback);
+        setError(null);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [isPulse, type]
+  );
+
+  useEffect(() => {
+    if (!isPulse) {
+      fetchSummary();
+    }
+  }, [isPulse, fetchSummary]);
+
+  if (isPulse) {
+    return {
+      data: livePulseSummary,
+      isLoading: weatherLoading && aqLoading && !livePulseSummary,
+      error: null,
+      refresh: () => {},
+    };
+  }
+
   return { data, isLoading, error, refresh: () => fetchSummary(true) };
 }
 

@@ -32,6 +32,19 @@ describe("Merkezi ENV Yapılandırması (Vite + Vercel + AI Studio)", () => {
     expect(ENV.VITE_TOMTOM_API_KEY).toBe("tomtom-key-789");
   });
 
+  it("VITE_SUPABASE_ANON_KEY || VITE_SUPABASE_PUBLISHABLE_KEY çift anahtar önceliğini otomatik çözer", () => {
+    // İkisi de tanımlıysa VITE_SUPABASE_ANON_KEY önceliklidir
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", ' "anon-primary-key" ');
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_secondary");
+    expect(ENV.VITE_SUPABASE_ANON_KEY).toBe("anon-primary-key");
+
+    // VITE_SUPABASE_ANON_KEY boş veya yalnızca tırnaksa VITE_SUPABASE_PUBLISHABLE_KEY otomatik devreye girer
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", '""');
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", " 'sb_publishable_vercel_key' ");
+    expect(ENV.VITE_SUPABASE_ANON_KEY).toBe("sb_publishable_vercel_key");
+    expect(ENV.VITE_SUPABASE_PUBLISHABLE_KEY).toBe("sb_publishable_vercel_key");
+  });
+
   it("APP_URL ve VITE_APP_URL değişkenlerini birleştirir", () => {
     vi.stubEnv("VITE_APP_URL", "");
     vi.stubEnv("APP_URL", "https://mugla-monitor.vercel.app");

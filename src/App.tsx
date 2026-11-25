@@ -31,6 +31,7 @@ import { I18nProvider } from "@/hooks/useTranslation";
 import { AccessibilityProvider } from "@/contexts/AccessibilityContext";
 import { UnifiedIntelligenceProvider } from "@/contexts/UnifiedIntelligenceContext";
 import { LivingLexiconDrawer } from "@/components/social/LivingLexiconDrawer";
+import { useSupabaseRealtimeSync } from "@/hooks/useSupabaseRealtimeSync";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, staleTime: 5 * 60 * 1000 } },
@@ -38,6 +39,7 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const { hasDashboardAccess, isLoading, enterAsGuest } = useAuth();
+  useSupabaseRealtimeSync(hasDashboardAccess);
 
   useEffect(() => {
     if (!hasDashboardAccess) return;

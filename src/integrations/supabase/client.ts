@@ -1,23 +1,28 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
-import { ENV, normalizeSupabaseUrl } from "@/config/env";
+import {
+  ENV,
+  normalizeSupabaseUrl,
+  sanitizeSupabaseKey,
+  isSupabaseKeyCompatibleWithUrl,
+} from "@/config/env";
 import { safeStorage } from "@/lib/safe-storage";
 
 export { normalizeSupabaseUrl };
 
 const SUPABASE_URL = normalizeSupabaseUrl(ENV.VITE_SUPABASE_URL);
-const SUPABASE_ANON_KEY = (
-  ENV.VITE_SUPABASE_ANON_KEY || ENV.VITE_SUPABASE_PUBLISHABLE_KEY
-)
-  .trim()
-  .replace(/^["'`]+|["'`]+$/g, "")
-  .trim();
+const RAW_SUPABASE_KEY =
+  sanitizeSupabaseKey(ENV.VITE_SUPABASE_ANON_KEY) ||
+  sanitizeSupabaseKey(ENV.VITE_SUPABASE_PUBLISHABLE_KEY);
+const SUPABASE_ANON_KEY = isSupabaseKeyCompatibleWithUrl(RAW_SUPABASE_KEY, SUPABASE_URL)
+  ? RAW_SUPABASE_KEY
+  : "";
 
 export const isSupabaseClientConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 if (!isSupabaseClientConfigured) {
   const message =
-    "[supabase] VITE_SUPABASE_URL geçersiz/eksik veya VITE_SUPABASE_ANON_KEY tanımlı değil. " +
+    "[supabase] VITE_SUPABASE_URL geçersiz/eksik veya VITE_SUPABASE_ANON_KEY / VITE_SUPABASE_PUBLISHABLE_KEY tanımlı değil. " +
     "Hardcoded production fallback değerleri güvenlik nedeniyle devre dışı bırakıldı.";
   if (ENV.IS_PROD) {
     console.error(message);

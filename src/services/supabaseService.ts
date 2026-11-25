@@ -3,7 +3,12 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { ENV, normalizeSupabaseUrl } from "@/config/env";
+import {
+  ENV,
+  normalizeSupabaseUrl,
+  sanitizeSupabaseKey,
+  isSupabaseKeyCompatibleWithUrl,
+} from "@/config/env";
 import { MUGLA_DISTRICTS } from "@/data/muglaDistricts";
 import { INVESTIGATION_DOSSIERS } from "@/data/investigationData";
 import { safeStorage } from "@/lib/safe-storage";
@@ -59,7 +64,11 @@ export interface SyncIntelResult {
  * Supabase istemci ortam değişkenlerinin tanımlı olup olmadığını kontrol eder.
  */
 export function checkSupabaseConfigured(): boolean {
-  return Boolean(normalizeSupabaseUrl(ENV.VITE_SUPABASE_URL) && ENV.VITE_SUPABASE_ANON_KEY);
+  const url = normalizeSupabaseUrl(ENV.VITE_SUPABASE_URL);
+  const key =
+    sanitizeSupabaseKey(ENV.VITE_SUPABASE_ANON_KEY) ||
+    sanitizeSupabaseKey(ENV.VITE_SUPABASE_PUBLISHABLE_KEY);
+  return Boolean(url && key && isSupabaseKeyCompatibleWithUrl(key, url));
 }
 
 export const isSupabaseConfigured: boolean = checkSupabaseConfigured();
@@ -73,9 +82,11 @@ let cachedSignature = "";
  */
 export function getSupabaseClient(): SupabaseClient<Database> | null {
   const url = normalizeSupabaseUrl(ENV.VITE_SUPABASE_URL);
-  const anonKey = ENV.VITE_SUPABASE_ANON_KEY.trim().replace(/^["'`]+|["'`]+$/g, "").trim();
+  const anonKey =
+    sanitizeSupabaseKey(ENV.VITE_SUPABASE_ANON_KEY) ||
+    sanitizeSupabaseKey(ENV.VITE_SUPABASE_PUBLISHABLE_KEY);
 
-  if (!url || !anonKey) {
+  if (!url || !anonKey || !isSupabaseKeyCompatibleWithUrl(anonKey, url)) {
     return null;
   }
 

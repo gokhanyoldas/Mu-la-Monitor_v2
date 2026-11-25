@@ -1,3 +1,5 @@
+import { normalizeSupabaseUrl, resolveSupabaseKeyFromRecord } from "./supabase-env-utils";
+
 /**
  * Dağıtım hedefine göre Vite `base` yolunu belirler:
  * - GitHub Pages (`DEPLOY_TARGET=gh-pages` veya `GITHUB_PAGES=true`) -> `/Mu-la-Monitor_v2/`
@@ -21,12 +23,10 @@ export function assertProductionEnv(
   mode: string,
   mergedEnv: Record<string, string | undefined>
 ): void {
-  const supabaseUrl = (mergedEnv.VITE_SUPABASE_URL || "").trim();
-  const supabaseAnonKey = (
-    mergedEnv.VITE_SUPABASE_ANON_KEY ||
-    mergedEnv.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    ""
-  ).trim();
+  const supabaseUrl = normalizeSupabaseUrl(
+    mergedEnv.VITE_SUPABASE_URL || mergedEnv.SUPABASE_URL || ""
+  );
+  const supabaseAnonKey = resolveSupabaseKeyFromRecord(mergedEnv, supabaseUrl);
 
   if (command !== "build" || mode !== "production") return;
   if (supabaseUrl && supabaseAnonKey) return;

@@ -4,11 +4,18 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { useLiveData } from "@/hooks/useLiveData";
 import { isValidVerificationUrl } from "@/services/fieldArbitrationEngine";
 
-export type SectorTopicKey = "environment_dams" | "transport_infra";
+export type SectorTopicKey =
+  | "environment_dams"
+  | "transport_infra"
+  | "energy_outages"
+  | "security_quakes"
+  | "tourism_occupancy"
+  | "economy_budget"
+  | "protocol_activity";
 
 export const TOPIC_GROUNDING_QUERIES: Record<
   SectorTopicKey,
@@ -25,6 +32,35 @@ export const TOPIC_GROUNDING_QUERIES: Record<
     tab: "Ulaşım",
     query:
       '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
+  },
+  energy_outages: {
+    label: "Enerji / ADM Elektrik",
+    tab: "Enerji",
+    query: '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
+  },
+  security_quakes: {
+    label: "Güvenlik / AFAD & Asayiş",
+    tab: "Güvenlik",
+    query:
+      '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" asayiş OR "Sahil Güvenlik" deniz güvenliği)',
+  },
+  tourism_occupancy: {
+    label: "Turizm / Doluluk",
+    tab: "Turizm",
+    query:
+      '("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye") otel doluluk oranı OR turist sayısı TÜRSAB OR BODER OR GETOB',
+  },
+  economy_budget: {
+    label: "Ekonomi / Bütçe & İhale",
+    tab: "Ekonomi",
+    query:
+      '("Muğla Büyükşehir" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" OR "Fethiye Belediyesi") bütçe OR ihale OR yatırım OR ("Muğla" TÜİK işsizlik oranı)',
+  },
+  protocol_activity: {
+    label: "Muğla Protokol / Son 24s",
+    tab: "Protokol",
+    query:
+      '("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat',
   },
 };
 
@@ -454,14 +490,251 @@ export function mergeDamIntelligence(params: {
   };
 }
 
-const TOPIC_CACHE_PREFIX = "mugla_topic_grounding_v1:";
-const TOPIC_CACHE_TTL_MS = 30 * 60 * 1000;
+export interface EnergyOutageNotice {
+  id: string;
+  district: string;
+  neighborhoods: string;
+  type: "planli" | "ariza";
+  status: "aktif" | "planli" | "giderildi";
+  summary: string;
+  sourceName: string;
+  sourceUrl: string;
+  publishedAt: string;
+  confidence: "high" | "medium";
+}
 
-interface TopicGroundingPayload {
+export interface EnergyIntelligenceSnapshot {
+  dailyConsumptionGwh: number | null;
+  activeOutageCount: number | null;
+  affectedDistricts: string[];
+  outages: EnergyOutageNotice[];
+  hasVerifiedLiveData: boolean;
+  latestSourceSummary: string;
+  latestMeasuredAt: string | null;
+}
+
+export interface SecurityTopicEvent {
+  id: string;
+  category: "deprem" | "asayis" | "deniz_guvenligi";
+  title: string;
+  district: string;
+  magnitude?: number | null;
+  depthKm?: number | null;
+  severity: "kritik" | "yuksek" | "normal";
+  sourceName: string;
+  sourceUrl: string;
+  publishedAt: string;
+  confidence: "high" | "medium";
+}
+
+export interface MergedQuakeRecord {
+  id: string;
+  magnitude: number;
+  location: string;
+  depthKm: number | null;
+  occurredAt: string;
+  sourceName: string;
+  sourceUrl?: string;
+}
+
+export interface SecurityIntelligenceSnapshot {
+  quakes: MergedQuakeRecord[];
+  latestQuake: MergedQuakeRecord | null;
+  maxMagnitude: number | null;
+  quakeCount: number | null;
+  publicOrderEvents: SecurityTopicEvent[];
+  publicOrderCount: number | null;
+  overviewValue: string;
+  hasVerifiedLiveData: boolean;
+  latestSourceSummary: string;
+  latestMeasuredAt: string | null;
+}
+
+export interface TourismDistrictRate {
+  district: string;
+  occupancyPct: number;
+  sourceName: string;
+  sourceUrl: string;
+  measuredAt: string;
+}
+
+export interface TourismTopicHeadline {
+  title: string;
+  district: string;
+  sourceName: string;
+  sourceUrl: string;
+  publishedAt: string;
+}
+
+export interface TourismTopicMetrics {
+  hotelOccupancyPct?: number | null;
+  annualTourists?: string | null;
+  districtRates?: TourismDistrictRate[];
+  headlines?: TourismTopicHeadline[];
+  sourceName?: string;
+  sourceUrl?: string;
+  measuredAt?: string;
+}
+
+export interface TourismIntelligenceSnapshot {
+  hotelOccupancyPct: number | null;
+  annualTourists: string | null;
+  airportPassengers: string | null;
+  cruiseShips: number | null;
+  totalBedsK: string | null;
+  districtRates: TourismDistrictRate[];
+  headlines: TourismTopicHeadline[];
+  hasVerifiedOccupancy: boolean;
+  hasVerifiedLiveData: boolean;
+  occupancySourceSummary: string;
+  movementSourceSummary: string;
+  latestMeasuredAt: string | null;
+}
+
+export interface EconomyBudgetItem {
+  id: string;
+  institution: string;
+  category: "butce" | "ihale" | "yatirim" | "isgucu";
+  title: string;
+  amountLabel?: string;
+  sourceName: string;
+  sourceUrl: string;
+  publishedAt: string;
+}
+
+export interface EconomyTopicUpdates {
+  unemploymentRate?: number | null;
+  unemploymentPeriod?: string | null;
+  unemploymentSource?: string | null;
+  items?: EconomyBudgetItem[];
+  sourceName?: string;
+  sourceUrl?: string;
+  measuredAt?: string;
+}
+
+export interface EconomyIntelligenceSnapshot {
+  unemploymentRate: number | null;
+  unemploymentPeriod: string | null;
+  tourismRevenueBn: string | null;
+  newCompanies: number | null;
+  budgetItems: EconomyBudgetItem[];
+  hasVerifiedLiveData: boolean;
+  latestSourceSummary: string;
+  latestMeasuredAt: string | null;
+}
+
+export interface ProtocolTopicActivity {
+  id: string;
+  actorName: string;
+  actorTitle: string;
+  category: "ziyaret" | "aciklama" | "gorev_degisikligi";
+  summary: string;
+  sourceName: string;
+  sourceUrl: string;
+  publishedAt: string;
+}
+
+export interface ProtocolMemberLike {
+  isim: string;
+  unvan: string;
+  kategori?: string;
+}
+
+export interface ProtocolActivitySnapshot {
+  byMemberKey: Map<string, ProtocolTopicActivity[]>;
+  activities: ProtocolTopicActivity[];
+  matchedMemberCount: number;
+  hasVerifiedLiveData: boolean;
+  latestSourceSummary: string;
+  latestMeasuredAt: string | null;
+}
+
+const TOPIC_CACHE_PREFIX = "mugla_topic_grounding_v1:";
+const TOPIC_COOLDOWN_KEY = "mugla_topic_grounding_cooldown_until_v1";
+const TOPIC_CACHE_TTL_MS = 30 * 60 * 1000;
+const SUPABASE_TOPIC_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const TOPIC_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_CLIENT_COOLDOWN_MS = 15 * 60 * 1000;
+
+let clientRateLimitCooldownUntil = 0;
+const topicNegativeCacheUntil = new Map<SectorTopicKey, number>();
+const inFlightClientTopicFetches = new Map<SectorTopicKey, Promise<TopicGroundingPayload>>();
+
+export function resetTopicGroundingClientState() {
+  clientRateLimitCooldownUntil = 0;
+  topicNegativeCacheUntil.clear();
+  inFlightClientTopicFetches.clear();
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(TOPIC_COOLDOWN_KEY);
+    } catch {
+      // ignore storage errors
+    }
+  }
+}
+
+function getClientCooldownUntil(): number {
+  let until = clientRateLimitCooldownUntil;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = window.localStorage.getItem(TOPIC_COOLDOWN_KEY);
+      if (raw) {
+        const parsed = Number(raw);
+        if (Number.isFinite(parsed) && parsed > until) {
+          until = parsed;
+          clientRateLimitCooldownUntil = parsed;
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+  return until;
+}
+
+function setClientRateLimitCooldown(retryAfterMs?: number) {
+  const clamped = Math.max(
+    60_000,
+    Math.min(Number.isFinite(Number(retryAfterMs)) && Number(retryAfterMs) > 0 ? Number(retryAfterMs) : DEFAULT_CLIENT_COOLDOWN_MS, 30 * 60 * 1000)
+  );
+  const until = Date.now() + clamped;
+  if (until > clientRateLimitCooldownUntil) {
+    clientRateLimitCooldownUntil = until;
+  }
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(TOPIC_COOLDOWN_KEY, String(clientRateLimitCooldownUntil));
+    } catch {
+      // ignore storage errors
+    }
+  }
+}
+
+function createEmptyTopicPayload(topic: SectorTopicKey): TopicGroundingPayload {
+  return {
+    topic,
+    fetchedAt: new Date().toISOString(),
+    damUpdates: [],
+    transportIncidents: [],
+    energyOutages: [],
+    securityEvents: [],
+    tourismMetrics: null,
+    economyUpdates: null,
+    protocolActivities: [],
+    groundingSources: [],
+  };
+}
+
+export interface TopicGroundingPayload {
   topic: SectorTopicKey;
   fetchedAt: string;
   damUpdates?: DamMeasurementObservation[];
   transportIncidents?: TransportTopicIncident[];
+  energyOutages?: EnergyOutageNotice[];
+  securityEvents?: SecurityTopicEvent[];
+  tourismMetrics?: TourismTopicMetrics | null;
+  economyUpdates?: EconomyTopicUpdates | null;
+  protocolActivities?: ProtocolTopicActivity[];
   groundingSources?: Array<{ uri: string; title: string }>;
 }
 
@@ -480,12 +753,44 @@ function readLocalTopicCache(topic: SectorTopicKey): TopicGroundingPayload | nul
   }
 }
 
-function writeLocalTopicCache(topic: SectorTopicKey, payload: TopicGroundingPayload) {
+export function writeLocalTopicCache(topic: SectorTopicKey, payload: TopicGroundingPayload) {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(`${TOPIC_CACHE_PREFIX}${topic}`, JSON.stringify(payload));
   } catch {
     // ignore storage quota errors
+  }
+}
+
+async function readSupabaseTopicCache(
+  topic: SectorTopicKey
+): Promise<TopicGroundingPayload | null> {
+  if (!isSupabaseClientConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from("live_data_cache")
+      .select("data, fetched_at")
+      .eq("data_type", `topic_grounding:${topic}`)
+      .maybeSingle();
+    if (error || !data?.data || typeof data.data !== "object") return null;
+    const fetchedAt =
+      typeof (data.data as any).fetchedAt === "string"
+        ? (data.data as any).fetchedAt
+        : typeof data.fetched_at === "string"
+        ? data.fetched_at
+        : null;
+    if (!fetchedAt) return null;
+    const age = Date.now() - new Date(fetchedAt).getTime();
+    if (!Number.isFinite(age) || age > SUPABASE_TOPIC_CACHE_TTL_MS) return null;
+    const payload: TopicGroundingPayload = {
+      ...(data.data as TopicGroundingPayload),
+      topic,
+      fetchedAt,
+    };
+    writeLocalTopicCache(topic, payload);
+    return payload;
+  } catch {
+    return null;
   }
 }
 
@@ -495,38 +800,703 @@ export async function fetchTopicGrounding(
   const cached = readLocalTopicCache(topic);
   if (cached) return cached;
 
-  const empty: TopicGroundingPayload = {
-    topic,
-    fetchedAt: new Date().toISOString(),
-    damUpdates: [],
-    transportIncidents: [],
-    groundingSources: [],
+  const existingInFlight = inFlightClientTopicFetches.get(topic);
+  if (existingInFlight) return existingInFlight;
+
+  const task = (async (): Promise<TopicGroundingPayload> => {
+    // 7/24 arka plan işçisinin Supabase'e yazdığı güncel tarama varsa ek Gemini kotası tüketme
+    const remoteCached = await readSupabaseTopicCache(topic);
+    if (remoteCached) return remoteCached;
+
+    const empty = createEmptyTopicPayload(topic);
+
+    // Sunucu 429 RESOURCE_EXHAUSTED bekleme modundaysa yeni istek gönderme
+    if (Date.now() < getClientCooldownUntil()) {
+      return empty;
+    }
+
+    const negUntil = topicNegativeCacheUntil.get(topic) ?? 0;
+    if (Date.now() < negUntil) {
+      return empty;
+    }
+
+    if (typeof fetch !== "function") return empty;
+
+    try {
+      const resp = await fetch("/api/intel/topic-grounding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic }),
+      });
+      if (resp.status === 429) {
+        setClientRateLimitCooldown(DEFAULT_CLIENT_COOLDOWN_MS);
+        return empty;
+      }
+      if (!resp.ok) {
+        topicNegativeCacheUntil.set(topic, Date.now() + TOPIC_NEGATIVE_CACHE_TTL_MS);
+        return empty;
+      }
+      const json = await resp.json();
+      if (json?.rateLimited) {
+        setClientRateLimitCooldown(json.retryAfterMs);
+        return empty;
+      }
+      if (!json?.ok) {
+        topicNegativeCacheUntil.set(topic, Date.now() + TOPIC_NEGATIVE_CACHE_TTL_MS);
+        return empty;
+      }
+
+      const payload: TopicGroundingPayload = {
+        topic,
+        fetchedAt: json.fetchedAt || new Date().toISOString(),
+        damUpdates: Array.isArray(json.damUpdates) ? json.damUpdates : [],
+        transportIncidents: Array.isArray(json.transportIncidents) ? json.transportIncidents : [],
+        energyOutages: Array.isArray(json.energyOutages) ? json.energyOutages : [],
+        securityEvents: Array.isArray(json.securityEvents) ? json.securityEvents : [],
+        tourismMetrics:
+          json.tourismMetrics && typeof json.tourismMetrics === "object"
+            ? json.tourismMetrics
+            : null,
+        economyUpdates:
+          json.economyUpdates && typeof json.economyUpdates === "object"
+            ? json.economyUpdates
+            : null,
+        protocolActivities: Array.isArray(json.protocolActivities) ? json.protocolActivities : [],
+        groundingSources: Array.isArray(json.groundingSources) ? json.groundingSources : [],
+      };
+      writeLocalTopicCache(topic, payload);
+      return payload;
+    } catch {
+      topicNegativeCacheUntil.set(topic, Date.now() + TOPIC_NEGATIVE_CACHE_TTL_MS);
+      return empty;
+    }
+  })().finally(() => {
+    inFlightClientTopicFetches.delete(topic);
+  });
+
+  inFlightClientTopicFetches.set(topic, task);
+  return task;
+}
+
+function buildSourceAttribution(sourceName?: string | null, isoDate?: string | null): string {
+  const name = (sourceName || "").trim();
+  const shortDate = formatShortTurkishDate(isoDate);
+  if (!name && !shortDate) return "";
+  if (name && shortDate) return `Kaynak: ${name} • ${shortDate}`;
+  if (name) return `Kaynak: ${name}`;
+  return `Güncelleme: ${shortDate}`;
+}
+
+/**
+ * 1. ENERJİ: ADM Elektrik kesinti duyuruları ile doğrulanmış canlı tüketim verilerini birleştirir.
+ * Canlı veri yoksa sabit 1.8 GWh veya "3 kesinti" uydurmaz; null (UI'da "—") döner.
+ */
+export function mergeEnergyIntelligence(params: {
+  energyCache?: any;
+  groundedOutages?: EnergyOutageNotice[];
+  arbitratedAlertsCount?: number;
+  arbitratedDistricts?: string[];
+}): EnergyIntelligenceSnapshot {
+  const {
+    energyCache,
+    groundedOutages = [],
+    arbitratedAlertsCount = 0,
+    arbitratedDistricts = [],
+  } = params;
+
+  const verifiedOutages = groundedOutages.filter(
+    (o) => Boolean(o?.district && o?.summary && isValidVerificationUrl(o?.sourceUrl))
+  );
+
+  const cacheIsSynthetic =
+    !energyCache || energyCache?.estimated === true || isSyntheticSeasonalCache(energyCache);
+
+  const rawConsumption =
+    !cacheIsSynthetic && energyCache?.daily_consumption_gwh !== undefined
+      ? Number(energyCache.daily_consumption_gwh)
+      : NaN;
+  const dailyConsumptionGwh =
+    Number.isFinite(rawConsumption) && rawConsumption > 0
+      ? Math.round(rawConsumption * 100) / 100
+      : null;
+
+  const activeGrounded = verifiedOutages.filter((o) => o.status !== "giderildi");
+  const cacheOutageRaw =
+    !cacheIsSynthetic && energyCache?.active_outages !== undefined
+      ? Number(energyCache.active_outages)
+      : NaN;
+
+  let activeOutageCount: number | null = null;
+  if (activeGrounded.length > 0 || arbitratedAlertsCount > 0) {
+    activeOutageCount = activeGrounded.length + arbitratedAlertsCount;
+  } else if (verifiedOutages.length > 0) {
+    activeOutageCount = 0;
+  } else if (Number.isFinite(cacheOutageRaw) && cacheOutageRaw >= 0) {
+    activeOutageCount = Math.round(cacheOutageRaw);
+  }
+
+  const districtSet = new Set<string>();
+  for (const o of activeGrounded) {
+    if (o.district.trim()) districtSet.add(o.district.trim());
+  }
+  for (const d of arbitratedDistricts) {
+    if (d && d.trim()) districtSet.add(d.trim());
+  }
+  const affectedDistricts = Array.from(districtSet);
+
+  const sortedOutages = [...verifiedOutages].sort(
+    (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+  );
+  const latestOutage = sortedOutages[0] ?? null;
+  const cacheUpdatedAt =
+    typeof energyCache?.updated_at === "string"
+      ? energyCache.updated_at
+      : typeof energyCache?.fetched_at === "string"
+      ? energyCache.fetched_at
+      : null;
+
+  const latestMeasuredAt = latestOutage?.publishedAt ?? (!cacheIsSynthetic ? cacheUpdatedAt : null);
+  const hasVerifiedLiveData =
+    verifiedOutages.length > 0 || arbitratedAlertsCount > 0 || dailyConsumptionGwh !== null;
+
+  let latestSourceSummary = "Canlı ADM Elektrik kesinti verisi yok · Tarama bekleniyor";
+  if (latestOutage) {
+    latestSourceSummary = buildSourceAttribution(latestOutage.sourceName, latestOutage.publishedAt);
+  } else if (!cacheIsSynthetic && dailyConsumptionGwh !== null) {
+    latestSourceSummary =
+      buildSourceAttribution(energyCache?.source || "EPİAŞ / ADM Elektrik", cacheUpdatedAt) ||
+      "Kaynak: EPİAŞ / ADM Elektrik";
+  }
+
+  return {
+    dailyConsumptionGwh,
+    activeOutageCount,
+    affectedDistricts,
+    outages: sortedOutages.slice(0, 5),
+    hasVerifiedLiveData,
+    latestSourceSummary,
+    latestMeasuredAt,
+  };
+}
+
+/**
+ * 2. GÜVENLİK: AFAD/Kandilli/USGS Muğla depremleri ile doğrulanmış asayiş/deniz güvenliği
+ * gelişmelerini birleştirir. Sabit "485", "128" ve "78/100" uydurma değerlerini üretmez.
+ */
+export function mergeSecurityIntelligence(params: {
+  earthquakeCache?: any;
+  groundedEvents?: SecurityTopicEvent[];
+}): SecurityIntelligenceSnapshot {
+  const { earthquakeCache, groundedEvents = [] } = params;
+
+  const quakes: MergedQuakeRecord[] = [];
+  const rawCacheList = Array.isArray(earthquakeCache)
+    ? earthquakeCache
+    : Array.isArray(earthquakeCache?.earthquakes)
+    ? earthquakeCache.earthquakes
+    : Array.isArray(earthquakeCache?.events)
+    ? earthquakeCache.events
+    : [];
+
+  for (let i = 0; i < rawCacheList.length; i++) {
+    const q = rawCacheList[i];
+    if (!q || typeof q !== "object") continue;
+    const mag = Number(q.magnitude ?? q.mag);
+    if (!Number.isFinite(mag) || mag <= 0 || mag >= 10) continue;
+    const loc = String(q.location ?? q.place ?? q.title ?? "Muğla").trim();
+    const depthRaw = q.depth_km ?? q.depth;
+    const depthNum = depthRaw !== null && depthRaw !== undefined ? Number(depthRaw) : NaN;
+    const rawTime = q.time ?? q.date ?? q.timestamp ?? q.occurred_at;
+    const parsedTime = rawTime ? new Date(rawTime) : null;
+    const occurredAt =
+      parsedTime && !Number.isNaN(parsedTime.getTime())
+        ? parsedTime.toISOString()
+        : new Date().toISOString();
+    const url = typeof q.url === "string" ? q.url : typeof q.source_url === "string" ? q.source_url : undefined;
+    quakes.push({
+      id: String(q.id ?? `eq-cache-${i}`),
+      magnitude: Math.round(mag * 10) / 10,
+      location: loc.slice(0, 90),
+      depthKm: Number.isFinite(depthNum) && depthNum >= 0 ? Math.round(depthNum * 10) / 10 : null,
+      occurredAt,
+      sourceName: String(q.source || earthquakeCache?.source || "AFAD/USGS").trim(),
+      sourceUrl: isValidVerificationUrl(url) ? url : undefined,
+    });
+  }
+
+  const verifiedGrounded = groundedEvents.filter(
+    (e) => Boolean(e?.title && isValidVerificationUrl(e?.sourceUrl))
+  );
+
+  for (const ev of verifiedGrounded) {
+    if (ev.category !== "deprem") continue;
+    const mag = typeof ev.magnitude === "number" ? ev.magnitude : NaN;
+    if (!Number.isFinite(mag) || mag <= 0 || mag >= 10) continue;
+    const sameDay = formatShortTurkishDate(ev.publishedAt);
+    const duplicate = quakes.some(
+      (q) =>
+        Math.abs(q.magnitude - mag) < 0.15 &&
+        formatShortTurkishDate(q.occurredAt) === sameDay
+    );
+    if (!duplicate) {
+      quakes.push({
+        id: ev.id,
+        magnitude: Math.round(mag * 10) / 10,
+        location: ev.district || ev.title,
+        depthKm: typeof ev.depthKm === "number" ? ev.depthKm : null,
+        occurredAt: ev.publishedAt,
+        sourceName: ev.sourceName || "AFAD/Kandilli",
+        sourceUrl: ev.sourceUrl,
+      });
+    }
+  }
+
+  quakes.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
+
+  const publicOrderEvents = verifiedGrounded
+    .filter((e) => e.category === "asayis" || e.category === "deniz_guvenligi")
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  const latestQuake = quakes[0] ?? null;
+  const maxMagnitude =
+    quakes.length > 0 ? Math.max(...quakes.map((q) => q.magnitude)) : null;
+
+  const latestItems: Array<{ sourceName: string; isoDate: string }> = [];
+  if (latestQuake) {
+    latestItems.push({ sourceName: latestQuake.sourceName, isoDate: latestQuake.occurredAt });
+  }
+  if (publicOrderEvents[0]) {
+    latestItems.push({
+      sourceName: publicOrderEvents[0].sourceName,
+      isoDate: publicOrderEvents[0].publishedAt,
+    });
+  }
+  latestItems.sort((a, b) => new Date(b.isoDate).getTime() - new Date(a.isoDate).getTime());
+  const newest = latestItems[0] ?? null;
+
+  const hasVerifiedLiveData = quakes.length > 0 || publicOrderEvents.length > 0;
+  let overviewValue = "—";
+  if (latestQuake) {
+    overviewValue = `M${latestQuake.magnitude.toFixed(1)}`;
+  } else if (publicOrderEvents.length > 0) {
+    overviewValue = `${publicOrderEvents.length} gelişme`;
+  }
+
+  const latestSourceSummary = newest
+    ? buildSourceAttribution(newest.sourceName, newest.isoDate)
+    : "Canlı AFAD/Kandilli veya asayiş verisi yok · Tarama bekleniyor";
+
+  return {
+    quakes: quakes.slice(0, 6),
+    latestQuake,
+    maxMagnitude,
+    quakeCount: quakes.length > 0 ? quakes.length : null,
+    publicOrderEvents: publicOrderEvents.slice(0, 5),
+    publicOrderCount: publicOrderEvents.length > 0 ? publicOrderEvents.length : null,
+    overviewValue,
+    hasVerifiedLiveData,
+    latestSourceSummary,
+    latestMeasuredAt: newest?.isoDate ?? null,
+  };
+}
+
+/**
+ * 3. TURİZM: Muğla/Bodrum/Marmaris/Fethiye otel doluluk ve turist verilerini yerel kaynaklardan
+ * günceller; eski sentetik sezonsal %41/%38 değerlerini canlı ölçüm gibi göstermez.
+ */
+export function mergeTourismIntelligence(params: {
+  tourismCache?: any;
+  groundedTourism?: TourismTopicMetrics | null;
+}): TourismIntelligenceSnapshot {
+  const { tourismCache, groundedTourism } = params;
+
+  const verifiedDistrictRates = (groundedTourism?.districtRates ?? []).filter(
+    (r) =>
+      Boolean(r?.district && isValidVerificationUrl(r?.sourceUrl)) &&
+      Number.isFinite(r.occupancyPct) &&
+      r.occupancyPct >= 0 &&
+      r.occupancyPct <= 100
+  );
+
+  const verifiedHeadlines = (groundedTourism?.headlines ?? []).filter(
+    (h) => Boolean(h?.title && isValidVerificationUrl(h?.sourceUrl))
+  );
+
+  const groundedHasUrl = isValidVerificationUrl(groundedTourism?.sourceUrl);
+  let hotelOccupancyPct: number | null = null;
+  let occSourceName: string | undefined;
+  let occMeasuredAt: string | undefined;
+
+  if (
+    groundedHasUrl &&
+    typeof groundedTourism?.hotelOccupancyPct === "number" &&
+    Number.isFinite(groundedTourism.hotelOccupancyPct) &&
+    groundedTourism.hotelOccupancyPct >= 0 &&
+    groundedTourism.hotelOccupancyPct <= 100
+  ) {
+    hotelOccupancyPct = Math.round(groundedTourism.hotelOccupancyPct * 10) / 10;
+    occSourceName = groundedTourism.sourceName || "TÜRSAB / Yerel Basın";
+    occMeasuredAt = groundedTourism.measuredAt;
+  } else if (verifiedDistrictRates.length > 0) {
+    const avg =
+      verifiedDistrictRates.reduce((acc, r) => acc + r.occupancyPct, 0) /
+      verifiedDistrictRates.length;
+    hotelOccupancyPct = Math.round(avg * 10) / 10;
+    occSourceName = verifiedDistrictRates[0].sourceName;
+    occMeasuredAt = verifiedDistrictRates[0].measuredAt;
+  } else if (
+    tourismCache &&
+    tourismCache.hotel_occupancy_verified === true &&
+    !isSyntheticSeasonalCache(tourismCache) &&
+    isValidVerificationUrl(tourismCache.source_url) &&
+    Number.isFinite(Number(tourismCache.hotel_occupancy))
+  ) {
+    hotelOccupancyPct = Math.round(Number(tourismCache.hotel_occupancy) * 10) / 10;
+    occSourceName = String(tourismCache.source || "TÜRSAB").trim();
+    occMeasuredAt = String(tourismCache.measured_at || tourismCache.updated_at || "");
+  }
+
+  const groundedAnnualTourists =
+    groundedHasUrl &&
+    typeof groundedTourism?.annualTourists === "string" &&
+    groundedTourism.annualTourists.trim()
+      ? groundedTourism.annualTourists.trim()
+      : null;
+
+  const cachePeriod =
+    typeof tourismCache?.source_period === "string" && tourismCache.source_period.trim()
+      ? tourismCache.source_period.trim()
+      : null;
+
+  const annualTourists =
+    groundedAnnualTourists ??
+    (cachePeriod && tourismCache?.annual_tourists ? String(tourismCache.annual_tourists) : null);
+
+  const airportPassengers =
+    cachePeriod && tourismCache?.airport_passengers
+      ? String(tourismCache.airport_passengers)
+      : null;
+  const cruiseShips =
+    cachePeriod && Number.isFinite(Number(tourismCache?.cruise_ships))
+      ? Number(tourismCache.cruise_ships)
+      : null;
+  const rawBeds = Number(tourismCache?.beds);
+  const totalBedsK =
+    cachePeriod && Number.isFinite(rawBeds) && rawBeds > 0
+      ? rawBeds >= 1000
+        ? `${Math.round(rawBeds / 1000)}K`
+        : String(rawBeds)
+      : null;
+
+  const occupancySourceSummary =
+    hotelOccupancyPct !== null
+      ? buildSourceAttribution(occSourceName || "TÜRSAB / Yerel Basın", occMeasuredAt)
+      : "Canlı otel doluluk verisi yok · TÜRSAB/BODER taraması bekleniyor";
+
+  let movementSourceSummary = "Canlı turizm verisi yok · Kültür-Turizm/yerel kaynak bekleniyor";
+  if (groundedAnnualTourists) {
+    movementSourceSummary = buildSourceAttribution(
+      groundedTourism?.sourceName || "Kültür ve Turizm Bakanlığı",
+      groundedTourism?.measuredAt
+    );
+  } else if (verifiedHeadlines[0]) {
+    movementSourceSummary = buildSourceAttribution(
+      verifiedHeadlines[0].sourceName,
+      verifiedHeadlines[0].publishedAt
+    );
+  } else if (cachePeriod && annualTourists) {
+    movementSourceSummary = `Kaynak: Kültür ve Turizm Bakanlığı • ${cachePeriod}`;
+  }
+
+  return {
+    hotelOccupancyPct,
+    annualTourists,
+    airportPassengers,
+    cruiseShips,
+    totalBedsK,
+    districtRates: verifiedDistrictRates.slice(0, 4),
+    headlines: verifiedHeadlines.slice(0, 4),
+    hasVerifiedOccupancy: hotelOccupancyPct !== null,
+    hasVerifiedLiveData:
+      hotelOccupancyPct !== null ||
+      annualTourists !== null ||
+      verifiedHeadlines.length > 0,
+    occupancySourceSummary,
+    movementSourceSummary,
+    latestMeasuredAt: occMeasuredAt ?? groundedTourism?.measuredAt ?? null,
+  };
+}
+
+/**
+ * 4. EKONOMİ: Muğla Büyükşehir & ilçe belediyelerinin güncel bütçe/ihale/yatırım gelişmeleri
+ * ve TÜİK işgücü verilerini kaynak tarihiyle birleştirir. Veri yoksa "—" gösterir.
+ */
+export function mergeEconomyIntelligence(params: {
+  economyCache?: any;
+  groundedEconomy?: EconomyTopicUpdates | null;
+}): EconomyIntelligenceSnapshot {
+  const { economyCache, groundedEconomy } = params;
+
+  const verifiedItems = (groundedEconomy?.items ?? [])
+    .filter((it) => Boolean(it?.title && isValidVerificationUrl(it?.sourceUrl)))
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  const groundedHasUrl = isValidVerificationUrl(groundedEconomy?.sourceUrl);
+  const groundedUnemp =
+    groundedHasUrl &&
+    typeof groundedEconomy?.unemploymentRate === "number" &&
+    Number.isFinite(groundedEconomy.unemploymentRate) &&
+    groundedEconomy.unemploymentRate > 0 &&
+    groundedEconomy.unemploymentRate < 60
+      ? Math.round(groundedEconomy.unemploymentRate * 10) / 10
+      : null;
+
+  const cachePeriod =
+    typeof economyCache?.source_period === "string" && economyCache.source_period.trim()
+      ? economyCache.source_period.trim()
+      : null;
+  const cacheUnempRaw = Number(economyCache?.unemployment_rate);
+  const cacheUnemp =
+    cachePeriod && Number.isFinite(cacheUnempRaw) && cacheUnempRaw > 0 && cacheUnempRaw < 60
+      ? Math.round(cacheUnempRaw * 10) / 10
+      : null;
+
+  const unemploymentRate = groundedUnemp ?? cacheUnemp;
+  const unemploymentPeriod =
+    groundedUnemp !== null
+      ? groundedEconomy?.unemploymentPeriod || "TÜİK"
+      : cacheUnemp !== null
+      ? cachePeriod
+      : null;
+
+  const tourismRevenueBn =
+    economyCache?.tourism_revenue_usd_m && economyCache?.usd_try
+      ? ((Number(economyCache.tourism_revenue_usd_m) * Number(economyCache.usd_try)) / 1000).toFixed(1)
+      : null;
+
+  const rawCompanies = Number(economyCache?.new_companies);
+  const newCompanies =
+    cachePeriod && Number.isFinite(rawCompanies) && rawCompanies > 0
+      ? Math.round(rawCompanies)
+      : null;
+
+  const latestItem = verifiedItems[0] ?? null;
+  const latestMeasuredAt =
+    latestItem?.publishedAt ??
+    (groundedHasUrl ? groundedEconomy?.measuredAt ?? null : null);
+
+  let latestSourceSummary = "Canlı bütçe/ihale ve TÜİK verisi yok · Tarama bekleniyor";
+  if (latestItem) {
+    latestSourceSummary = buildSourceAttribution(latestItem.sourceName, latestItem.publishedAt);
+  } else if (groundedUnemp !== null) {
+    latestSourceSummary = buildSourceAttribution(
+      groundedEconomy?.unemploymentSource || groundedEconomy?.sourceName || "TÜİK",
+      groundedEconomy?.measuredAt
+    );
+  } else if (cachePeriod && (cacheUnemp !== null || tourismRevenueBn !== null)) {
+    latestSourceSummary = `Kaynak: TÜİK / TCMB • ${cachePeriod}`;
+  }
+
+  return {
+    unemploymentRate,
+    unemploymentPeriod,
+    tourismRevenueBn,
+    newCompanies,
+    budgetItems: verifiedItems.slice(0, 5),
+    hasVerifiedLiveData:
+      unemploymentRate !== null ||
+      tourismRevenueBn !== null ||
+      newCompanies !== null ||
+      verifiedItems.length > 0,
+    latestSourceSummary,
+    latestMeasuredAt,
+  };
+}
+
+const HONORIFIC_TOKENS = new Set([
+  "dr",
+  "prof",
+  "doç",
+  "doc",
+  "av",
+  "sayın",
+  "sayin",
+  "sn",
+  "tuğg",
+  "tugg",
+  "tümg",
+  "tumg",
+  "alb",
+  "yarb",
+  "başkan",
+  "baskan",
+  "vali",
+  "kaymakam",
+  "müdür",
+  "mudur",
+]);
+
+const MUGLA_DISTRICTS_NORM = [
+  "bodrum",
+  "marmaris",
+  "fethiye",
+  "milas",
+  "menteşe",
+  "datça",
+  "dalaman",
+  "ortaca",
+  "köyceğiz",
+  "yatağan",
+  "ula",
+  "seydikemer",
+  "kavaklıdere",
+];
+
+function tokenizePersonName(raw: string): string[] {
+  return normTr(raw)
+    .replace(/[.,()'"/:;-]/g, " ")
+    .split(/\s+/)
+    .filter((tok) => tok.length >= 2 && !HONORIFIC_TOKENS.has(tok));
+}
+
+export function getProtocolMemberKey(member: Pick<ProtocolMemberLike, "isim" | "unvan">): string {
+  return `${member.isim}::${member.unvan}`;
+}
+
+/**
+ * 5. MUĞLA PROTOKOL: Son 24 saatteki doğrulanmış resmi ziyaret, açıklama veya görev
+ * değişikliklerini 462 kişilik protokol listesiyle deterministik olarak eşleştirir.
+ */
+export function matchProtocolActivitiesToMembers(
+  members: ProtocolMemberLike[],
+  activities: ProtocolTopicActivity[]
+): ProtocolActivitySnapshot {
+  const byMemberKey = new Map<string, ProtocolTopicActivity[]>();
+  const verified = (activities ?? [])
+    .filter(
+      (a) =>
+        Boolean((a?.actorName || a?.actorTitle) && a?.summary && isValidVerificationUrl(a?.sourceUrl))
+    )
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  const addMatch = (member: ProtocolMemberLike, act: ProtocolTopicActivity) => {
+    const key = getProtocolMemberKey(member);
+    const list = byMemberKey.get(key) ?? [];
+    if (!list.some((x) => x.summary === act.summary && x.sourceUrl === act.sourceUrl)) {
+      list.push(act);
+      byMemberKey.set(key, list);
+    }
   };
 
-  if (typeof fetch !== "function") return empty;
+  for (const act of verified) {
+    const actorTokens = tokenizePersonName(act.actorName || "");
+    let matchedAny = false;
 
-  try {
-    const resp = await fetch("/api/intel/topic-grounding", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic }),
-    });
-    if (!resp.ok) return empty;
-    const json = await resp.json();
-    if (!json?.ok) return empty;
+    // 1. Öncelik: Tam isim eşleşmesi (en az 2 ortak ad/soyad tokeni + soyad uyumu)
+    if (actorTokens.length >= 2) {
+      const surname = actorTokens[actorTokens.length - 1];
+      for (const m of members) {
+        const mTokens = tokenizePersonName(m.isim);
+        if (mTokens.length < 2) continue;
+        const overlap = actorTokens.filter((t) => mTokens.includes(t));
+        if (overlap.length >= 2 && mTokens.includes(surname)) {
+          addMatch(m, act);
+          matchedAny = true;
+        }
+      }
+    }
 
-    const payload: TopicGroundingPayload = {
-      topic,
-      fetchedAt: json.fetchedAt || new Date().toISOString(),
-      damUpdates: Array.isArray(json.damUpdates) ? json.damUpdates : [],
-      transportIncidents: Array.isArray(json.transportIncidents) ? json.transportIncidents : [],
-      groundingSources: Array.isArray(json.groundingSources) ? json.groundingSources : [],
-    };
-    writeLocalTopicCache(topic, payload);
-    return payload;
-  } catch {
-    return empty;
+    // 2. Öncelik: Makam / unvan eşleşmesi (isim haberde geçmediyse veya farklı yazıldıysa)
+    if (!matchedAny && act.actorTitle) {
+      const titleLow = normTr(act.actorTitle);
+      const actDistrict = MUGLA_DISTRICTS_NORM.find((d) => titleLow.includes(d));
+
+      for (const m of members) {
+        const uLow = normTr(m.unvan);
+        if (
+          titleLow.includes("vali") &&
+          !titleLow.includes("yardımcı") &&
+          (uLow === "vali" || uLow === "muğla valisi")
+        ) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (
+          titleLow.includes("büyükşehir belediye başkanı") &&
+          uLow.includes("büyükşehir belediye başkanı") &&
+          !uLow.includes("vekil")
+        ) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (
+          actDistrict &&
+          titleLow.includes("kaymakam") &&
+          uLow.includes(actDistrict) &&
+          uLow.includes("kaymakam")
+        ) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (
+          actDistrict &&
+          titleLow.includes("belediye başkanı") &&
+          uLow.includes(actDistrict) &&
+          uLow.includes("belediye başkanı")
+        ) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (
+          titleLow.includes("cumhuriyet başsavcısı") &&
+          uLow.includes("cumhuriyet başsavcısı") &&
+          (!actDistrict || uLow.includes(actDistrict))
+        ) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (
+          titleLow.includes("rektör") &&
+          !titleLow.includes("yardımcı") &&
+          uLow.includes("rektör") &&
+          !uLow.includes("yardımcı")
+        ) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (titleLow.includes("il emniyet müdürü") && uLow.includes("il emniyet müdürü")) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+        if (titleLow.includes("il jandarma komutanı") && uLow.includes("il jandarma komutanı")) {
+          addMatch(m, act);
+          matchedAny = true;
+          break;
+        }
+      }
+    }
   }
+
+  const latest = verified[0] ?? null;
+  const latestSourceSummary = latest
+    ? buildSourceAttribution(latest.sourceName, latest.publishedAt)
+    : "Son 24 saatte doğrulanmış protokol gelişmesi yok · Tarama bekleniyor";
+
+  return {
+    byMemberKey,
+    activities: verified,
+    matchedMemberCount: byMemberKey.size,
+    hasVerifiedLiveData: verified.length > 0,
+    latestSourceSummary,
+    latestMeasuredAt: latest?.publishedAt ?? null,
+  };
 }
 
 async function fetchVerifiedDamPressPosts(): Promise<DamMeasurementObservation[]> {
@@ -616,6 +1586,155 @@ export function useTransportTopicGrounding() {
   return {
     incidents: data?.transportIncidents ?? [],
     fetchedAt: data?.fetchedAt ?? null,
+    isLoading,
+  };
+}
+
+/**
+ * Enerji sekmesi: ADM Elektrik Muğla güncel planlı/arızalı kesinti duyuruları + canlı tüketim.
+ */
+export function useEnergyIntelligence(arbitratedAlertsCount = 0, arbitratedDistricts: string[] = []) {
+  const { data: energyCache, isLoading: cacheLoading } = useLiveData<any>("energy", {
+    refetchInterval: 30 * 60 * 1000,
+  });
+
+  const { data: topicData, isLoading: topicLoading } = useQuery<TopicGroundingPayload>({
+    queryKey: ["topic-grounding", "energy_outages"],
+    queryFn: () => fetchTopicGrounding("energy_outages"),
+    staleTime: 20 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+    retry: false,
+  });
+
+  const snapshot = useMemo(
+    () =>
+      mergeEnergyIntelligence({
+        energyCache,
+        groundedOutages: topicData?.energyOutages ?? [],
+        arbitratedAlertsCount,
+        arbitratedDistricts,
+      }),
+    [energyCache, topicData?.energyOutages, arbitratedAlertsCount, arbitratedDistricts]
+  );
+
+  return {
+    ...snapshot,
+    isLoading: cacheLoading || topicLoading,
+  };
+}
+
+/**
+ * Güvenlik sekmesi & Genel Bakış: AFAD/Kandilli Muğla depremleri + asayiş / deniz güvenliği.
+ */
+export function useSecurityIntelligence() {
+  const { data: earthquakeCache, isLoading: cacheLoading } = useLiveData<any>("earthquakes", {
+    refetchInterval: 10 * 60 * 1000,
+  });
+
+  const { data: topicData, isLoading: topicLoading } = useQuery<TopicGroundingPayload>({
+    queryKey: ["topic-grounding", "security_quakes"],
+    queryFn: () => fetchTopicGrounding("security_quakes"),
+    staleTime: 15 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+    retry: false,
+  });
+
+  const snapshot = useMemo(
+    () =>
+      mergeSecurityIntelligence({
+        earthquakeCache,
+        groundedEvents: topicData?.securityEvents ?? [],
+      }),
+    [earthquakeCache, topicData?.securityEvents]
+  );
+
+  return {
+    ...snapshot,
+    isLoading: cacheLoading || topicLoading,
+  };
+}
+
+/**
+ * Turizm sekmesi & Genel Bakış: Muğla/Bodrum/Marmaris/Fethiye güncel otel doluluk ve turist verileri.
+ */
+export function useTourismIntelligence() {
+  const { data: tourismCache, isLoading: cacheLoading } = useLiveData<any>("tourism", {
+    refetchInterval: 60 * 60 * 1000,
+  });
+
+  const { data: topicData, isLoading: topicLoading } = useQuery<TopicGroundingPayload>({
+    queryKey: ["topic-grounding", "tourism_occupancy"],
+    queryFn: () => fetchTopicGrounding("tourism_occupancy"),
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
+    retry: false,
+  });
+
+  const snapshot = useMemo(
+    () =>
+      mergeTourismIntelligence({
+        tourismCache,
+        groundedTourism: topicData?.tourismMetrics ?? null,
+      }),
+    [tourismCache, topicData?.tourismMetrics]
+  );
+
+  return {
+    ...snapshot,
+    isLoading: cacheLoading || topicLoading,
+  };
+}
+
+/**
+ * Ekonomi sekmesi & Genel Bakış: Muğla Büyükşehir & ilçe belediyesi bütçe/ihale/yatırım + TÜİK işgücü.
+ */
+export function useEconomyIntelligence() {
+  const { data: economyCache, isLoading: cacheLoading } = useLiveData<any>("economy", {
+    refetchInterval: 30 * 60 * 1000,
+  });
+
+  const { data: topicData, isLoading: topicLoading } = useQuery<TopicGroundingPayload>({
+    queryKey: ["topic-grounding", "economy_budget"],
+    queryFn: () => fetchTopicGrounding("economy_budget"),
+    staleTime: 30 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000,
+    retry: false,
+  });
+
+  const snapshot = useMemo(
+    () =>
+      mergeEconomyIntelligence({
+        economyCache,
+        groundedEconomy: topicData?.economyUpdates ?? null,
+      }),
+    [economyCache, topicData?.economyUpdates]
+  );
+
+  return {
+    ...snapshot,
+    isLoading: cacheLoading || topicLoading,
+  };
+}
+
+/**
+ * Muğla Protokol sekmesi: 462 kişilik liste ile son 24 saatteki resmi ziyaret/açıklama/görev değişikliği eşleşmesi.
+ */
+export function useProtocolActivityIntelligence(members: ProtocolMemberLike[]) {
+  const { data: topicData, isLoading } = useQuery<TopicGroundingPayload>({
+    queryKey: ["topic-grounding", "protocol_activity"],
+    queryFn: () => fetchTopicGrounding("protocol_activity"),
+    staleTime: 20 * 60 * 1000,
+    refetchInterval: 30 * 60 * 1000,
+    retry: false,
+  });
+
+  const snapshot = useMemo(
+    () => matchProtocolActivitiesToMembers(members, topicData?.protocolActivities ?? []),
+    [members, topicData?.protocolActivities]
+  );
+
+  return {
+    ...snapshot,
     isLoading,
   };
 }

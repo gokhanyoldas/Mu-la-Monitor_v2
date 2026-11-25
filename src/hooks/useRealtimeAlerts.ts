@@ -3,7 +3,7 @@
 // Replaces 5-minute polling for deprem/yangın/kriz channels with instant push.
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 export type AlertSeverity = "critical" | "high" | "medium" | "info";
@@ -60,6 +60,7 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
   }, []);
 
   useEffect(() => {
+    if (!isSupabaseClientConfigured) return;
     // Recent alert history — the feed shouldn't start empty on first paint.
     // Demo Veri kaynaklı uyarılar history'de gösterilmez (kullanıcı tercihi).
     supabase

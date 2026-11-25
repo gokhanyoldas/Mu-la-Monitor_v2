@@ -2,43 +2,34 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "@/hooks/useTranslation";
 import { DashboardHeader, type DashboardTab } from "@/components/dashboard/DashboardHeader";
-import { EconomySection } from "@/components/dashboard/sections/EconomySection";
-import { EnvironmentSection } from "@/components/dashboard/sections/EnvironmentSection";
 import {
-  TourismSection,
   TourismMovementPanel,
   AccommodationPanel,
   VisitorProfilePanel,
 } from "@/components/dashboard/sections/TourismSection";
 import {
-  SocialSection,
   DemographicsPanel,
   EducationPanel,
   HealthPanel,
   LifeQualityPanel,
 } from "@/components/dashboard/sections/SocialSection";
 import {
-  TransportSection,
   TrafficSummaryPanel,
-  AirportsSummaryPanel,
   InfrastructureProjectsPanel,
 } from "@/components/dashboard/sections/TransportSection";
 import { FlightTrackerSection } from "@/components/dashboard/sections/FlightTrackerSection";
 import { BusScheduleSection } from "@/components/dashboard/sections/BusScheduleSection";
 import {
-  EnergySection,
   EnergyConsumptionPanel,
   RenewableEnergyPanel,
   SustainabilityPanel,
 } from "@/components/dashboard/sections/EnergySection";
 import {
-  SecuritySection,
   SecurityOverviewPanel,
   RadarTrafficMapPanel,
   EmergencyPanel,
   LocalGovQuickPanel,
 } from "@/components/dashboard/sections/SecuritySection";
-import { CultureAgriSection } from "@/components/dashboard/sections/CultureAgriSection";
 import { SocialIntelSection } from "@/components/dashboard/sections/SocialIntelSection";
 import { GastronomySection } from "@/components/dashboard/sections/GastronomySection";
 import { TrafficDensityMap } from "@/components/dashboard/sections/TrafficDensityMap";
@@ -47,28 +38,28 @@ import { TrendTopicsSection } from "@/components/dashboard/sections/TrendTopicsS
 import { LocalGovBudgetSection } from "@/components/dashboard/sections/LocalGovBudgetSection";
 import { useLiveData } from "@/hooks/useLiveData";
 import { SmartCard } from "@/components/intelligence/SmartCard";
-import { LiveIndicator } from "@/components/intelligence/LiveIndicator";
 // M10: Deprem Erken Uyarı Banner
 import { EarthquakeAlertBanner } from "@/components/EarthquakeAlertBanner";
 // M11: Yangın Risk Göstergesi
 import { FireRiskIndicator } from "@/components/FireRiskIndicator";
 // M9: Turizm Tahmin Modeli
 import { TourismForecastPanel } from "@/components/TourismForecastPanel";
-// M15: Kullanıcı Profil Paneli
-import { UserProfilePanel } from "@/components/UserProfilePanel";
 // Şehir Özeti: güncel şehir durumunu tek kartta toplar
 import { AISummaryCard } from "@/components/AISummaryCard";
-import { InvestigationHub } from "@/components/investigation/InvestigationHub";
-import { MuglaNetworkDiagram } from "@/components/dashboard/MuglaNetworkDiagram";
-import { ProtocolNetworkGraph } from "@/components/network/ProtocolNetworkGraph";
+import { InvestigationHub, type InvestigationHubView } from "@/components/investigation/InvestigationHub";
 
 import { EconomyOverviewPanel, RealEstatePanel } from "@/components/dashboard/sections/EconomySection";
 import { WeatherClimatePanel, AirQualityPanel, WaterDamsPanel } from "@/components/dashboard/sections/EnvironmentSection";
-import { useDamIntelligence } from "@/services/topicGroundingService";
+import {
+  useDamIntelligence,
+  useTourismIntelligence,
+  useEconomyIntelligence,
+  useSecurityIntelligence,
+} from "@/services/topicGroundingService";
 import { AgriculturePanel, CultureEventsPanel, CulturalHeritagePanel } from "@/components/dashboard/sections/CultureAgriSection";
 
 // Her sekme yalnızca kendi ana konusunu tekrarsız ve bol boşluklu gösterir
-const getTwoColumnTabContent = (tab: Exclude<DashboardTab, "genel" | "protokol" | "diyagram" | "ag_grafigi">): { col1: React.ReactNode[]; col2: React.ReactNode[] } => {
+const getTwoColumnTabContent = (tab: Exclude<DashboardTab, "genel" | "protokol" | "diyagram">): { col1: React.ReactNode[]; col2: React.ReactNode[] } => {
   switch (tab) {
     case "ekonomi":
       return {
@@ -154,7 +145,7 @@ const getTwoColumnTabContent = (tab: Exclude<DashboardTab, "genel" | "protokol" 
   }
 };
 
-// Genel Bakış için Sütun 1 - 2 - 3 Ferah Özet Düzeni (tekrarsız 6 temel gösterge)
+// Genel Bakış Yönetici Özeti: yalnızca ilk satırdaki 3 ana özet kartı (kopya alt paneller yok)
 export type ColumnLayout = {
   col1: string[];
   col2: string[];
@@ -162,58 +153,31 @@ export type ColumnLayout = {
 };
 
 export const DEFAULT_COLUMNS: ColumnLayout = {
-  col1: ["traffic", "weather"],
-  col2: ["economy", "dams"],
-  col3: ["tourism_forecast", "social_trends"],
+  col1: ["traffic_summary"],
+  col2: ["economy"],
+  col3: ["tourism_general"],
 };
 
 const PANEL_REGISTRY: Record<string, { title: string; category: string; component: React.ReactNode }> = {
-  // Saha, Çevre & Meteoroloji
-  traffic: { title: "Trafik Yoğunluk Haritası", category: "transport", component: <TrafficDensityMap /> },
-  weather: { title: "Hava & İklim", category: "weather", component: <WeatherClimatePanel /> },
-  air_quality: { title: "Hava Kalitesi (AQI)", category: "air_quality", component: <AirQualityPanel /> },
-  fire_risk: { title: "Yangın Riski Göstergesi", category: "environment", component: <FireRiskIndicator /> },
-  dams: { title: "Su & Barajlar", category: "dams", component: <WaterDamsPanel /> },
+  traffic_summary: { title: "Trafik Özeti", category: "transport", component: <TrafficSummaryPanel /> },
+  economy: { title: "Ekonomi Özeti", category: "economy", component: <EconomyOverviewPanel /> },
+  tourism_general: { title: "Turizm Özeti", category: "tourism", component: <TourismMovementPanel /> },
+};
 
-  // Ekonomi, Bütçe & Tarım
-  economy: { title: "Ekonomi & İstihdam", category: "economy", component: <EconomyOverviewPanel /> },
-  real_estate: { title: "Gayrimenkul & İlanlar", category: "economy", component: <RealEstatePanel /> },
-  agriculture: { title: "Tarım & Üretim", category: "culture", component: <AgriculturePanel /> },
-  local_budget: { title: "Yerel Yönetim Bütçeleri", category: "economy", component: <LocalGovBudgetSection /> },
+const COLUMNS_STORAGE_KEY = "mugla_dashboard_columns_v8";
 
-  // Turizm, Kültür & Ulaşım (Ayrıştırılmış Bağımsız Göstergeler)
-  tourism_forecast: { title: "Turizm Tahmin Modeli", category: "tourism", component: <TourismForecastPanel /> },
-  tourism_general: { title: "Turizm Hareketliliği", category: "tourism", component: <TourismMovementPanel /> },
-  accommodation: { title: "Konaklama & Oteller", category: "tourism", component: <AccommodationPanel /> },
-  visitor_profile: { title: "Ziyaretçi Profili", category: "tourism", component: <VisitorProfilePanel /> },
-  gastronomy: { title: "Muğla Gastronomisi", category: "tourism", component: <GastronomySection /> },
-  flight_tracker: { title: "Canlı Uçuş Takibi", category: "transport", component: <FlightTrackerSection /> },
-  traffic_summary: { title: "Ulaşım & Trafik Özeti", category: "transport", component: <TrafficSummaryPanel /> },
-  airports: { title: "Havalimanları (DLM/BJV)", category: "transport", component: <AirportsSummaryPanel /> },
-  transport_works: { title: "Yol & Altyapı Projeleri", category: "transport", component: <InfrastructureProjectsPanel /> },
-  bus_schedule: { title: "Şehirlerarası Otobüs Seferleri", category: "transport", component: <BusScheduleSection /> },
-
-  // Toplum, Enerji & Miras (Ayrıştırılmış Bağımsız Göstergeler)
-  energy_consumption: { title: "Enerji & Tüketim", category: "energy", component: <EnergyConsumptionPanel /> },
-  renewable_energy: { title: "Yenilenebilir Enerji", category: "energy", component: <RenewableEnergyPanel /> },
-  sustainability: { title: "Sürdürülebilirlik", category: "energy", component: <SustainabilityPanel /> },
-  energy: { title: "Enerji & Tüketim", category: "energy", component: <EnergyConsumptionPanel /> },
-  social_trends: { title: "Sosyal İstihbarat", category: "social", component: <SocialIntelSection /> },
-  trend_topics: { title: "Gündemdeki Başlıklar", category: "social", component: <TrendTopicsSection /> },
-  demographics: { title: "Nüfus & Demografi", category: "demographics", component: <DemographicsPanel /> },
-  education: { title: "Eğitim", category: "demographics", component: <EducationPanel /> },
-  health: { title: "Sağlık", category: "demographics", component: <HealthPanel /> },
-  life_quality: { title: "Yaşam Kalitesi", category: "demographics", component: <LifeQualityPanel /> },
-  culture_events: { title: "Kültür & Etkinlikler", category: "culture", component: <CultureEventsPanel /> },
-  heritage: { title: "Kültürel Miras", category: "culture", component: <CulturalHeritagePanel /> },
-
-  // Güvenlik & Protokol (Ayrıştırılmış Bağımsız Göstergeler)
-  security: { title: "Asayiş & Güvenlik", category: "security", component: <SecurityOverviewPanel /> },
-  radar_map: { title: "Radar & Trafik Denetim Haritası", category: "security", component: <RadarTrafficMapPanel /> },
-  emergency: { title: "Acil Durum & Kriz", category: "security", component: <EmergencyPanel /> },
-  local_gov_quick: { title: "Yerel Yönetim", category: "economy", component: <LocalGovQuickPanel /> },
-  protocol: { title: "Muğla İl Protokol Listesi", category: "protocol", component: <ProtocolSection /> },
-  network_diagram: { title: "Kentsel Ağ & İstihbarat Merkezi", category: "transport", component: <InvestigationHub /> },
+const sanitizeColumns = (raw: unknown): ColumnLayout => {
+  if (!raw || typeof raw !== "object") return DEFAULT_COLUMNS;
+  const candidate = raw as Partial<ColumnLayout>;
+  const filterValid = (list: unknown): string[] =>
+    Array.isArray(list) ? list.filter((id): id is string => typeof id === "string" && id in PANEL_REGISTRY) : [];
+  const next: ColumnLayout = {
+    col1: filterValid(candidate.col1),
+    col2: filterValid(candidate.col2),
+    col3: filterValid(candidate.col3),
+  };
+  const total = next.col1.length + next.col2.length + next.col3.length;
+  return total === Object.keys(PANEL_REGISTRY).length ? next : DEFAULT_COLUMNS;
 };
 
 const DEFAULT_METRIC_ORDER = [
@@ -223,24 +187,33 @@ const DEFAULT_METRIC_ORDER = [
 const Index = () => {
   const { t, translate } = useTranslation();
   const [activeTab, setActiveTab] = useState<DashboardTab>("genel");
+  const [hubInitialView, setHubInitialView] = useState<InvestigationHubView>("verification");
   const [searchParams] = useSearchParams();
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab && ["ekonomi","cevre","turizm","ulasim","sosyal","guvenlik","enerji","protokol","diyagram","ag_grafigi"].includes(tab)) {
+    const view = searchParams.get("view");
+    if (tab === "ag_grafigi") {
+      setActiveTab("diyagram");
+      setHubInitialView("protocol_network");
+      return;
+    }
+    if (tab && ["ekonomi", "cevre", "turizm", "ulasim", "sosyal", "guvenlik", "enerji", "protokol", "diyagram"].includes(tab)) {
       setActiveTab(tab as DashboardTab);
+      if (tab === "diyagram") {
+        setHubInitialView(view === "network" ? "protocol_network" : "verification");
+      }
     }
   }, [searchParams]);
-
-  const [liveStatuses, setLiveStatuses] = useState<Record<string, boolean>>({});
 
   // Apple Stili Düzenleme Modu (Genel Bakış)
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
 
-  // Genel Bakış için ferah Sütun 1 - 2 - 3 yerleşim durumu
+  // Genel Bakış için 3 ana yönetici özeti kartı yerleşimi
   const [columns, setColumns] = useState<ColumnLayout>(() => {
     try {
-      const savedV7 = localStorage.getItem("mugla_dashboard_columns_v7");
-      if (savedV7) return JSON.parse(savedV7);
+      localStorage.removeItem("mugla_dashboard_columns_v7");
+      const savedV8 = localStorage.getItem(COLUMNS_STORAGE_KEY);
+      if (savedV8) return sanitizeColumns(JSON.parse(savedV8));
     } catch {}
     return DEFAULT_COLUMNS;
   });
@@ -270,7 +243,7 @@ const Index = () => {
   const saveColumns = (newCols: ColumnLayout) => {
     setColumns(newCols);
     try {
-      localStorage.setItem("mugla_dashboard_columns_v7", JSON.stringify(newCols));
+      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(newCols));
     } catch {}
   };
 
@@ -425,33 +398,36 @@ const Index = () => {
   };
 
   const { data: weatherData } = useLiveData<any>("weather", { refetchInterval: 15 * 60 * 1000 });
-  const { data: ecoData } = useLiveData<any>("economy", { refetchInterval: 30 * 60 * 1000 });
   const { data: aqData } = useLiveData<any>("air_quality", { refetchInterval: 30 * 60 * 1000 });
   const damIntel = useDamIntelligence();
-  const { data: tourismData } = useLiveData<any>("tourism", { refetchInterval: 60 * 60 * 1000 });
+  const tourismIntel = useTourismIntelligence();
+  const ecoIntel = useEconomyIntelligence();
+  const secIntel = useSecurityIntelligence();
   const { data: demoData } = useLiveData<any>("demographics", { refetchInterval: 24 * 60 * 60 * 1000 });
 
-  const population     = demoData?.population ?? "1.02M";
-  const annualTourists = tourismData?.annual_tourists ?? "3.8M";
-  const unemployment   = ecoData?.unemployment_rate ? `${ecoData.unemployment_rate}%` : "11.2%";
-  const temperature    = weatherData?.temperature ? `${weatherData.temperature}°C` : "14°C";
-  const aqi            = aqData?.aqi ?? 42;
-  const hotelOccupancy = tourismData?.hotel_occupancy ? `${tourismData.hotel_occupancy}%` : "38%";
+  const population     = demoData?.population ?? "1.07M";
+  const annualTourists = tourismIntel.annualTourists ?? "—";
+  const unemployment   = ecoIntel.unemploymentRate !== null ? `${ecoIntel.unemploymentRate}%` : "—";
+  const temperature    = weatherData?.temperature ? `${weatherData.temperature}°C` : "—";
+  const aqi            = aqData?.aqi !== undefined && aqData?.aqi !== null ? String(aqData.aqi) : "—";
+  const hotelOccupancy = tourismIntel.hotelOccupancyPct !== null ? `${tourismIntel.hotelOccupancyPct}%` : "—";
   const avgDam         = damIntel.avgOccupancy !== null ? `${damIntel.avgOccupancy}%` : "—";
 
-  const allMetricsMap: Record<string, { label: string; value: string; color: string; category: string }> = {
-    "Nüfus": { label: "Nüfus", value: population, color: "text-primary", category: "demographics" },
-    "Turist/Yıl": { label: "Turist/Yıl", value: annualTourists, color: "text-accent", category: "tourism" },
-    "İşsizlik": { label: "İşsizlik", value: unemployment, color: "text-warning", category: "economy" },
-    "Hava": { label: "Hava", value: temperature, color: "text-foreground", category: "weather" },
-    "AQI": { label: "AQI", value: String(aqi), color: "text-success", category: "air_quality" },
-    "Otel Doluluk": { label: "Otel Doluluk", value: hotelOccupancy, color: "text-accent", category: "tourism" },
-    "Baraj": { label: "Baraj", value: avgDam, color: "text-warning", category: "dams" },
-    "Güvenlik": { label: "Güvenlik", value: "78/100", color: "text-primary", category: "security" },
+  const allMetricsMap: Record<
+    string,
+    { label: string; value: string; color: string; category: string; targetTab: DashboardTab }
+  > = {
+    "Nüfus": { label: "Nüfus", value: population, color: "text-primary", category: "demographics", targetTab: "sosyal" },
+    "Turist/Yıl": { label: "Turist/Yıl", value: annualTourists, color: "text-accent", category: "tourism", targetTab: "turizm" },
+    "İşsizlik": { label: "İşsizlik", value: unemployment, color: "text-warning", category: "economy", targetTab: "ekonomi" },
+    "Hava": { label: "Hava", value: temperature, color: "text-foreground", category: "weather", targetTab: "cevre" },
+    "AQI": { label: "AQI", value: aqi, color: "text-success", category: "air_quality", targetTab: "cevre" },
+    "Otel Doluluk": { label: "Otel Doluluk", value: hotelOccupancy, color: "text-accent", category: "tourism", targetTab: "turizm" },
+    "Baraj": { label: "Baraj", value: avgDam, color: "text-warning", category: "dams", targetTab: "cevre" },
+    "Güvenlik": { label: "Güvenlik", value: secIntel.overviewValue, color: "text-primary", category: "security", targetTab: "guvenlik" },
   };
 
   const isGenel = activeTab === "genel";
-  const totalGenelWidgets = columns.col1.length + columns.col2.length + columns.col3.length;
 
   // Bağımsız Gösterge Kutucuğu Render Fonksiyonu
   const renderWidget = (
@@ -568,7 +544,7 @@ const Index = () => {
       <EarthquakeAlertBanner />
 
       <main className="p-4 sm:p-5 max-w-[1680px] mx-auto">
-        {/* Sade Üst Özet Çubuğu */}
+        {/* Sade Üst Özet Çubuğu — her kutu doğrudan ilgili uzmanlık sekmesine yönlendirir */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 mb-5">
           {metricOrder.map((key, index) => {
             const item = allMetricsMap[key];
@@ -585,15 +561,29 @@ const Index = () => {
                 onDrop={(e) => handleMetricDrop(e, index)}
                 className={isEditMode ? "cursor-grab active:cursor-grabbing transition-transform hover:-translate-y-0.5" : ""}
               >
-                <SmartCard category={item.category as any} onDataUpdate={(_, isLive) => {
-                  setLiveStatuses(prev => ({ ...prev, [item.label]: isLive }));
-                }}>
-                  <div className="bg-secondary/25 border border-border/50 rounded-lg px-2.5 py-2 text-center hover:border-primary/40 transition-colors">
+                <SmartCard category={item.category as any}>
+                  <button
+                    type="button"
+                    data-testid={`overview-metric-${item.label}`}
+                    onClick={() => {
+                      if (!isEditMode) {
+                        setActiveTab(item.targetTab);
+                      }
+                    }}
+                    title={`${t(item.label)}`}
+                    className={`w-full bg-secondary/25 border border-border/50 rounded-lg px-2.5 py-2 text-center transition-colors ${
+                      isEditMode
+                        ? "cursor-grab"
+                        : "cursor-pointer hover:border-primary/60 hover:bg-secondary/45 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    }`}
+                  >
                     <div className="text-[10px] font-mono text-muted-foreground tracking-wide">
                       {t(item.label)}
                     </div>
-                    <div className={`text-sm font-mono font-bold tabular-nums-stat mt-0.5 ${item.color}`}>{translate(item.value)}</div>
-                  </div>
+                    <div className={`text-sm font-mono font-bold tabular-nums-stat mt-0.5 ${item.color}`}>
+                      {translate(item.value)}
+                    </div>
+                  </button>
                 </SmartCard>
               </div>
             );
@@ -699,7 +689,7 @@ const Index = () => {
             </div>
           ) : activeTab === "diyagram" ? (
             <div className="space-y-5">
-              <InvestigationHub />
+              <InvestigationHub initialView={hubInitialView} />
             </div>
           ) : activeTab === "protokol" ? (
             <div className="space-y-5">
@@ -707,13 +697,9 @@ const Index = () => {
                 <ProtocolSection />
               </SmartCard>
             </div>
-          ) : activeTab === "ag_grafigi" ? (
-            <div className="space-y-5">
-              <ProtocolNetworkGraph />
-            </div>
           ) : (
             (() => {
-              const content = getTwoColumnTabContent(activeTab as Exclude<DashboardTab, "genel" | "protokol" | "diyagram" | "ag_grafigi">);
+              const content = getTwoColumnTabContent(activeTab as Exclude<DashboardTab, "genel" | "protokol" | "diyagram">);
               return (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
                   <div className="flex flex-col space-y-5">

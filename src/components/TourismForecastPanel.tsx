@@ -12,6 +12,7 @@ import { Umbrella, TrendingUp, Users, Loader2 } from "lucide-react";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { DataSourceBadge } from "@/components/DataSourceBadge";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useTourismIntelligence } from "@/services/topicGroundingService";
 
 interface DayForecast {
   date: string;       // "15/06"
@@ -79,6 +80,7 @@ const DISTRICT_MULTIPLIERS: Record<string, number> = {
 
 export const TourismForecastPanel = () => {
   const { t } = useTranslation();
+  const tourismIntel = useTourismIntelligence();
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [view, setView] = useState<"trend" | "districts">("trend");
   const [isLoading, setIsLoading] = useState(true);
@@ -127,7 +129,11 @@ export const TourismForecastPanel = () => {
             <div className="grid grid-cols-4 gap-1.5 mb-3">
               {[
                 { label: t("Bugün"), value: `${today.visitors}/100`, icon: <TrendingUp size={10} /> },
-                { label: t("Otel Dol."), value: `${today.hotels}%`, icon: <Users size={10} /> },
+                {
+                  label: t("Otel Dol."),
+                  value: tourismIntel.hotelOccupancyPct !== null ? `${tourismIntel.hotelOccupancyPct}%` : "—",
+                  icon: <Users size={10} />,
+                },
                 { label: t("Plaj"),      value: `${today.beaches}%`, icon: <Umbrella size={10} /> },
                 { label: t("7g Zirve"),  value: peakDay?.date ?? "—", icon: <TrendingUp size={10} /> },
               ].map(s => (
@@ -203,10 +209,12 @@ export const TourismForecastPanel = () => {
             </ResponsiveContainer>
           )}
 
-          <div className="flex items-center justify-between mt-2">
-            <DataSourceBadge type="estimate" />
-            <span className="text-[8px] font-mono text-muted-foreground">
-              Sezonsal model · TÜRSAB referans · tatil takvimi
+          <div className="flex items-center justify-between gap-2 mt-2">
+            <DataSourceBadge type={tourismIntel.hasVerifiedOccupancy ? "verified" : "estimate"} />
+            <span className="text-[8px] font-mono text-muted-foreground text-right">
+              {tourismIntel.hasVerifiedOccupancy
+                ? tourismIntel.occupancySourceSummary
+                : "Sezonsal tahmin grafiği · Canlı doluluk için TÜRSAB/BODER teyidi bekleniyor"}
             </span>
           </div>
         </>

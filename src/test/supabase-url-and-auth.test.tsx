@@ -80,6 +80,36 @@ describe("normalizeSupabaseUrl & Supabase Auth Güvenliği", () => {
       '  "https://supabase.com/dashboard/project/wivooargsmcwbiokpklu/editor"  '
     );
     expect(ENV.VITE_SUPABASE_URL).toBe("https://wivooargsmcwbiokpklu.supabase.co");
+
+    expect(
+      normalizeSupabaseUrl('  "VITE_SUPABASE_URL=http://wivooargsmcwbiokpklu.supabase.co/rest/v1/"  ')
+    ).toBe("https://wivooargsmcwbiokpklu.supabase.co");
+    expect(
+      normalizeSupabaseUrl("  'https://wivooargsmcwbiokpklu.supabase.co/auth/v1/'  ")
+    ).toBe("https://wivooargsmcwbiokpklu.supabase.co");
+    expect(normalizeSupabaseUrl("wivooargsmcwbiokpklu.supabase.co/rest/v1")).toBe(
+      "https://wivooargsmcwbiokpklu.supabase.co"
+    );
+  });
+
+  it("yalnızca VITE_SUPABASE_PUBLISHABLE_KEY ve tırnaklı /rest/v1 URL ile Supabase istemcisi sorunsuz başlar", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", '  "https://proj123.supabase.co/rest/v1/"  ');
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", ' "sb_publishable_vercel_auto" ');
+
+    expect(checkSupabaseConfigured()).toBe(true);
+    const serviceClient = getSupabaseClient();
+    expect(serviceClient).not.toBeNull();
+
+    vi.resetModules();
+    const clientMod = await import("@/integrations/supabase/client");
+    expect(clientMod.isSupabaseClientConfigured).toBe(true);
+    expect((clientMod.supabase as unknown as { supabaseUrl?: string }).supabaseUrl).toBe(
+      "https://proj123.supabase.co"
+    );
+    expect((clientMod.supabase as unknown as { supabaseKey?: string }).supabaseKey).toBe(
+      "sb_publishable_vercel_auto"
+    );
   });
 
   it("emailRedirectTo için yalnızca temiz origin üretir ve alt yolları atar", () => {
@@ -166,6 +196,93 @@ describe("normalizeSupabaseUrl & Supabase Auth Güvenliği", () => {
       });
     } finally {
       vi.doUnmock("@/integrations/supabase/client");
+      vi.doUnmock("@/hooks/use-toast");
+    }
+  });
+
+  it("başka bir Supabase projesine ait JWT anahtarını eler ve URL ile eşleşen anahtarı otomatik seçer", () => {
+    const makeFakeJwt = (ref: string) => {
+      const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+      const payload = Buffer.from(JSON.stringify({ iss: "supabase", ref, role: "anon" })).toString("base64url");
+      return `${header}.${payload}.signature`;
+    };
+
+    const wrongProjectJwt = makeFakeJwt("wrongproj999");
+    const rightProjectJwt = makeFakeJwt("targetproj123");
+
+    // ANON_KEY başka projeye aitse otomatik olarak URL ile eşleşen PUBLISHABLE_KEY seçilir
+    vi.stubEnv("VITE_SUPABASE_URL", "https://targetproj123.supabase.co");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", wrongProjectJwt);
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", rightProjectJwt);
+
+    expect(ENV.VITE_SUPABASE_ANON_KEY).toBe(rightProjectJwt);
+    expect(checkSupabaseConfigured()).toBe(true);
+
+    // Yalnızca yanlış projeye ait JWT varsa istemci yapılandırılmamış kabul edilir
+    vi.stubEnv("VITE_SUPABASE_PUBLISHABLE_KEY", "");
+    expect(ENV.VITE_SUPABASE_ANON_KEY).toBe("");
+    expect(checkSupabaseConfigured()).toBe(false);
+    expect(getSupabaseClient()).toBeNull();
+  });
+
+  it("KeywordManager Invalid API key hatasında console.error fırlatmadan yerel sözlüğe düşer ve devre kesiciyi açar", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const orderMock = vi.fn();
+    orderMock
+      .mockReturnValueOnce({ order: orderMock })
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          message: "Invalid API key",
+          hint: "Double check the provided API key for typos. This API key might also be owned by another Supabase project.",
+        },
+      });
+
+    vi.resetModules();
+    vi.doMock("@/integrations/supabase/client", () => ({
+      supabase: {
+        from: () => ({
+          select: () => ({ order: orderMock }),
+        }),
+      },
+      isSupabaseClientConfigured: true,
+    }));
+    vi.doMock("@/hooks/useAuth", () => ({
+      useAuth: () => ({ canManageData: false }),
+    }));
+    vi.doMock("@/hooks/use-toast", () => ({
+      useToast: () => ({ toast: vi.fn() }),
+    }));
+
+    const {
+      resetSupabaseRuntimeGuard,
+      isSupabaseRuntimeAvailable,
+    } = await import("@/lib/supabase-runtime-guard");
+    resetSupabaseRuntimeGuard();
+
+    try {
+      const React = await import("react");
+      const { render, waitFor } = await import("@testing-library/react");
+      const { KeywordManager } = await import("@/components/social/KeywordManager");
+      const onKeywordsChange = vi.fn();
+
+      render(React.createElement(KeywordManager, { onKeywordsChange }));
+
+      await waitFor(() => {
+        expect(onKeywordsChange).toHaveBeenCalled();
+      });
+
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(onKeywordsChange.mock.calls[0][0].length).toBeGreaterThan(0);
+      expect(isSupabaseRuntimeAvailable(true)).toBe(false);
+    } finally {
+      resetSupabaseRuntimeGuard();
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+      vi.doUnmock("@/integrations/supabase/client");
+      vi.doUnmock("@/hooks/useAuth");
       vi.doUnmock("@/hooks/use-toast");
     }
   });

@@ -16,6 +16,10 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  normalizeSupabaseUrl,
+  resolveSupabaseKeyFromRecord,
+} from "../src/config/supabase-env-utils";
 
 // .env / .env.local'dan Supabase bağlantısını doldur
 function loadEnv() {
@@ -30,15 +34,15 @@ function loadEnv() {
 }
 loadEnv();
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
-const ANON_KEY =
-  process.env.SUPABASE_ANON_KEY ??
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
-  process.env.VITE_SUPABASE_ANON_KEY ?? "";
+const SUPABASE_URL = normalizeSupabaseUrl(
+  process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? ""
+);
+const ANON_KEY = resolveSupabaseKeyFromRecord(process.env);
 
 if (!SUPABASE_URL || !ANON_KEY) {
-  console.error("❌ SUPABASE_URL ve SUPABASE_ANON_KEY (veya VITE_* muadilleri) gerekli.");
+  console.error(
+    "❌ VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY (veya VITE_SUPABASE_PUBLISHABLE_KEY) gerekli."
+  );
   process.exit(1);
 }
 

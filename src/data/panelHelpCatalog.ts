@@ -233,7 +233,7 @@ const PANEL_HELP_CATALOG: Record<string, HelpEntry> = {
     tr: "Muğla Valiliği, belediyeler ve kamu kurumlarındaki görevli yöneticilerin resmi iletişim listesini sunar.",
     en: "Provides the official directory and contact list of provincial governors, mayors, and public officials.",
   },
-  "protokol ve veri ağı (test)": {
+  "protokol ilişki ağı": {
     tr: "Valilik, belediyeler, 13 ilçe ve aktif gündemler arasındaki iş birliği bağlantılarını görsel haritada gösterir.",
     en: "Visualizes coordination links between the governorship, municipalities, 13 districts, and active issues.",
   },

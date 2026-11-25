@@ -33,6 +33,7 @@ import { toast } from "sonner";
 
 interface InterrogationRoomConsoleProps {
   onHighlightInvestigation?: (nodeIds: string[], linkIds: string[], dossierId?: string) => void;
+  onOpenProtocolNetwork?: (focusTerm: string) => void;
   className?: string;
 }
 
@@ -45,6 +46,7 @@ const SAMPLE_QUESTIONS = [
 
 export const InterrogationRoomConsole: React.FC<InterrogationRoomConsoleProps> = ({
   onHighlightInvestigation,
+  onOpenProtocolNetwork,
   className = ""
 }) => {
   const { arbitratedEvents, activeDynamicDossierId, setActiveDynamicDossierId } = useUnifiedIntelligence();
@@ -247,7 +249,25 @@ ${result.recommendedAction}
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-end md:self-auto shrink-0">
+            <div className="flex items-center gap-2 self-end md:self-auto shrink-0 flex-wrap">
+              {onOpenProtocolNetwork && (
+                <Button
+                  size="sm"
+                  type="button"
+                  data-testid="jump-to-protocol-network-btn"
+                  onClick={() =>
+                    onOpenProtocolNetwork(
+                      result.matchedDossier?.districtName ||
+                        result.matchedDossier?.title ||
+                        "Muğla"
+                    )
+                  }
+                  className="h-7 text-xs font-mono font-bold bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/50 cursor-pointer gap-1"
+                >
+                  <span>Protokol İlişki Ağı</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={handleCopyTranscript}

@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
+import {
+  isSupabaseRuntimeAvailable,
+  markSupabaseUnavailableIfFatal,
+} from "@/lib/supabase-runtime-guard";
 
 export type DataType =
   | "weather" | "air_quality" | "dams" | "protocol" | "news"
@@ -19,11 +23,16 @@ const REFERENCE_TYPES = new Set([
 // Used when the edge function is unreachable, so the dashboard
 // still renders the latest snapshot instead of going blank.
 async function readPersistentCache<T>(type: DataType): Promise<T | null> {
-  const { data } = await supabase
+  if (!isSupabaseRuntimeAvailable(isSupabaseClientConfigured)) return null;
+  const { data, error } = await supabase
     .from("live_data_cache")
     .select("data, fetched_at")
     .eq("data_type", type)
     .maybeSingle();
+  if (error) {
+    markSupabaseUnavailableIfFatal(error, `live_data_cache:${type}`);
+    return null;
+  }
   if (!data?.data) return null;
   return { ...(data.data as object), stale: true, fetched_at: data.fetched_at } as T;
 }
@@ -40,7 +49,8 @@ export function useLiveData<T = any>(type: DataType, options?: {
   // Realtime streams the new row straight into the query cache so the UI
   // updates without waiting for the next poll.
   useEffect(() => {
-    if (options?.enabled === false) return;
+    if (options?.enabled === false || !isSupabaseClientConfigured) return;
+    if (typeof supabase?.channel !== "function") return;
     // Guard: register all listeners BEFORE subscribe. If Realtime is already
     // subscribed (e.g. reused channel instance) a post-subscribe .on() throws
     // synchronously — that error crashed the app via RootErrorBoundary.
@@ -71,6 +81,7 @@ export function useLiveData<T = any>(type: DataType, options?: {
   return useQuery<T | null>({
     queryKey: ["live-data", type, options?.extraBody],
     queryFn: async () => {
+      if (!isSupabaseRuntimeAvailable(isSupabaseClientConfigured)) return null;
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         return readPersistentCache<T>(type);
@@ -79,7 +90,10 @@ export function useLiveData<T = any>(type: DataType, options?: {
         body: { type, ...options?.extraBody },
       });
       if (error) {
-        console.error(`Live data error (${type}):`, error);
+        if (markSupabaseUnavailableIfFatal(error, `live-data:${type}`)) {
+          return null;
+        }
+        console.warn(`Live data fallback (${type}):`, error);
         return readPersistentCache<T>(type);
       }
       return data?.data ?? null;

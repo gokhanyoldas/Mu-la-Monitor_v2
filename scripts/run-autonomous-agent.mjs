@@ -2,10 +2,10 @@
 /**
  * Muğla Monitör v2 — 1. Ajan: 7/24 Free-Tier Otonom İstihbarat İşçisi
  *
- * Her 6 saatte bir (00:00, 06:00, 12:00, 18:00 UTC) GitHub Actions üzerinden çalışır:
+ * Her 6 saatte bir (00:00, 06:00, 12:00, 18:00 UTC) cron / sunucu zamanlayıcısı ile çalışır:
  * - 13 Muğla ilçesini 4 bölgesel grup halinde sırayla tarar (günde 4, ayda 120 Gemini Search Grounding isteği = %8 ücretsiz kota).
- * - Google Search Grounding (Gemini) ile gerçek yerel gelişmeleri, altyapı/afet/trafik uyarılarını ve yeni anahtar kelimeleri çıkarır.
- * - Verileri doğrudan Supabase `social_keywords`, `social_posts` ve `alert_events` tablolarına yazar.
+ * - Her 6 saatlik turda ilgili bölgesel gruba atanmış `topic-grounding` sektörel sorgularını (7 sektörün tamamı 24 saatte döner) tek çağrıda tarar.
+ * - Doğrulanmış verileri doğrudan Supabase `social_keywords`, `social_posts`, `alert_events` ve `live_data_cache` (dams + topic_grounding:*) tablolarına yazar.
  * - Her çalışmada hafif bir Supabase sorgusu yürüterek ücretsiz Supabase veritabanının 7 günlük inaktivite uykusuna geçmesini engeller.
  *
  * Kullanım:
@@ -26,7 +26,33 @@ export const SECTOR_TOPIC_QUERIES = {
     '"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı',
   transport_infra:
     '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
+  energy_outages:
+    '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
+  security_quakes:
+    '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" asayiş OR "Sahil Güvenlik" deniz güvenliği)',
+  tourism_occupancy:
+    '("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye") otel doluluk oranı OR turist sayısı TÜRSAB OR BODER OR GETOB',
+  economy_budget:
+    '("Muğla Büyükşehir" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" OR "Fethiye Belediyesi") bütçe OR ihale OR yatırım OR ("Muğla" TÜİK işsizlik oranı)',
+  protocol_activity:
+    '("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat',
 };
+
+// 6 saatlik 4 turda (günde 4 çağrı = ayda 120 çağrı = %8 kota) 7 sektörün tamamını kapsayan rotasyon
+export const GROUP_TOPIC_ASSIGNMENTS = {
+  A: ["environment_dams", "transport_infra"],
+  B: ["energy_outages", "tourism_occupancy"],
+  C: ["security_quakes", "economy_budget"],
+  D: ["protocol_activity", "environment_dams"],
+};
+
+export function selectTopicsForGroup(groupOrId) {
+  const id =
+    typeof groupOrId === "string"
+      ? groupOrId.trim().toUpperCase()
+      : String(groupOrId?.id || "A").trim().toUpperCase();
+  return GROUP_TOPIC_ASSIGNMENTS[id] || GROUP_TOPIC_ASSIGNMENTS.A;
+}
 
 export const MUGLA_DAM_CAPACITIES = [
   { id: "mumcular", name: "Mumcular Barajı", capacity_hm3: 18.6, district: "Bodrum", aliases: ["mumcular"] },
@@ -361,11 +387,238 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
     .filter(Boolean)
     .slice(0, 8);
 
+  const parseIsoDate = (raw) =>
+    typeof raw === "string" && !Number.isNaN(new Date(raw).getTime())
+      ? new Date(raw).toISOString()
+      : new Date().toISOString();
+
+  const resolveUrl = (rawUrl, idx = 0) =>
+    isValidExternalSourceUrl(rawUrl)
+      ? rawUrl.trim()
+      : fallbackUrls[idx] || fallbackUrls[0] || null;
+
+  const transportIncidents = (Array.isArray(rawJson?.transport_incidents) ? rawJson.transport_incidents : [])
+    .map((item, idx) => {
+      const title = typeof item?.title === "string" ? item.title.trim().slice(0, 180) : "";
+      const sourceUrl = resolveUrl(item?.source_url, idx);
+      if (!title || (!allowUnverified && !sourceUrl)) return null;
+      return {
+        id: `agent-tr-${idx}-${Date.now()}`,
+        title,
+        district: normalizeDistrict(item?.district) || defaultDistrict,
+        category: ["yol_calismasi", "isale_hatti", "trafik"].includes(item?.category)
+          ? item.category
+          : "yol_calismasi",
+        status: ["devam", "tamamlandı", "uyarı"].includes(item?.status) ? item.status : "devam",
+        sourceName:
+          typeof item?.source_name === "string" && item.source_name.trim()
+            ? item.source_name.trim().slice(0, 80)
+            : "Yerel Basın",
+        sourceUrl: sourceUrl || "",
+        publishedAt: parseIsoDate(item?.published_date),
+        confidence: item?.confidence === "medium" ? "medium" : "high",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+
+  const energyOutages = (Array.isArray(rawJson?.energy_outages) ? rawJson.energy_outages : [])
+    .map((item, idx) => {
+      const summary = typeof item?.summary === "string" ? item.summary.trim().slice(0, 200) : "";
+      const sourceUrl = resolveUrl(item?.source_url, idx);
+      if (!summary || (!allowUnverified && !sourceUrl)) return null;
+      return {
+        id: `agent-en-${idx}-${Date.now()}`,
+        district: normalizeDistrict(item?.district) || defaultDistrict,
+        neighborhoods:
+          typeof item?.neighborhoods === "string" ? item.neighborhoods.trim().slice(0, 120) : "",
+        type: item?.type === "ariza" ? "ariza" : "planli",
+        status: ["aktif", "planli", "giderildi"].includes(item?.status) ? item.status : "planli",
+        summary,
+        sourceName:
+          typeof item?.source_name === "string" && item.source_name.trim()
+            ? item.source_name.trim().slice(0, 80)
+            : "ADM Elektrik",
+        sourceUrl: sourceUrl || "",
+        publishedAt: parseIsoDate(item?.published_date),
+        confidence: item?.confidence === "medium" ? "medium" : "high",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+
+  const securityEvents = (Array.isArray(rawJson?.security_events) ? rawJson.security_events : [])
+    .map((item, idx) => {
+      const title = typeof item?.title === "string" ? item.title.trim().slice(0, 180) : "";
+      const sourceUrl = resolveUrl(item?.source_url, idx);
+      if (!title || (!allowUnverified && !sourceUrl)) return null;
+      const mag = item?.magnitude !== undefined && item?.magnitude !== null ? Number(item.magnitude) : null;
+      const depth = item?.depth_km !== undefined && item?.depth_km !== null ? Number(item.depth_km) : null;
+      return {
+        id: `agent-sec-${idx}-${Date.now()}`,
+        category: ["deprem", "asayis", "deniz_guvenligi"].includes(item?.category)
+          ? item.category
+          : "asayis",
+        title,
+        district: normalizeDistrict(item?.district) || defaultDistrict,
+        magnitude: mag !== null && Number.isFinite(mag) && mag > 0 && mag < 10 ? Math.round(mag * 10) / 10 : null,
+        depthKm: depth !== null && Number.isFinite(depth) && depth >= 0 ? Math.round(depth * 10) / 10 : null,
+        severity: ["kritik", "yuksek", "normal"].includes(item?.severity) ? item.severity : "normal",
+        sourceName:
+          typeof item?.source_name === "string" && item.source_name.trim()
+            ? item.source_name.trim().slice(0, 80)
+            : "AFAD / Yerel Basın",
+        sourceUrl: sourceUrl || "",
+        publishedAt: parseIsoDate(item?.published_date),
+        confidence: item?.confidence === "medium" ? "medium" : "high",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+
+  const rawTourism = rawJson?.tourism_metrics;
+  let tourismMetrics = null;
+  if (rawTourism && typeof rawTourism === "object") {
+    const tUrl = resolveUrl(rawTourism.source_url, 0);
+    const occNum = Number(rawTourism.hotel_occupancy_pct);
+    const districtRates = (Array.isArray(rawTourism.district_rates) ? rawTourism.district_rates : [])
+      .map((r, idx) => {
+        const rate = Number(r?.occupancy_pct);
+        const rUrl = resolveUrl(r?.source_url || tUrl, idx);
+        if (!r?.district || !Number.isFinite(rate) || rate < 0 || rate > 100) return null;
+        if (!allowUnverified && !rUrl) return null;
+        return {
+          district: String(r.district).trim(),
+          occupancyPct: Math.round(rate * 10) / 10,
+          sourceName: String(r.source_name || rawTourism.source_name || "TÜRSAB / Yerel Basın").trim(),
+          sourceUrl: rUrl || "",
+          measuredAt: parseIsoDate(r.published_date || rawTourism.published_date),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+    const headlines = (Array.isArray(rawTourism.headlines) ? rawTourism.headlines : [])
+      .map((h, idx) => {
+        const hUrl = resolveUrl(h?.source_url || tUrl, idx);
+        if (!h?.title || (!allowUnverified && !hUrl)) return null;
+        return {
+          title: String(h.title).trim().slice(0, 160),
+          district: normalizeDistrict(h.district) || defaultDistrict,
+          sourceName: String(h.source_name || rawTourism.source_name || "Yerel Basın").trim(),
+          sourceUrl: hUrl || "",
+          publishedAt: parseIsoDate(h.published_date || rawTourism.published_date),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 4);
+
+    if (
+      (allowUnverified || tUrl) &&
+      (Number.isFinite(occNum) || districtRates.length > 0 || headlines.length > 0)
+    ) {
+      tourismMetrics = {
+        hotelOccupancyPct:
+          Number.isFinite(occNum) && occNum >= 0 && occNum <= 100
+            ? Math.round(occNum * 10) / 10
+            : null,
+        annualTourists:
+          typeof rawTourism.annual_tourists === "string" && rawTourism.annual_tourists.trim()
+            ? rawTourism.annual_tourists.trim().slice(0, 40)
+            : null,
+        districtRates,
+        headlines,
+        sourceName: String(rawTourism.source_name || "TÜRSAB / Yerel Basın").trim(),
+        sourceUrl: tUrl || undefined,
+        measuredAt: parseIsoDate(rawTourism.published_date),
+      };
+    }
+  }
+
+  const rawEco = rawJson?.economy_updates;
+  let economyUpdates = null;
+  if (rawEco && typeof rawEco === "object") {
+    const eUrl = resolveUrl(rawEco.source_url, 0);
+    const unemp = Number(rawEco.unemployment_rate);
+    const items = (Array.isArray(rawEco.items) ? rawEco.items : [])
+      .map((it, idx) => {
+        const itUrl = resolveUrl(it?.source_url || eUrl, idx);
+        if (!it?.title || (!allowUnverified && !itUrl)) return null;
+        return {
+          id: `agent-eco-${idx}-${Date.now()}`,
+          institution: String(it.institution || "Muğla Büyükşehir Belediyesi").trim().slice(0, 80),
+          category: ["butce", "ihale", "yatirim", "isgucu"].includes(it.category)
+            ? it.category
+            : "yatirim",
+          title: String(it.title).trim().slice(0, 180),
+          amountLabel:
+            typeof it.amount_label === "string" && it.amount_label.trim()
+              ? it.amount_label.trim().slice(0, 40)
+              : undefined,
+          sourceName: String(it.source_name || rawEco.source_name || "Yerel Basın").trim(),
+          sourceUrl: itUrl || "",
+          publishedAt: parseIsoDate(it.published_date || rawEco.published_date),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 5);
+    if ((allowUnverified || eUrl) && (Number.isFinite(unemp) || items.length > 0)) {
+      economyUpdates = {
+        unemploymentRate:
+          Number.isFinite(unemp) && unemp > 0 && unemp < 60
+            ? Math.round(unemp * 10) / 10
+            : null,
+        unemploymentPeriod:
+          typeof rawEco.unemployment_period === "string" && rawEco.unemployment_period.trim()
+            ? rawEco.unemployment_period.trim().slice(0, 40)
+            : null,
+        unemploymentSource:
+          typeof rawEco.unemployment_source === "string" && rawEco.unemployment_source.trim()
+            ? rawEco.unemployment_source.trim().slice(0, 60)
+            : null,
+        items,
+        sourceName: String(rawEco.source_name || "TÜİK / Yerel Basın").trim(),
+        sourceUrl: eUrl || undefined,
+        measuredAt: parseIsoDate(rawEco.published_date),
+      };
+    }
+  }
+
+  const protocolActivities = (
+    Array.isArray(rawJson?.protocol_activities) ? rawJson.protocol_activities : []
+  )
+    .map((item, idx) => {
+      const summary = typeof item?.summary === "string" ? item.summary.trim().slice(0, 200) : "";
+      const sourceUrl = resolveUrl(item?.source_url, idx);
+      if ((!item?.actor_name && !item?.actor_title) || !summary || (!allowUnverified && !sourceUrl)) {
+        return null;
+      }
+      return {
+        id: `agent-proto-${idx}-${Date.now()}`,
+        actorName: String(item.actor_name || "").trim().slice(0, 80),
+        actorTitle: String(item.actor_title || "").trim().slice(0, 100),
+        category: ["ziyaret", "aciklama", "gorev_degisikligi"].includes(item?.category)
+          ? item.category
+          : "aciklama",
+        summary,
+        sourceName: String(item.source_name || "Muğla Valiliği / Yerel Basın").trim().slice(0, 80),
+        sourceUrl: sourceUrl || "",
+        publishedAt: parseIsoDate(item?.published_date),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+
   return {
     posts,
     keywords: Array.from(keywordMap.values()).slice(0, 16),
     alerts,
     damUpdates,
+    transportIncidents,
+    energyOutages,
+    securityEvents,
+    tourismMetrics,
+    economyUpdates,
+    protocolActivities,
     groundingUrls: Array.from(new Set(fallbackUrls)).slice(0, 10),
   };
 }
@@ -507,22 +760,154 @@ export function buildSupabasePayloads({
     }
   }
 
-  return { keywordRows, postRows, alertRows };
+  // 7. Topic-Grounding live_data_cache snapshot'ları (tarayıcılar Realtime ile alır, 0 ek Gemini kotası)
+  const cacheRows = [];
+  const groundingSources = validGroundingUrls.map((uri) => ({ uri, title: uri }));
+
+  if (findings.damUpdates && findings.damUpdates.length > 0) {
+    const updateById = new Map(findings.damUpdates.map((d) => [d.damId, d]));
+    const mergedDams = MUGLA_DAM_CAPACITIES.map((base) => {
+      const obs = updateById.get(base.id);
+      return {
+        name: base.name,
+        district: base.district,
+        capacity_hm3: base.capacity_hm3,
+        occupancy_rate: obs ? obs.occupancyRate : null,
+        source_name: obs?.sourceName ?? null,
+        source_url: obs?.sourceUrl ?? null,
+        measured_at: obs?.measuredAt ?? null,
+        estimated: !obs,
+      };
+    });
+    const verifiedRates = mergedDams.filter((d) => d.occupancy_rate !== null);
+    const avgOcc =
+      verifiedRates.length > 0
+        ? Math.round(
+            verifiedRates.reduce((acc, d) => acc + Number(d.occupancy_rate), 0) /
+              verifiedRates.length
+          )
+        : null;
+    const latestDamObs = findings.damUpdates[0];
+    cacheRows.push({
+      data_type: "dams",
+      data: {
+        dams: mergedDams,
+        avg_occupancy: avgOcc,
+        source: latestDamObs.sourceName,
+        updated_at: latestDamObs.measuredAt,
+      },
+      fetched_at: nowIso,
+    });
+    cacheRows.push({
+      data_type: "topic_grounding:environment_dams",
+      data: {
+        topic: "environment_dams",
+        fetchedAt: nowIso,
+        damUpdates: findings.damUpdates,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  if (findings.transportIncidents && findings.transportIncidents.length > 0) {
+    cacheRows.push({
+      data_type: "topic_grounding:transport_infra",
+      data: {
+        topic: "transport_infra",
+        fetchedAt: nowIso,
+        transportIncidents: findings.transportIncidents,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  if (findings.energyOutages && findings.energyOutages.length > 0) {
+    cacheRows.push({
+      data_type: "topic_grounding:energy_outages",
+      data: {
+        topic: "energy_outages",
+        fetchedAt: nowIso,
+        energyOutages: findings.energyOutages,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  if (findings.securityEvents && findings.securityEvents.length > 0) {
+    cacheRows.push({
+      data_type: "topic_grounding:security_quakes",
+      data: {
+        topic: "security_quakes",
+        fetchedAt: nowIso,
+        securityEvents: findings.securityEvents,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  if (findings.tourismMetrics) {
+    cacheRows.push({
+      data_type: "topic_grounding:tourism_occupancy",
+      data: {
+        topic: "tourism_occupancy",
+        fetchedAt: nowIso,
+        tourismMetrics: findings.tourismMetrics,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  if (findings.economyUpdates) {
+    cacheRows.push({
+      data_type: "topic_grounding:economy_budget",
+      data: {
+        topic: "economy_budget",
+        fetchedAt: nowIso,
+        economyUpdates: findings.economyUpdates,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  if (findings.protocolActivities && findings.protocolActivities.length > 0) {
+    cacheRows.push({
+      data_type: "topic_grounding:protocol_activity",
+      data: {
+        topic: "protocol_activity",
+        fetchedAt: nowIso,
+        protocolActivities: findings.protocolActivities,
+        groundingSources,
+      },
+      fetched_at: nowIso,
+    });
+  }
+
+  return { keywordRows, postRows, alertRows, cacheRows };
 }
 
-function buildGroundingPrompt(group) {
+export function buildGroundingPrompt(group) {
   const districtList = group.districts.join(", ");
+  const assignedTopics = selectTopicsForGroup(group);
+  const topicLines = assignedTopics.map(
+    (topicKey) => `- [${topicKey}] sorgusu: ${SECTOR_TOPIC_QUERIES[topicKey]}`
+  );
+
   return [
     `Sen Muğla Monitör v2 için çalışan 7/24 otonom saha istihbarat ajanısın.`,
-    `Görev: Google Arama (Search Grounding) kullanarak hem şu ilçelerdeki (${districtList}) güncel gelişmeleri hem de aşağıdaki 2 sektörel konuyu tara:`,
-    `- Çevre / Barajlar sorgusu: ${SECTOR_TOPIC_QUERIES.environment_dams}`,
-    `- Ulaşım / Altyapı sorgusu: ${SECTOR_TOPIC_QUERIES.transport_infra}`,
+    `Görev: Google Arama (Search Grounding) kullanarak hem şu ilçelerdeki (${districtList}) güncel gelişmeleri hem de bu 6 saatlik dilime atanan sektörel topic-grounding konularını tara:`,
+    ...topicLines,
     `KESİN DOĞRULAMA KURALLARI:`,
     `1. Yalnızca arama sonuçlarında doğrudan yer alan, geçerli ve doğrulanabilir bir kaynak URL'sine (https://...) sahip gelişmeleri bildir; teyitsiz sosyal medya dedikodusu, varsayım veya sentetik uyarı ASLA üretme.`,
-    `2. Doğrulanmış kaynak bulunamazsa uydurma veri üretme; "posts", "new_keywords", "alerts" ve "dam_updates" dizilerini boş ([]) döndür.`,
-    `3. Her gönderi, uyarı ve baraj ölçümü için geçerli "source_url" alanını mutlaka doldur; ilçe adını listeden seç (${districtList}).`,
-    `4. Baraj doluluk oranı yalnızca yerel basın/kurum (Anter Haber, AA, MUSKİ, DSİ vb.) haberinde açıkça geçiyorsa "dam_updates" içine ekle.`,
-    `5. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, isale hattı patlaması, yangın/sel) "alerts" dizisine koy.`,
+    `2. Doğrulanmış kaynak bulunamazsa uydurma veri üretme; ilgili dizileri boş ([]) veya nesneleri null döndür.`,
+    `3. Her kayıt için geçerli "source_url" alanını mutlaka doldur; ilçe adını listeden seç (${districtList}).`,
+    `4. Yalnızca bu turda atanan sektörel konular (${assignedTopics.join(", ")}) için ilgili alanları doldur; diğer sektörel alanları boş bırak.`,
+    `5. Yalnızca doğrulanmış acil/yüksek öncelikli olayları (resmi kesinti, yol kapanması, isale hattı patlaması, yangın/sel, deprem) "alerts" dizisine koy.`,
     `6. Yalnızca aşağıdaki geçerli JSON formatında yanıt ver (ek açıklama yazma):`,
     JSON.stringify(
       {
@@ -566,6 +951,45 @@ function buildGroundingPrompt(group) {
             confidence: "high | medium",
           },
         ],
+        transport_incidents: [
+          {
+            title: "Yol çalışması veya isale hattı gelişmesi",
+            district: group.districts[0],
+            category: "yol_calismasi | isale_hatti | trafik",
+            status: "devam | tamamlandı | uyarı",
+            source_name: "Kaynak adı",
+            source_url: "https://...",
+            published_date: "YYYY-MM-DD",
+          },
+        ],
+        energy_outages: [
+          {
+            district: group.districts[0],
+            neighborhoods: "Etkilenen mahalleler",
+            type: "planli | ariza",
+            status: "aktif | planli | giderildi",
+            summary: "ADM Elektrik kesinti özeti",
+            source_name: "ADM Elektrik",
+            source_url: "https://...",
+            published_date: "YYYY-MM-DD",
+          },
+        ],
+        security_events: [
+          {
+            category: "deprem | asayis | deniz_guvenligi",
+            title: "Gelişme başlığı",
+            district: group.districts[0],
+            magnitude: null,
+            depth_km: null,
+            severity: "kritik | yuksek | normal",
+            source_name: "AFAD | Kandilli | Sahil Güvenlik",
+            source_url: "https://...",
+            published_date: "YYYY-MM-DD",
+          },
+        ],
+        tourism_metrics: null,
+        economy_updates: null,
+        protocol_activities: [],
       },
       null,
       2
@@ -596,9 +1020,28 @@ export async function runAutonomousAgent(options = {}) {
   );
 
   const geminiApiKey = options.geminiApiKey ?? process.env.GEMINI_API_KEY ?? "";
-  const supabaseUrl = options.supabaseUrl ?? process.env.SUPABASE_URL ?? "";
-  const supabaseServiceRoleKey =
-    options.supabaseServiceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const rawSupabaseUrl =
+    options.supabaseUrl ?? process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? "";
+  const supabaseUrl = (() => {
+    const stripped = String(rawSupabaseUrl)
+      .replace(/[\r\n\t]+/g, "")
+      .replace(/^[\s"'`]+|[\s"'`]+$/g, "")
+      .replace(/\/+$/, "");
+    if (!stripped) return "";
+    try {
+      const parsed = new URL(stripped);
+      return parsed.origin.replace(/\/+$/, "");
+    } catch {
+      return "";
+    }
+  })();
+  const supabaseServiceRoleKey = (
+    options.supabaseServiceRoleKey ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    ""
+  )
+    .replace(/[\r\n\t]+/g, "")
+    .replace(/^[\s"'`]+|[\s"'`]+$/g, "");
   const configuredSystemUserId =
     options.systemUserId ?? process.env.AGENT_SYSTEM_USER_ID ?? null;
 
@@ -724,7 +1167,7 @@ export async function runAutonomousAgent(options = {}) {
   const parsedJson = extractJsonFromModelText(response?.text || "");
   const findings = normalizeAgentFindings(parsedJson || {}, group, groundingChunks);
 
-  const { keywordRows, postRows, alertRows } = buildSupabasePayloads({
+  const { keywordRows, postRows, alertRows, cacheRows } = buildSupabasePayloads({
     findings,
     group,
     existingKeywords,
@@ -733,7 +1176,13 @@ export async function runAutonomousAgent(options = {}) {
     now,
   });
 
-  const inserted = { social_keywords: 0, social_posts: 0, alert_events: 0, dam_updates: 0 };
+  const inserted = {
+    social_keywords: 0,
+    social_posts: 0,
+    alert_events: 0,
+    dam_updates: 0,
+    topic_caches: 0,
+  };
 
   // 3. social_keywords tablosuna ekle (append-only, eski kelimeleri asla silmez)
   if (keywordRows.length > 0) {
@@ -765,58 +1214,32 @@ export async function runAutonomousAgent(options = {}) {
     }
   }
 
-  // 6. Doğrulanmış baraj doluluk verisi yakalandıysa live_data_cache(dams) kaydını güncelle
-  if (findings.damUpdates && findings.damUpdates.length > 0) {
-    const updateById = new Map(findings.damUpdates.map((d) => [d.damId, d]));
-    const mergedDams = MUGLA_DAM_CAPACITIES.map((base) => {
-      const obs = updateById.get(base.id);
-      return {
-        name: base.name,
-        district: base.district,
-        capacity_hm3: base.capacity_hm3,
-        occupancy_rate: obs ? obs.occupancyRate : null,
-        source_name: obs?.sourceName ?? null,
-        source_url: obs?.sourceUrl ?? null,
-        measured_at: obs?.measuredAt ?? null,
-        estimated: !obs,
-      };
-    });
-    const verifiedRates = mergedDams.filter((d) => d.occupancy_rate !== null);
-    const avgOcc =
-      verifiedRates.length > 0
-        ? Math.round(
-            verifiedRates.reduce((acc, d) => acc + Number(d.occupancy_rate), 0) /
-              verifiedRates.length
-          )
-        : null;
-    const latestDamObs = findings.damUpdates[0];
-    const { error: damErr } = await supabase.from("live_data_cache").upsert(
-      {
-        data_type: "dams",
-        data: {
-          dams: mergedDams,
-          avg_occupancy: avgOcc,
-          source: latestDamObs.sourceName,
-          updated_at: latestDamObs.measuredAt,
-        },
-        fetched_at: now.toISOString(),
-      },
-      { onConflict: "data_type" }
-    );
-    if (damErr) {
-      console.warn(`[1. Ajan] live_data_cache(dams) güncelleme uyarısı: ${damErr.message}`);
+  // 6. Doğrulanmış baraj & sektörel topic_grounding snapshot'larını live_data_cache tablosuna yaz
+  // (Açık tarayıcılar Supabase Realtime üzerinden sayfa yenilemeden anında güncellenir)
+  for (const cacheRow of cacheRows) {
+    const { error: cacheErr } = await supabase
+      .from("live_data_cache")
+      .upsert(cacheRow, { onConflict: "data_type" });
+    if (cacheErr) {
+      console.warn(
+        `[1. Ajan] live_data_cache(${cacheRow.data_type}) güncelleme uyarısı: ${cacheErr.message}`
+      );
     } else {
-      inserted.dam_updates = findings.damUpdates.length;
+      inserted.topic_caches += 1;
+      if (cacheRow.data_type === "dams") {
+        inserted.dam_updates = findings.damUpdates?.length ?? 0;
+      }
     }
   }
 
   console.log(
-    `[1. Ajan] Tamamlandı | Grup ${group.id} | Yazılanlar -> social_keywords: ${inserted.social_keywords}, social_posts: ${inserted.social_posts}, alert_events: ${inserted.alert_events}`
+    `[1. Ajan] Tamamlandı | Grup ${group.id} | Konular: ${selectTopicsForGroup(group).join(", ")} | Yazılanlar -> social_keywords: ${inserted.social_keywords}, social_posts: ${inserted.social_posts}, alert_events: ${inserted.alert_events}, topic_caches: ${inserted.topic_caches}`
   );
 
   return {
     status: "ok",
     group,
+    topics: selectTopicsForGroup(group),
     quota,
     inserted,
   };

@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { GoogleGenAI } from "@google/genai";
+import {
+  isGeminiRateLimitError,
+  getGeminiRateLimitState,
+  markGeminiRateLimited,
+} from "./topic-grounding";
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -65,6 +70,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ok: false,
       fallback: true,
       reason: "GEMINI_API_KEY tanımlı değil; istemci yedeğine geçiliyor.",
+    });
+  }
+
+  const rateState = getGeminiRateLimitState();
+  if (rateState.rateLimited) {
+    return sendJson(res, 200, {
+      ok: false,
+      fallback: true,
+      rateLimited: true,
+      retryAfterMs: rateState.retryAfterMs,
+      reason: "Gemini API kota limiti nedeniyle geçici bekleme modunda; yerel analiz kullanılıyor.",
     });
   }
 
@@ -140,6 +156,21 @@ ${text.slice(0, 6000)}
       analysis: parsed,
     });
   } catch (err) {
+    if (isGeminiRateLimitError(err)) {
+      const retryAfterMs = markGeminiRateLimited();
+      console.warn(
+        `[vercel /api/intel/analyze-post] Gemini 429 RESOURCE_EXHAUSTED — ${Math.round(
+          retryAfterMs / 60000
+        )} dk bekleme modu.`
+      );
+      return sendJson(res, 200, {
+        ok: false,
+        fallback: true,
+        rateLimited: true,
+        retryAfterMs,
+        reason: "Gemini API kota limiti nedeniyle geçici bekleme modunda; yerel analiz kullanılıyor.",
+      });
+    }
     console.error("[vercel /api/intel/analyze-post] error:", err);
     return sendJson(res, 200, {
       ok: false,

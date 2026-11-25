@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import {
+  isGeminiRateLimitError,
+  getGeminiRateLimitState,
+  markGeminiRateLimited,
+} from "./topic-grounding";
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -67,6 +72,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  const rateState = getGeminiRateLimitState();
+  if (rateState.rateLimited) {
+    return sendJson(res, 200, {
+      ok: false,
+      fallback: true,
+      rateLimited: true,
+      retryAfterMs: rateState.retryAfterMs,
+      reason: "Gemini API kota/hız limiti nedeniyle geçici bekleme modunda.",
+    });
+  }
+
   try {
     const ai = new GoogleGenAI({
       apiKey,
@@ -98,6 +114,9 @@ Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında 
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
+        ...(GEMINI_MODEL.startsWith("gemini-4") || GEMINI_MODEL.startsWith("gemini-3")
+          ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+          : {}),
       },
     });
 
@@ -128,6 +147,21 @@ Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında 
       groundingSources,
     });
   } catch (err) {
+    if (isGeminiRateLimitError(err)) {
+      const retryAfterMs = markGeminiRateLimited();
+      console.warn(
+        `[vercel /api/intel/district-grounding] Gemini 429 RESOURCE_EXHAUSTED — ${Math.round(
+          retryAfterMs / 60000
+        )} dk bekleme modu.`
+      );
+      return sendJson(res, 200, {
+        ok: false,
+        fallback: true,
+        rateLimited: true,
+        retryAfterMs,
+        reason: "Gemini API kota/hız limiti nedeniyle geçici bekleme modunda.",
+      });
+    }
     console.error("[vercel /api/intel/district-grounding] error:", err);
     return sendJson(res, 200, {
       ok: false,

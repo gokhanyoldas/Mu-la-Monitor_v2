@@ -56,6 +56,14 @@ describe("1. Vite Base, Vercel SPA Rewrite & Asset Path Verification", () => {
     ).not.toThrow();
 
     expect(() =>
+      assertProductionEnv("build", "production", {
+        VERCEL: "1",
+        VITE_SUPABASE_URL: '  "https://example.supabase.co/rest/v1/"  ',
+        VITE_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_vercel_only",
+      })
+    ).not.toThrow();
+
+    expect(() =>
       assertProductionEnv("serve", "development", {})
     ).not.toThrow();
   });
