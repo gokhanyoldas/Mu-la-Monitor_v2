@@ -357,29 +357,12 @@ class SocialIntelService {
     isLiveDb: boolean;
   }> {
     const defaultData = {
-      trends: [
-        { keyword: "#Muğla", mentions: 342, change: 18, sentiment: "positive" as const },
-        { keyword: "#Bodrum", mentions: 286, change: 14, sentiment: "positive" as const },
-        { keyword: "#Marmaris", mentions: 215, change: 9, sentiment: "neutral" as const },
-        { keyword: "#Fethiye", mentions: 198, change: 12, sentiment: "positive" as const },
-        { keyword: "#Trafik", mentions: 142, change: 24, sentiment: "negative" as const },
-        { keyword: "#YangınÖnlem", mentions: 118, change: 16, sentiment: "neutral" as const },
-        { keyword: "#TurizmSezonu", mentions: 96, change: 8, sentiment: "positive" as const },
-        { keyword: "#SuKesintisi", mentions: 64, change: 5, sentiment: "negative" as const },
-      ],
-      chartData: [
-        { name: "Pzt", value: 168 }, { name: "Sal", value: 195 }, { name: "Çar", value: 214 },
-        { name: "Per", value: 186 }, { name: "Cum", value: 242 }, { name: "Cmt", value: 285 }, { name: "Paz", value: 171 },
-      ],
-      totalMentions: 1461,
-      positiveRatio: 62,
-      negativeRatio: 16,
-      platformBreakdown: [
-        { label: "Bluesky", value: "0 gönderi", status: "ok" as const },
-        { label: "Mastodon", value: "0 gönderi", status: "ok" as const },
-        { label: "Google News RSS", value: "0 içerik", status: "ok" as const },
-        { label: "Reddit", value: "0 başlık", status: "info" as const },
-      ],
+      trends: [],
+      chartData: [],
+      totalMentions: 0,
+      positiveRatio: 0,
+      negativeRatio: 0,
+      platformBreakdown: [],
       isLiveDb: false,
     };
 

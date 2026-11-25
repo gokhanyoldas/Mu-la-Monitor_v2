@@ -26,7 +26,7 @@ const tabs: { label: string; value: DashboardTab }[] = [
   { label: "Güvenlik", value: "guvenlik" },
   { label: "Enerji", value: "enerji" },
   { label: "Muğla Protokol", value: "protokol" },
-  { label: "Protokol ve Veri Ağı (Test)", value: "ag_grafigi" },
+  { label: "Kamu Kurumları Ağı", value: "ag_grafigi" },
 ];
 
 export const DashboardHeader = ({ activeTab = "genel", onTabChange }: DashboardHeaderProps) => {

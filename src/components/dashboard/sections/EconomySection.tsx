@@ -101,7 +101,7 @@ export const EconomyOverviewPanel = () => {
           info="TÜİK İşgücü İstatistikleri, 2024/Ç4 dönemi. Çeyreklik yayınlanır; değişim bir önceki çeyreğe göredir."
         />
         <StatCard
-          label="Turizm Geliri" value={tourismRevenueBn} unit="Myr ₺" change={12.5} variant="primary"
+          label="Turizm Geliri" value={tourismRevenueBn} unit="Milyar ₺" change={12.5} variant="primary"
           info="Kültür ve Turizm Bakanlığı 2024 yıllık verisi (1580M USD) × güncel TCMB/ECB kuru (Frankfurter, günlük). Değişim yıllık bazdadır."
         />
         <StatCard
@@ -250,4 +250,3 @@ export const RealEstatePanel = () => {
     </DashboardPanel>
   );
 };
-

@@ -162,8 +162,8 @@ export const LocalGovQuickPanel = () => {
   return (
     <DashboardPanel title="Yerel Yönetim" icon={<Landmark size={14} />}>
       <div className="grid grid-cols-2 gap-2 mb-3">
-        <StatCard label="Belediye Bütçesi" value="8.2" unit="Myr ₺" />
-        <StatCard label="Yatırım" value="1.4" unit="Myr ₺" variant="primary" />
+        <StatCard label="Belediye Bütçesi" value="8.2" unit="Milyar ₺" />
+        <StatCard label="Yatırım" value="1.4" unit="Milyar ₺" variant="primary" />
       </div>
       <StatusList items={[
         { label: "Altyapı Harcama", value: "32%", status: "ok" },

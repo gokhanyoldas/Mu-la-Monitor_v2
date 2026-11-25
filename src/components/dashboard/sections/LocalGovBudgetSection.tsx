@@ -142,7 +142,7 @@ export const LocalGovBudgetSection = () => {
       <DashboardPanel title="Yerel Yönetim Bütçeleri" icon={<Landmark size={14} />} badge="2024 RESMİ" badgeVariant="info">
         {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Toplam Bütçe" value={`${(totalAllBudgets / 1000).toFixed(1)}`} unit="Myr ₺" variant="primary" info="Muğla Valiliği + Büyükşehir ve İlçe Meclisleri onaylı 2024 bütçe toplamı" />
+          <StatCard label="Toplam Bütçe" value={`${(totalAllBudgets / 1000).toFixed(1)}`} unit="Milyar ₺" variant="primary" info="Muğla Valiliği + Büyükşehir ve İlçe Meclisleri onaylı 2024 bütçe toplamı" />
           <StatCard label="İzlenen Kurum" value={String(municipalities.length)} variant="accent" info="Resmi bütçe kararı izlenen yerel idare sayısı" />
         </div>
 
@@ -173,7 +173,7 @@ export const LocalGovBudgetSection = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] font-mono font-bold text-primary">{mun.totalBudget >= 1000 ? `${(mun.totalBudget / 1000).toFixed(1)} Myr ₺` : `${mun.totalBudget} Mln ₺`}</span>
+                    <span className="text-[10px] font-mono font-bold text-primary">{mun.totalBudget >= 1000 ? `${(mun.totalBudget / 1000).toFixed(1)} Milyar ₺` : `${mun.totalBudget} Milyon ₺`}</span>
                     {openMunicipality === mun.name ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
                   </div>
                 </button>
@@ -223,7 +223,7 @@ export const LocalGovBudgetSection = () => {
                               </span>
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-mono text-muted-foreground">{item.amount >= 1000 ? `${(item.amount / 1000).toFixed(1)} Myr` : `${item.amount} Mln`} ₺</span>
+                              <span className="text-[10px] font-mono text-muted-foreground">{item.amount >= 1000 ? `${(item.amount / 1000).toFixed(1)} Milyar` : `${item.amount} Milyon`} ₺</span>
                               <span className="text-[10px] font-mono font-bold text-primary w-8 text-right">{item.percentage}%</span>
                             </div>
                           </div>
