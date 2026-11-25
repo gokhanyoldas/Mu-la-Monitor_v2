@@ -43,7 +43,7 @@ npm install -g supabase
 supabase login
 
 # Link project
-supabase link --project-ref gsjypruivdsiufaeqtoc
+supabase link --project-ref ntheudveohozxdjgcvif
 
 # Deploy all functions
 supabase functions deploy data-scrape

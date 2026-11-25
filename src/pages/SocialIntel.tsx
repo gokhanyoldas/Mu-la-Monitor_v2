@@ -29,6 +29,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 
 type AnalysisItem = {
+  id?: string;
   platform: string;
   content: string;
   sentiment: string;
@@ -39,6 +40,11 @@ type AnalysisItem = {
   source_url?: string;
   region?: string;
   collected_at?: string;
+  source_type?: string;
+  source_instance?: string;
+  verification_status?: string;
+  verification_score?: number;
+  corroboration_count?: number;
 };
 
 type IntelSection = "feed" | "osint";
@@ -48,6 +54,8 @@ const platformLabels: Record<string, string> = {
   reddit: "Reddit",
   eksisozluk: "Ekşi Sözlük",
   news: "Haberler",
+  bluesky: "Bluesky",
+  mastodon: "Mastodon",
   web: "Web",
   all: "Tümü",
 };
@@ -57,6 +65,8 @@ const platformIcons: Record<string, React.ReactNode> = {
   reddit: <Globe size={10} />,
   eksisozluk: <Hash size={10} />,
   twitter: <Radio size={10} />,
+  bluesky: <Globe size={10} />,
+  mastodon: <Radio size={10} />,
 };
 
 const SocialIntel = () => {
@@ -89,6 +99,7 @@ const SocialIntel = () => {
 
   // Map social_posts row → AnalysisItem
   const mapPostToItem = useCallback((p: Record<string, unknown>): AnalysisItem => ({
+    id: p.id as string,
     platform: p.platform as string,
     content: p.content as string,
     sentiment: (p.sentiment as string) || "neutral",
@@ -99,6 +110,11 @@ const SocialIntel = () => {
     source_url: (p.url as string) || undefined,
     region: detectRegion(p.content as string) || (p.region as string) || undefined,
     collected_at: (p.published_at as string) || (p.collected_at as string) || undefined,
+    source_type: (p.source_type as string) || undefined,
+    source_instance: (p.source_instance as string) || undefined,
+    verification_status: (p.verification_status as string) || "unverified",
+    verification_score: (p.verification_score as number) ?? 0,
+    corroboration_count: (p.corroboration_count as number) ?? 0,
   }), []);
 
   // Load existing posts directly from social_posts table
@@ -106,7 +122,7 @@ const SocialIntel = () => {
     try {
       const { data, error } = await supabase
         .from("social_posts")
-        .select("id,platform,content,author,url,published_at,collected_at,sentiment,sentiment_confidence,keywords_matched")
+        .select("id,platform,content,author,url,published_at,collected_at,sentiment,sentiment_confidence,keywords_matched,region,source_type,source_instance,verification_status,verification_score,corroboration_count")
         .order("published_at", { ascending: false })
         .limit(200);
       if (!error && data && data.length > 0) {
@@ -510,7 +526,10 @@ const SocialIntel = () => {
                             </span>
                             <span className="text-[8px] font-mono text-muted-foreground/50">•</span>
                             <span className="text-[9px] font-mono text-muted-foreground/60">
-                              {item.source_author}
+                            {item.source_author}
+                            {item.source_instance && (
+                              <span className="text-[8px] text-muted-foreground/50">· {item.source_instance}</span>
+                            )}
                             </span>
                             {item.region && (
                               <>
@@ -540,6 +559,16 @@ const SocialIntel = () => {
                               <ExternalLink size={10} />
                             </a>
                           )}
+                          <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
+                            item.verification_status === "corroborated" ? "bg-green-500/10 text-green-500" :
+                            item.verification_status === "disputed" ? "bg-red-500/10 text-red-500" :
+                            item.verification_status === "corroborating" ? "bg-cyan-500/10 text-cyan-400" :
+                            "bg-yellow-500/10 text-yellow-500"
+                          }`}>
+                            {item.verification_status === "corroborated" ? "TEYİT EDİLDİ" :
+                             item.verification_status === "corroborating" ? "DESTEKLENİYOR" :
+                             item.verification_status === "disputed" ? "İHTİLAFLI" : "DOĞRULANMADI"}
+                          </span>
                         </div>
                       </div>
                       {item.collected_at && (
@@ -547,6 +576,10 @@ const SocialIntel = () => {
                           {relativeTime(item.collected_at)}
                         </span>
                       )}
+                      <div className="flex gap-2 text-[8px] font-mono text-muted-foreground/50 mt-1">
+                        <span>Güven: %{Math.round((item.verification_score ?? 0) * 100)}</span>
+                        <span>Bağımsız destek: {item.corroboration_count ?? 0}</span>
+                      </div>
                     </div>
                   ))
                 )}

@@ -27,7 +27,7 @@ interface PlatformBucket {
 const PLATFORM_LABELS: Record<string, string> = {
   google_news: "Google News", reddit: "Reddit", eksisozluk: "Ekşi Sözlük",
   local_rss: "Yerel Gazete", email_alerts: "Haber Alarmı",
-  twitter: "Twitter", youtube: "YouTube",
+  twitter: "Twitter", youtube: "YouTube", bluesky: "Bluesky", mastodon: "Mastodon",
 };
 
 export const SentimentHistoryChart = () => {
@@ -46,7 +46,6 @@ export const SentimentHistoryChart = () => {
         .from("social_posts")
         .select("published_at, collected_at, sentiment, platform")
         .gte("published_at", since.toISOString())
-        .not("sentiment", "is", null)
         .order("published_at", { ascending: true });
 
       if (!posts) { setIsLoading(false); return; }

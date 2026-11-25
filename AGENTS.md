@@ -12,8 +12,8 @@
 - **AI:** Gemini 3.5-flash-lite (GEMINI_API_KEY secret'ta)
 
 ## 🔑 Supabase Bağlantısı
-- **Proje ref:** `wivooargsmcwbiokpklu`
-- **URL:** `https://wivooargsmcwbiokpklu.supabase.co`
+- **Proje ref:** `ntheudveohozxdjgcvif`
+- **URL:** `https://ntheudveohozxdjgcvif.supabase.co`
 - **Access token:** `SUPABASE_ACCESS_TOKEN` env var (gokhanyoldas hesabı)
 
 ## 📦 Deploy Edilen Edge Functions
@@ -58,7 +58,7 @@
 - `npm run build` — production build
 - `npm test` — vitest (12 test)
 - `npm run seed:live` — ilk veri dolumu (news-scrape → mock-data-injector → executive-report)
-- `npx supabase functions deploy <name> --project-ref wivooargsmcwbiokpklu`
+- `npx supabase functions deploy <name> --project-ref ntheudveohozxdjgcvif`
 - `npx supabase db push` — migrasyonları uygula
 
 ## 🔗 Canlı Önizleme

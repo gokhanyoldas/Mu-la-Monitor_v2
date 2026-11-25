@@ -63,7 +63,6 @@ export const NewsDataCorrelation = () => {
         .from("social_posts")
         .select("id, content, platform, sentiment, published_at, url")
         .gte("published_at", since.toISOString())
-        .not("sentiment", "is", null)
         .order("published_at", { ascending: false })
         .limit(200);
 
