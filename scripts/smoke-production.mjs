@@ -58,13 +58,19 @@ async function expectJson(path) {
   if (response.status >= 500 || !contentType.includes("application/json")) {
     failures.push(`${path}: ${response.status} / ${contentType || "content-type yok"}`);
   } else {
+    if (path === "/api/health" && payload?.ok !== true) {
+      failures.push(`${path}: ok=true sözleşmesi sağlanmadı`);
+    }
     console.log(`OK  ${path} (${response.status}) ${JSON.stringify(payload)}`);
   }
+  return payload;
 }
 
 await expectHtml("/");
 // SPA fallback/deep-link: server tarafında 200 HTML dönmelidir.
 await expectHtml("/investigation");
+await expectHtml("/social-intel");
+await expectHtml("/ilce/bodrum");
 await expectJson("/api/health");
 
 if (checkAiProxy) {
