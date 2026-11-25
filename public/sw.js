@@ -27,8 +27,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (request.method !== "GET") return;
 
-  // Cache-first: static assets
-  if (url.origin === self.location.origin && (url.pathname.match(/\.(js|css|woff2?|ttf|png|svg|ico|webp)$/) || url.pathname.startsWith("/assets/"))) {
+    // Cache-first: static assets (hashed filenames => safe to cache forever).
+    // NOTE: .html is intentionally excluded; the app shell must always be
+    // revalidated (network-first below) or deploys would serve stale shells.
+    if (url.origin === self.location.origin && (url.pathname.match(/\.(js|css|woff2?|ttf|png|svg|ico|webp)$/) || url.pathname.startsWith("/assets/"))) {
     event.respondWith(
       caches.match(request).then((cached) => {
         if (cached) return cached;
@@ -55,15 +57,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // HTML pages: network-first, offline.html fallback
+  // HTML pages: network-first, offline.html fallback.
+  // Başarılı yanıtlar CACHE'LENMEZ: index.html'e cache-first davranışı
+  // uygulanırsa yeni deploy'lar eski uygulama kabuğu üzerinden sunulur ve
+  // kullanıcılar güncellemeleri hiç alamaz. Yalnızca çevrimdışı yedek olarak
+  // offline.html / önceden cache'lenmiş index.html kullanılır.
   if (request.headers.get("Accept")?.includes("text/html")) {
     event.respondWith(
       fetch(request)
-        .then((resp) => { if (resp.ok) { const clone = resp.clone(); caches.open(CACHE_NAME).then((c) => c.put(request, clone)); } return resp; })
-        .catch(() => caches.match(request)
-  .then((cached) => cached || caches.match("/offline.html"))
-  .then((cached) => cached || caches.match("/index.html"))
-)
+        .then((resp) => resp)
+        .catch(() => caches.match("/offline.html")
+          .then((cached) => cached || caches.match("/index.html"))
+          .then((cached) => cached || new Response("Çevrimdışısınız.", { status: 503 })))
     );
   }
 });

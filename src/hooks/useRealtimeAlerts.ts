@@ -5,6 +5,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type AlertSeverity = "critical" | "high" | "medium" | "info";
 
@@ -49,8 +50,8 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
   const dismissAlert = useCallback((id: string) => {
     // Kapatılan uyarılar localStorage'da kalıcı — yenilemede geri gelmez
     try {
-      const dismissed = JSON.parse(localStorage.getItem("rta_dismissed") ?? "[]") as string[];
-      localStorage.setItem("rta_dismissed", JSON.stringify([...new Set([...dismissed, id])].slice(-200)));
+      const dismissed = JSON.parse(safeStorage.getItem("rta_dismissed") ?? "[]") as string[];
+      safeStorage.setItem("rta_dismissed", JSON.stringify([...new Set([...dismissed, id])].slice(-200)));
     } catch { /* storage doluysa sessiz geç */ }
     setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, dismissed: true } : a));
   }, []);
@@ -70,7 +71,7 @@ export function useRealtimeAlerts(options: UseRealtimeAlertsOptions = {}) {
       .limit(20)
       .then(({ data }) => {
         let dismissed: string[] = [];
-        try { dismissed = JSON.parse(localStorage.getItem("rta_dismissed") ?? "[]"); } catch { /* yoksay */ }
+        try { dismissed = JSON.parse(safeStorage.getItem("rta_dismissed") ?? "[]"); } catch { /* yoksay */ }
         data?.forEach((row: Record<string, unknown>) => {
           if (dismissed.includes(`evt_${row.id}`)) return; // kullanıcı bunu kapatmıştı
           addAlert({

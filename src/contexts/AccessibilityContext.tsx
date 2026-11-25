@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type ViewMode = "analyst" | "citizen";
 export type FontScale = "normal" | "large" | "xlarge";
@@ -35,7 +36,7 @@ const FONT_SCALE_ORDER: FontScale[] = ["normal", "large", "xlarge"];
 function loadPreferences(): AccessibilityPreferences {
   if (typeof window === "undefined") return DEFAULT_PREFS;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.safeStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<AccessibilityPreferences>;
     return {
@@ -161,7 +162,7 @@ export const AccessibilityProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+      window.safeStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
     } catch {
       // ignore storage quota errors
     }

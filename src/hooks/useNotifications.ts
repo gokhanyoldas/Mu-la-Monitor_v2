@@ -1,6 +1,7 @@
 // M4: Push Bildirim Sistemi — useNotifications hook
 // Service Worker + Push API (tarayıcı tabanlı, ücretsiz)
 import { useState, useEffect, useCallback } from "react";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type NotificationPermission = "granted" | "denied" | "default" | "unsupported";
 
@@ -29,7 +30,7 @@ export const useNotifications = () => {
   const [swRegistration, setSwRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [preferences, setPreferences] = useState<NotificationPreferences>(() => {
     try {
-      const stored = localStorage.getItem(PREFS_KEY);
+      const stored = safeStorage.getItem(PREFS_KEY);
       return stored ? { ...DEFAULT_PREFS, ...JSON.parse(stored) } : DEFAULT_PREFS;
     } catch { return DEFAULT_PREFS; }
   });
@@ -65,7 +66,7 @@ export const useNotifications = () => {
   const updatePreferences = useCallback((prefs: Partial<NotificationPreferences>) => {
     setPreferences(prev => {
       const next = { ...prev, ...prefs };
-      localStorage.setItem(PREFS_KEY, JSON.stringify(next));
+      safeStorage.setItem(PREFS_KEY, JSON.stringify(next));
       return next;
     });
   }, []);

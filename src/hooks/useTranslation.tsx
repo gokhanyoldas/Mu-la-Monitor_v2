@@ -3,6 +3,7 @@
 
 import { createContext, useContext, useState, useMemo, useEffect, type ReactNode } from "react";
 import { useOptionalAccessibility, simplifyCitizenText } from "@/contexts/AccessibilityContext";
+import { safeStorage } from "@/lib/safe-storage";
 
 export type Language = "tr" | "en" | "de";
 
@@ -981,7 +982,7 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
   // Varsayılan açılış dili her zaman TR'dir; yalnızca kullanıcının kaydettiği tercih okunur.
   const [lang, setLangState] = useState<Language>(() => {
     try {
-      const stored = localStorage.getItem(LANG_KEY) as Language | null;
+      const stored = safeStorage.getItem(LANG_KEY) as Language | null;
       if (stored && ["tr", "en", "de"].includes(stored)) return stored;
     } catch {}
     return "tr";
@@ -996,7 +997,7 @@ export const I18nProvider = ({ children }: { children: ReactNode }) => {
   const setLang = (l: Language) => {
     setLangState(l);
     try {
-      localStorage.setItem(LANG_KEY, l);
+      safeStorage.setItem(LANG_KEY, l);
       if (typeof document !== "undefined") {
         document.documentElement.lang = l;
       }

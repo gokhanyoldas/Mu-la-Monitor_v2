@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { safeStorage } from "@/lib/safe-storage";
 
 export interface AlertRule {
   id: string;
@@ -32,7 +33,7 @@ const DEFAULT_RULES: AlertRule[] = [
 
 export function useAlertSystem() {
   const [rules, setRules] = useState<AlertRule[]>(() => {
-    const saved = localStorage.getItem("mugla-alert-rules");
+    const saved = safeStorage.getItem("mugla-alert-rules");
     return saved ? JSON.parse(saved) : DEFAULT_RULES;
   });
   const [activeAlerts, setActiveAlerts] = useState<ActiveAlert[]>([]);
@@ -41,7 +42,7 @@ export function useAlertSystem() {
 
   // Save rules to localStorage
   useEffect(() => {
-    localStorage.setItem("mugla-alert-rules", JSON.stringify(rules));
+    safeStorage.setItem("mugla-alert-rules", JSON.stringify(rules));
   }, [rules]);
 
   const checkAlerts = useCallback(async () => {

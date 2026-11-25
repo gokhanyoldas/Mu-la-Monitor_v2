@@ -6,6 +6,7 @@ import { Shield, AlertTriangle, Landmark, Newspaper, MapPin, Loader2 } from "luc
 import { useLiveData } from "@/hooks/useLiveData";
 import { useState, useEffect } from "react";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { safeStorage } from "@/lib/safe-storage";
 
 const radarPoints = [
   { name: "Bodrum - Milas Arası", lat: 37.28, lng: 27.67, type: "radar" },
@@ -178,7 +179,7 @@ export const LocalGovQuickPanel = () => {
 
 export const SecuritySection = () => {
   const [keywords, setKeywords] = useState<string[]>(() => {
-    const saved = localStorage.getItem("social-intel-keywords");
+    const saved = safeStorage.getItem("social-intel-keywords");
     return saved ? JSON.parse(saved) : ["Muğla", "Bodrum", "Fethiye", "Marmaris"];
   });
 
