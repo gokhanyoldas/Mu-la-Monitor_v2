@@ -3,6 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 export interface SocialPost {
   id: string;
   platform: string;
+  source_type: string | null;
+  source_instance: string | null;
   content: string;
   author: string;
   url: string;
@@ -12,6 +14,10 @@ export interface SocialPost {
   sentiment_confidence: number | null;
   sentiment_method: string | null;
   collected_at: string;
+  verification_status: "unverified" | "corroborating" | "corroborated" | "disputed" | null;
+  verification_score: number | null;
+  corroboration_count: number | null;
+  verified_at: string | null;
 }
 
 export interface CollectionResult {
@@ -324,7 +330,7 @@ class SocialIntelService {
       isConnected: true,
       source: "Supabase Edge Functions",
       lastUpdate: new Date().toLocaleTimeString("tr-TR"),
-      dataSource: "Google News RSS + Reddit + Ekşi Sözlük + HuggingFace AI",
+      dataSource: "Bluesky + Mastodon + Google News RSS + Reddit + Supabase verifier",
     };
   }
 
@@ -369,10 +375,10 @@ class SocialIntelService {
       positiveRatio: 62,
       negativeRatio: 16,
       platformBreakdown: [
-        { label: "Yerel Basın & Haber Siteleri", value: "842 içerik", status: "ok" as const },
-        { label: "X (Twitter) Akışı", value: "426 gönderi", status: "ok" as const },
-        { label: "Reddit Muğla Topluluğu", value: "118 başlık", status: "info" as const },
-        { label: "Ekşi Sözlük Başlıkları", value: "75 girdi", status: "info" as const },
+        { label: "Bluesky", value: "0 gönderi", status: "ok" as const },
+        { label: "Mastodon", value: "0 gönderi", status: "ok" as const },
+        { label: "Google News RSS", value: "0 içerik", status: "ok" as const },
+        { label: "Reddit", value: "0 başlık", status: "info" as const },
       ],
       isLiveDb: false,
     };
@@ -487,10 +493,10 @@ class SocialIntelService {
       }
 
       const platformBreakdown = [
-        { label: "Yerel Basın & Haber Siteleri", value: `${platMap["news"] || 0} içerik`, status: "ok" as const },
-        { label: "X (Twitter) Akışı", value: `${platMap["twitter"] || platMap["x"] || 0} gönderi`, status: "ok" as const },
-        { label: "Reddit Muğla Topluluğu", value: `${platMap["reddit"] || 0} başlık`, status: "info" as const },
-        { label: "Ekşi Sözlük Başlıkları", value: `${platMap["eksisozluk"] || 0} girdi`, status: "info" as const },
+        { label: "Bluesky", value: `${platMap["bluesky"] || 0} gönderi`, status: "ok" as const },
+        { label: "Mastodon", value: `${platMap["mastodon"] || 0} gönderi`, status: "ok" as const },
+        { label: "Google News RSS", value: `${platMap["news"] || 0} içerik`, status: "ok" as const },
+        { label: "Reddit", value: `${platMap["reddit"] || 0} başlık`, status: "info" as const },
       ];
 
       return {

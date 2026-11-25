@@ -9,6 +9,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface CollectedPost {
   platform: string;
+  source_type?: string;
+  source_instance?: string;
   content: string;
   author: string;
   url: string;
@@ -18,6 +20,7 @@ interface CollectedPost {
 }
 
 const DEFAULT_KEYWORDS = ["Muğla", "Bodrum", "Fethiye", "Marmaris", "Milas", "Datça", "Dalaman", "Menteşe", "Ortaca", "Seydikemer"];
+const USER_AGENT = "muglamonitor/1.0";
 
 // Region detection
 const REGION_MAP: Record<string, string> = {
@@ -36,6 +39,49 @@ function detectRegion(text: string): string | null {
     if (lower.includes(key)) return region;
   }
   return null;
+}
+
+// ─── Bluesky public API ───
+async function fetchBluesky(keywords: string[]): Promise<CollectedPost[]> {
+  const posts: CollectedPost[] = [];
+  for (const keyword of keywords.slice(0, 15)) {
+    try {
+      const url = `https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(keyword)}&limit=25&sort=latest`;
+      const resp = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      for (const post of data?.posts || []) {
+        const record = post?.record || {};
+        const text = String(record.text || "").trim();
+        if (!text) continue;
+        const matched = keywords.filter((k) => text.toLocaleLowerCase("tr-TR").includes(k.toLocaleLowerCase("tr-TR")));
+        posts.push({ platform: "bluesky", source_type: "bluesky", source_instance: "api.bsky.app", content: text.slice(0, 2000), author: post?.author?.handle || "unknown", url: post?.uri ? `https://bsky.app/profile/${post.author?.handle}/post/${post.uri.split("/").pop()}` : "", published_at: record.createdAt || post?.indexedAt || new Date().toISOString(), keywords_matched: matched.length ? matched : [keyword], region: detectRegion(text) });
+      }
+    } catch (e) { console.error("Bluesky fetch error:", e); }
+  }
+  return posts;
+}
+
+// ─── Mastodon public API ───
+async function fetchMastodon(keywords: string[]): Promise<CollectedPost[]> {
+  const posts: CollectedPost[] = [];
+  const instance = (Deno.env.get("MASTODON_INSTANCE_URL") || "https://mastodon.social").replace(/\/$/, "");
+  for (const keyword of keywords.slice(0, 15)) {
+    try {
+      const tag = keyword.replace(/[^\p{L}\p{N}_-]/gu, "").toLowerCase();
+      if (!tag) continue;
+      const resp = await fetch(`${instance}/api/v1/timelines/tag/${encodeURIComponent(tag)}?limit=20`, { headers: { "User-Agent": USER_AGENT }, signal: AbortSignal.timeout(10000) });
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      for (const post of data || []) {
+        const content = String(post?.content || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        if (!content) continue;
+        const matched = keywords.filter((k) => content.toLocaleLowerCase("tr-TR").includes(k.toLocaleLowerCase("tr-TR")));
+        posts.push({ platform: "mastodon", source_type: "mastodon", source_instance: instance, content: content.slice(0, 2000), author: post?.account?.acct || "unknown", url: post?.url || "", published_at: post?.created_at || new Date().toISOString(), keywords_matched: matched.length ? matched : [keyword], region: detectRegion(content) });
+      }
+    } catch (e) { console.error("Mastodon fetch error:", e); }
+  }
+  return posts;
 }
 
 // ─── Google News RSS ───
@@ -405,6 +451,8 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
     const { sentiment, confidence } = analyzeSentiment(p.content);
     return {
       platform: p.platform,
+      source_type: p.source_type || p.platform,
+      source_instance: p.source_instance || null,
       content: p.content,
       author: p.author,
       url: p.url,
@@ -525,7 +573,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const rawKeywords: string[] = Array.isArray(body.keywords) ? body.keywords.slice(0, 15) : DEFAULT_KEYWORDS;
     const keywords = rawKeywords.map((k) => String(k).trim()).filter(Boolean);
-    const platforms: string[] = Array.isArray(body.platforms) ? body.platforms : ["news", "reddit", "eksisozluk"];
+    const platforms: string[] = Array.isArray(body.platforms) ? body.platforms : ["bluesky", "mastodon", "news", "reddit", "eksisozluk"];
 
     const results: CollectedPost[] = [];
     const errors: string[] = [];
@@ -541,6 +589,8 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const fetchers: Promise<CollectedPost[]>[] = [];
+    if (platforms.includes("bluesky")) fetchers.push(fetchBluesky(keywords));
+    if (platforms.includes("mastodon")) fetchers.push(fetchMastodon(keywords));
     if (platforms.includes("news")) fetchers.push(fetchGoogleNews(keywords));
     if (platforms.includes("reddit")) fetchers.push(fetchReddit(keywords));
     if (platforms.includes("eksisozluk")) fetchers.push(fetchEksiSozluk(keywords));
