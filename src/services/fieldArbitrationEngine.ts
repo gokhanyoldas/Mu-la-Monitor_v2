@@ -501,7 +501,7 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
       locality: districtName,
       severity: "yuksek",
       summary: "Büyükşehir ve İlçe Belediyesi üst yönetimi/daire başkanlıkları arasındaki görev dağılımı ve saha performansı tartışması.",
-      targetTabs: ["Muğla Protokolü", "Protokol ve Veri Ağı (Test)", "Sorgu Odası"],
+      targetTabs: ["Muğla Protokolü", "Kamu Kurumları Ağı", "Sorgu Odası"],
     });
   }
 
@@ -786,7 +786,7 @@ export async function analyzeAndArbitrateFieldSubmission(params: {
   }));
   if (protocolLinks.length > 0) {
     updatedTabs.add("Muğla Protokol");
-    updatedTabs.add("Protokol ve Veri Ağı (Test)");
+    updatedTabs.add("Kamu Kurumları Ağı");
   }
 
   // 7. Build Investigation Dossier, InterrogationResult & Dynamic Graph Nodes/Links (Step 4a)

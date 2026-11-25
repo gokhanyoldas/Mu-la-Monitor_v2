@@ -6,6 +6,7 @@ import { MiniChart } from "../MiniChart";
 import { Zap, Sun, Leaf } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { DataOriginBadge } from "../DataOriginBadge";
 
 const energyData = [
   { name: "Oca", value: 320 }, { name: "Şub", value: 310 }, { name: "Mar", value: 340 },
@@ -16,6 +17,7 @@ const energyData = [
 
 export const EnergyConsumptionPanel = () => {
   const { data: energyLive } = useLiveData<any>("energy", { refetchInterval: 30 * 60 * 1000 });
+  const isLive = Boolean(energyLive);
   const dailyConsumption = energyLive?.daily_consumption_gwh ?? 1.8;
   const hub = useOptionalUnifiedIntelligence();
   const outageBonus = hub?.getEnergyOutageBonus() ?? 0;
@@ -24,7 +26,8 @@ export const EnergyConsumptionPanel = () => {
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
 
   return (
-    <DashboardPanel title="Enerji & Tüketim" icon={<Zap size={14} />} badge="CANLI" badgeVariant="live">
+    <DashboardPanel title="Enerji & Tüketim" icon={<Zap size={14} />} badge={isLive ? "CANLI" : "REFERANS · 2024"} badgeVariant={isLive ? "live" : "info"}>
+      <DataOriginBadge origin={isLive ? "live" : "reference"} className="mb-2" />
       <div className="grid grid-cols-2 gap-2 mb-3">
         <StatCard label="Günlük Tüketim" value={String(dailyConsumption)} unit="GWh" variant="warning" />
         <StatCard label="Kesinti (Ay)" value={String(3 + outageBonus)} variant={outageBonus > 0 ? "destructive" : "primary"} />
@@ -43,10 +46,12 @@ export const EnergyConsumptionPanel = () => {
 
 export const RenewableEnergyPanel = () => {
   const { data: energyLive } = useLiveData<any>("energy", { refetchInterval: 30 * 60 * 1000 });
+  const isLive = Boolean(energyLive);
   const renewableShare = energyLive?.renewable_share ?? 42;
 
   return (
-    <DashboardPanel title="Yenilenebilir Enerji" icon={<Sun size={14} />} badge="AKTİF" badgeVariant="active">
+    <DashboardPanel title="Yenilenebilir Enerji" icon={<Sun size={14} />} badge={isLive ? "AKTİF" : "REFERANS · 2024"} badgeVariant={isLive ? "active" : "info"}>
+      <DataOriginBadge origin={isLive ? "live" : "reference"} className="mb-2" />
       <div className="flex justify-around mb-3">
         <Gauge value={renewableShare} max={100} label="Yenilenebilir Pay" variant="primary" />
         <Gauge value={280} max={500} label="GES (MW)" unit=" MW" variant="primary" />

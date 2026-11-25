@@ -31,7 +31,7 @@ const TestHarness: React.FC = () => {
       <AccessibilityToolbar />
       <span data-testid="tab-overview">{t("Genel Bakış")}</span>
       <span data-testid="tab-diagram">{t("Diyagram")}</span>
-      <span data-testid="tab-network">{t("Protokol ve Veri Ağı (Test)")}</span>
+      <span data-testid="tab-network">{t("Kamu Kurumları Ağı")}</span>
       <span data-testid="pulse-label">{t("Şehir Nabzı")}</span>
       <span data-testid="jargon-sample">
         {t("OSINT ve Google Search Grounding ile ODİT Telemetri analizi")}

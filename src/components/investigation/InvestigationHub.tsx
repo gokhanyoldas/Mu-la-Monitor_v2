@@ -87,6 +87,7 @@ export const InvestigationHub: React.FC = () => {
             <h2 className="text-base sm:text-lg font-bold font-mono tracking-wide text-white">
               {t("Haber Doğrulama Merkezi")}
             </h2>
+            <span className="inline-flex items-center rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-mono font-bold text-amber-300">ÖRNEK / DEMO AKIŞI</span>
             <PanelHelpTooltip panelTitle="Muğla İstihbarat & Çapraz Sorgu Odası" />
           </div>
           <p className="text-xs text-slate-400 mt-1 font-sans">

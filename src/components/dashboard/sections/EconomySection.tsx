@@ -5,6 +5,7 @@ import { useState } from "react";
 import { TrendingUp, Building2, Home, Info, ChevronDown } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useTranslation } from "@/hooks/useTranslation";
+import { DataOriginBadge } from "../DataOriginBadge";
 
 const gdpData = [
   { name: "Oca", value: 82 }, { name: "Şub", value: 85 }, { name: "Mar", value: 88 },
@@ -47,7 +48,8 @@ export const EconomySection = () => {
   const yoyChange = reData?.yoy_change_pct ?? 42;
 
   const ecoBadge = ecoData?.source_period ?? "TÜİK 2024/Ç4";
-  const reBadge = reData?.source_period ?? "REIDIN 2024";
+  const isLive = Boolean(reData);
+  const reBadge = reData?.source_period ?? "REFERANS · REIDIN 2024";
 
   // 13 ilçe m² fiyatı — ilk 4 varsayılan, gerisi tıklayınca açılır
   const ALL_DISTRICT_PRICES = [
@@ -148,7 +150,8 @@ export const EconomyOverviewPanel = () => {
 export const RealEstatePanel = () => {
   const { t } = useTranslation();
   const { data: reData } = useLiveData<any>("real_estate", { refetchInterval: 30 * 60 * 1000 });
-  const reBadge = reData?.source_period ?? "REIDIN 2024";
+  const isLive = Boolean(reData);
+  const reBadge = reData?.source_period ?? "REFERANS · REIDIN 2024";
   const DISTRICT_LABELS: Record<string, string> = {
     bodrum: "Bodrum", marmaris: "Marmaris", fethiye: "Fethiye", mugla_merkez: "Menteşe",
     datca: "Datça", milas: "Milas", dalaman: "Dalaman", koycegiz: "Köyceğiz",
@@ -185,7 +188,8 @@ export const RealEstatePanel = () => {
   const maxDistrictPrice = displayPrices[0]?.price ?? 1;
 
   return (
-    <DashboardPanel title="Gayrimenkul" icon={<Building2 size={14} />} badge={reBadge} badgeVariant="info">
+    <DashboardPanel title="Gayrimenkul" icon={<Building2 size={14} />} badge={reBadge} badgeVariant={isLive ? "info" : "warning"}>
+      <DataOriginBadge origin={isLive ? "live" : "reference"} className="mb-2" />
       <div className="space-y-2.5">
         <div className="grid grid-cols-3 gap-2 mb-1">
           <StatCard

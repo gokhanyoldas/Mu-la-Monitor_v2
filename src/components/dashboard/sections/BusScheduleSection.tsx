@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { DashboardPanel } from "../DashboardPanel";
 import { Bus, RefreshCw, Loader2, Clock } from "lucide-react";
+import { DataOriginBadge, type DataOrigin } from "../DataOriginBadge";
 import { supabase } from "@/integrations/supabase/client";
 
 type BusRoute = {
@@ -21,20 +22,21 @@ type BusRoute = {
   return_weekday?: string[]; return_saturday?: string[]; return_sunday?: string[];
   return_price?: string;
   source?: string;
+  dataMode?: DataOrigin;
 };
 
 const mockRoutes: BusRoute[] = [
-  { carrier: "Muğla Koop.", from: "Muğla", to: "Bodrum", departures: ["06:00","07:30","09:00","10:30","12:00","13:30","15:00","16:30","18:00","19:30"], duration: "2s 45dk", price: "₺180", type: "ilçe" },
-  { carrier: "Muğla Koop.", from: "Muğla", to: "Fethiye", departures: ["06:30","08:00","09:30","11:00","13:00","15:00","17:00","19:00"], duration: "2s 15dk", price: "₺150", type: "ilçe" },
-  { carrier: "Muğla Koop.", from: "Muğla", to: "Marmaris", departures: ["07:00","08:30","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "1s 30dk", price: "₺120", type: "ilçe" },
-  { carrier: "Muğla Koop.", from: "Muğla", to: "Dalaman", departures: ["07:00","09:00","11:00","14:00","16:30","19:00"], duration: "1s 45dk", price: "₺130", type: "ilçe" },
-  { carrier: "Muğla Koop.", from: "Muğla", to: "Milas", departures: ["06:30","07:30","08:30","09:30","10:30","11:30","13:00","14:30","16:00","17:30","19:00"], duration: "45dk", price: "₺70", type: "ilçe" },
-  { carrier: "Pamukkale, Kamil Koç, Metro", from: "Muğla", to: "İstanbul", departures: ["09:30","10:45","12:29","16:30","18:45","21:29","22:45"], duration: "11s", price: "₺1599", type: "şehirlerarası" },
-  { carrier: "Kamil Koç, Pamukkale, Metro", from: "Muğla", to: "Ankara", departures: ["05:00","07:20","09:00","12:15","17:00","21:00"], duration: "9s 30dk", price: "₺1050", type: "şehirlerarası" },
-  { carrier: "Metro, Kamil Koç, Pamukkale", from: "Muğla", to: "İzmir", departures: ["06:00","08:00","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "3s 30dk", price: "₺420", type: "şehirlerarası" },
-  { carrier: "Pamukkale, Kamil Koç, Metro", from: "Muğla", to: "Antalya", departures: ["05:30","07:30","10:00","13:00","16:00","19:00"], duration: "5s", price: "₺850", type: "şehirlerarası" },
-  { carrier: "Kamil Koç, Pamukkale, Metro", from: "Muğla", to: "Denizli", departures: ["07:00","09:00","10:00","12:00","15:00","18:00"], duration: "3s", price: "₺420", type: "şehirlerarası" },
-  { carrier: "Balıkesir Uludağ, Kamil Koç, Metro", from: "Muğla", to: "Bursa", departures: ["05:00","07:30","10:00","13:00","16:00","19:00"], duration: "7s", price: "₺1120", type: "şehirlerarası" },
+  { carrier: "Muğla Koop.", from: "Muğla", to: "Bodrum", departures: ["06:00","07:30","09:00","10:30","12:00","13:30","15:00","16:30","18:00","19:30"], duration: "2s 45dk", price: "₺180", type: "ilçe", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Muğla Koop.", from: "Muğla", to: "Fethiye", departures: ["06:30","08:00","09:30","11:00","13:00","15:00","17:00","19:00"], duration: "2s 15dk", price: "₺150", type: "ilçe", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Muğla Koop.", from: "Muğla", to: "Marmaris", departures: ["07:00","08:30","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "1s 30dk", price: "₺120", type: "ilçe", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Muğla Koop.", from: "Muğla", to: "Dalaman", departures: ["07:00","09:00","11:00","14:00","16:30","19:00"], duration: "1s 45dk", price: "₺130", type: "ilçe", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Muğla Koop.", from: "Muğla", to: "Milas", departures: ["06:30","07:30","08:30","09:30","10:30","11:30","13:00","14:30","16:00","17:30","19:00"], duration: "45dk", price: "₺70", type: "ilçe", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Pamukkale, Kamil Koç, Metro", from: "Muğla", to: "İstanbul", departures: ["09:30","10:45","12:29","16:30","18:45","21:29","22:45"], duration: "11s", price: "₺1599", type: "şehirlerarası", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Kamil Koç, Pamukkale, Metro", from: "Muğla", to: "Ankara", departures: ["05:00","07:20","09:00","12:15","17:00","21:00"], duration: "9s 30dk", price: "₺1050", type: "şehirlerarası", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Metro, Kamil Koç, Pamukkale", from: "Muğla", to: "İzmir", departures: ["06:00","08:00","10:00","12:00","14:00","16:00","18:00","20:00"], duration: "3s 30dk", price: "₺420", type: "şehirlerarası", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Pamukkale, Kamil Koç, Metro", from: "Muğla", to: "Antalya", departures: ["05:30","07:30","10:00","13:00","16:00","19:00"], duration: "5s", price: "₺850", type: "şehirlerarası", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Kamil Koç, Pamukkale, Metro", from: "Muğla", to: "Denizli", departures: ["07:00","09:00","10:00","12:00","15:00","18:00"], duration: "3s", price: "₺420", type: "şehirlerarası", source: "Referans sefer planı", dataMode: "reference" },
+  { carrier: "Balıkesir Uludağ, Kamil Koç, Metro", from: "Muğla", to: "Bursa", departures: ["05:00","07:30","10:00","13:00","16:00","19:00"], duration: "7s", price: "₺1120", type: "şehirlerarası", source: "Referans sefer planı", dataMode: "reference" },
 ];
 
 const getNextDeparture = (departures: string[]) => {
@@ -53,6 +55,7 @@ export const BusScheduleSection = () => {
   const [direction, setDirection] = useState<"gidiş" | "dönüş">("gidiş");
   const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [dataMode, setDataMode] = useState<DataOrigin>("reference");
 
   const fetchLiveData = useCallback(async () => {
     setLoading(true);
@@ -85,7 +88,8 @@ export const BusScheduleSection = () => {
             return_saturday: (r.return_saturday as string[]) ?? [],
             return_sunday: (r.return_sunday as string[]) ?? [],
             return_price: r.return_price ? String(r.return_price) : undefined,
-            source: r.source ? String(r.source) : undefined,
+            source: r.source ? String(r.source) : "MUTTAŞ canlı veri",
+            dataMode: "live",
           };
         });
         // Backend şehirlerarası döndürmediyse (henüz deploy edilmemiş olabilir),
@@ -95,6 +99,7 @@ export const BusScheduleSection = () => {
           ? normalized
           : [...normalized, ...mockRoutes.filter((r) => r.type === "şehirlerarası")];
         setRoutes(merged);
+        setDataMode("live");
         setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
       } else {
         // Edge çağrısı boş/başarısız — kalıcı cache'ten son-bilinen veriyi oku
@@ -121,11 +126,13 @@ export const BusScheduleSection = () => {
               return_saturday: (r.return_saturday as string[]) ?? [],
               return_sunday: (r.return_sunday as string[]) ?? [],
               return_price: r.return_price ? String(r.return_price) : undefined,
-              source: r.source ? String(r.source) : undefined,
+              source: r.source ? String(r.source) : "Önbellekteki son MUTTAŞ verisi",
+              dataMode: "cached",
             };
           });
           if (normalized.length) {
             setRoutes(normalized);
+            setDataMode("cached");
             setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
           }
         }
@@ -149,10 +156,11 @@ export const BusScheduleSection = () => {
     <DashboardPanel
       title="Otobüs Seferleri"
       icon={<Bus size={14} />}
-      badge="GÜNCEL"
-      badgeVariant="active"
+      badge={dataMode === "live" ? "CANLI" : dataMode === "cached" ? "ÖNBELLEK" : "REFERANS"}
+      badgeVariant={dataMode === "live" ? "live" : dataMode === "cached" ? "info" : "warning"}
       count={filtered.length}
     >
+      <DataOriginBadge origin={dataMode} className="mb-2" />
       {/* Filters + Direction toggle */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1">
@@ -226,6 +234,7 @@ export const BusScheduleSection = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] text-muted-foreground">{route.carrier}</span>
+                  <DataOriginBadge origin={route.dataMode ?? dataMode} />
                   <span className="text-[8px] text-muted-foreground">•</span>
                   <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
                     <Clock size={8} /> {route.duration}
