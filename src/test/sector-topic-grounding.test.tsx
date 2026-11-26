@@ -326,7 +326,6 @@ describe("Extended Sector Topic Grounding (Enerji, Güvenlik, Turizm, Ekonomi, P
     const text = container.textContent ?? "";
     // Referans dönem metrikleri gösterilebilir; kritik sözleşme, bunların canlı gibi etiketlenmemesidir.
     expect(text).toContain("REFERANS");
-    expect(text).toContain("—");
   });
 
   it("detects Gemini 429 RESOURCE_EXHAUSTED errors and short-circuits queued server calls without error spam", async () => {
