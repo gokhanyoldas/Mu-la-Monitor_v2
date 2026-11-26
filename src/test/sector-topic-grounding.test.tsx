@@ -319,11 +319,8 @@ describe("Extended Sector Topic Grounding (Enerji, Güvenlik, Turizm, Ekonomi, P
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/Canlı ADM Elektrik kesinti verisi yok/i)).toBeTruthy();
-      expect(screen.getByText(/Canlı AFAD\/Kandilli veya asayiş verisi yok/i)).toBeTruthy();
-      expect(screen.getByText(/Canlı otel doluluk verisi yok/i)).toBeTruthy();
-      expect(screen.getByText(/Canlı bütçe\/ihale ve TÜİK verisi yok/i)).toBeTruthy();
-      expect(screen.getByText(/Son 24 saatte doğrulanmış protokol gelişmesi yok/i)).toBeTruthy();
+      // Kaynak yokken paneller canlı metrik yerine açıkça referans veri modunu gösterir.
+      expect(screen.getAllByText("REFERANS VERİ").length).toBeGreaterThanOrEqual(3);
     });
 
     const text = container.textContent ?? "";

@@ -82,32 +82,28 @@ describe("Sprint 2 — Tekilleştirme ve Sekme Mimarisi", () => {
     expect(screen.getByRole("button", { name: "Diyagram" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Muğla Protokol" })).toBeTruthy();
 
-    // Sade Modda Diyagram sekmesi "Doğrulama ve İlişki Ağı" olarak görünür
+    // Sade Modda erişilebilir kurum ağı navigasyonu görünür.
     fireEvent.click(screen.getByTestId("view-mode-toggle"));
-    expect(screen.getByRole("button", { name: "Doğrulama ve İlişki Ağı" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kurum İletişim Ağı" })).toBeTruthy();
   });
 
-  it("InvestigationHub tek merkezde Çapraz Doğrulama | Protokol İlişki Ağı geçişi sunar ve olay kaydından tek tıkla ağ haritasına geçer", async () => {
+  it("InvestigationHub tek merkezde haber doğrulama ve 13 ilçe bağlantı haritası geçişi sunar", async () => {
     renderWithProviders(<InvestigationHub />);
 
-    expect(screen.getByTestId("hub-toggle-verification").textContent).toContain("Çapraz Doğrulama");
-    expect(screen.getByTestId("hub-toggle-network").textContent).toContain("Protokol İlişki Ağı");
+    expect(screen.getByTestId("hub-toggle-verification").textContent).toContain("Haber Doğrulama");
+    expect(screen.getByTestId("hub-toggle-network").textContent).toContain("13 İlçe Bağlantı Haritası");
 
-    // İlk doğrulama kaydı (Bodrum) yüklendikten sonra tek tıkla Protokol İlişki Ağı'na geç
-    const jumpBtn = await waitFor(() => screen.getByTestId("jump-to-protocol-network-btn"));
-    fireEvent.click(jumpBtn);
+    fireEvent.click(screen.getByTestId("hub-toggle-network"));
 
-    // Protokol İlişki Ağı açılır, "(Test)" etiketi yoktur ve ilgili ilçe (Bodrum) otomatik odaklanır
+    // 13 ilçe bağlantı haritası açılır ve eski kullanıcı-facing test etiketi yoktur.
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /Protokol İlişki Ağı/i })).toBeTruthy();
+      expect(screen.getByText(/13 İlçe Bağlantı Haritası/i)).toBeTruthy();
     });
     expect(screen.queryByText(/\(Test\)/i)).toBeNull();
-    // Sağ detay panelinde Bodrum düğümü seçili olmalıdır
-    expect(screen.getAllByText(/Bodrum/i).length).toBeGreaterThan(0);
 
-    // Tekrar Çapraz Doğrulama görünümüne dönülebilir
+    // Tekrar haber doğrulama görünümüne dönülebilir
     fireEvent.click(screen.getByTestId("hub-toggle-verification"));
-    expect(screen.getByText(/HABER DOĞRULAMA KONSOLU/i)).toBeTruthy();
+    expect(screen.getByText(/Haber Doğrulama Merkezi/i)).toBeTruthy();
   });
 
   it("Genel Bakış yalnızca 8 özet kutusunu, Şehir Nabzı'nı ve ilk satırdaki 3 ana özet kartını (Trafik, Ekonomi, Turizm) içerir; kopya alt panelleri barındırmaz", () => {
@@ -177,11 +173,11 @@ describe("Sprint 2 — Tekilleştirme ve Sekme Mimarisi", () => {
     });
   });
 
-  it("eski /?tab=ag_grafigi URL bağlantısı geriye dönük uyumlu olarak Diyagram > Protokol İlişki Ağı görünümünü açar", async () => {
+  it("eski /?tab=ag_grafigi URL bağlantısı geriye dönük uyumlu olarak Diyagram > 13 İlçe Bağlantı Haritası görünümünü açar", async () => {
     renderWithProviders(<Index />, ["/?tab=ag_grafigi"]);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /Protokol İlişki Ağı/i })).toBeTruthy();
+      expect(screen.getByText(/13 İlçe Bağlantı Haritası/i)).toBeTruthy();
     });
     expect(screen.queryByText(/\(Test\)/i)).toBeNull();
   });

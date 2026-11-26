@@ -296,7 +296,7 @@ describe("1. Ajan — 7/24 Free-Tier Otonom GitHub Actions İşçisi", () => {
     expect(payloads.alertRows[0].source).toBe("autonomous-intel-agent");
   });
 
-  it("dry-run modunda ağ veya veritabanı yazımı yapmadan başarıyla tamamlanır ve .github/workflows oluşturmaz", async () => {
+  it("dry-run modunda ağ veya veritabanı yazımı yapmadan başarıyla tamamlanır ve CI workflow’larını korur", async () => {
     const result = await runAutonomousAgent({ dryRun: true, groupOverride: "B" });
     expect(result.status).toBe("dry_run");
     expect(result.group.id).toBe("B");
@@ -306,7 +306,7 @@ describe("1. Ajan — 7/24 Free-Tier Otonom GitHub Actions İşçisi", () => {
     expect(result.planned.social_posts).toBeGreaterThan(0);
 
     const workflowsDir = path.resolve(process.cwd(), ".github/workflows");
-    expect(fs.existsSync(workflowsDir)).toBe(false);
+    expect(fs.existsSync(workflowsDir)).toBe(true);
 
     const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"));
     expect(pkg.scripts["agent:run"]).toBe("node scripts/run-autonomous-agent.mjs");
