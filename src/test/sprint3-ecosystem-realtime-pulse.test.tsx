@@ -302,7 +302,7 @@ describe("Sprint 3 — Dinamik Şehir Nabzı, Supabase Realtime ve 7/24 Ekosiste
     }
   });
 
-  it("3. 7/24 İşçi Betiği: 4 bölgesel grup 13 ilçeyi ve 7 topic-grounding sorgusunun tamamını kotayı aşmadan kapsar, .github/workflows oluşturmaz", () => {
+  it("3. 7/24 İşçi Betiği: 4 bölgesel grup 13 ilçeyi ve 7 topic-grounding sorgusunun tamamını kotayı aşmadan kapsar; CI workflow’ları korunur", () => {
     // Tüm 7 topic-grounding sorgusu 4 bölgesel grup içinde eksiksiz kapsanır
     const coveredTopics = new Set(
       DISTRICT_GROUPS.flatMap((g: { id: string }) => selectTopicsForGroup(g))
@@ -363,8 +363,8 @@ describe("Sprint 3 — Dinamik Şehir Nabzı, Supabase Realtime ve 7/24 Ekosiste
     expect(cacheTypes).toContain("topic_grounding:energy_outages");
     expect(cacheTypes).toContain("topic_grounding:tourism_occupancy");
 
-    // GitHub push engelini tetikleyecek .github/workflows klasörü bulunmaz
+    // Production release ve güvenlik kontrolleri için CI workflow’ları repository’de bulunur.
     const workflowsDir = path.resolve(process.cwd(), ".github/workflows");
-    expect(fs.existsSync(workflowsDir)).toBe(false);
+    expect(fs.existsSync(workflowsDir)).toBe(true);
   });
 });

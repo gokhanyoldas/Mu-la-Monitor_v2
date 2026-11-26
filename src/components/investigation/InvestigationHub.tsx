@@ -19,11 +19,13 @@ import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { useTranslation } from "@/hooks/useTranslation";
 import { PanelHelpTooltip } from "@/components/dashboard/PanelHelpTooltip";
 
-export const InvestigationHub: React.FC = () => {
+export type InvestigationHubView = "verification" | "protocol_network";
+
+export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> = ({ initialView = "verification" }) => {
   const { dynamicDossiers, activeDynamicDossierId, setActiveDynamicDossierId } = useUnifiedIntelligence();
   const { t } = useTranslation();
   // Görünüm Modu: "investigation" (Sorgu Odası & Kulis Ağı) veya "topology" (13 İlçe Kentsel Altyapı Ağı)
-  const [viewMode, setViewMode] = useState<"investigation" | "topology">("investigation");
+  const [viewMode, setViewMode] = useState<"investigation" | "topology">(initialView === "protocol_network" ? "topology" : "investigation");
   
   // Seçili Dosya ve Vurgulu Düğümler
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>("dosya-bodrum-su");
@@ -100,6 +102,7 @@ export const InvestigationHub: React.FC = () => {
           <button
             type="button"
             onClick={() => setViewMode("investigation")}
+            data-testid="hub-toggle-verification"
             className={`px-3 py-1.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
               viewMode === "investigation"
                 ? "bg-rose-600 text-white shadow-lg shadow-rose-900/40"
@@ -112,6 +115,7 @@ export const InvestigationHub: React.FC = () => {
 
           <button
             type="button"
+            data-testid="hub-toggle-network"
             onClick={() => setViewMode("topology")}
             className={`px-3 py-1.5 rounded-md font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
               viewMode === "topology"
