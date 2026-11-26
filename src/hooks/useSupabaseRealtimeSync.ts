@@ -13,9 +13,12 @@ import type { LexiconLayer } from "@/services/livingLexiconService";
 import {
   TOPIC_GROUNDING_QUERIES,
   writeLocalTopicCache,
+  mergeDamIntelligence,
+  mergeSecurityIntelligence,
   type SectorTopicKey,
   type TopicGroundingPayload,
 } from "@/services/topicGroundingService";
+import { useMonitorStore } from "@/store/useMonitorStore";
 
 function mapCategoryToLexiconLayer(category?: string | null): LexiconLayer {
   const low = String(category || "").toLocaleLowerCase("tr-TR");
@@ -83,6 +86,30 @@ export function useSupabaseRealtimeSync(enabled = true) {
             table: "social_posts",
           },
           (payload) => {
+            const row = payload.new as
+              | {
+                  id?: string;
+                  platform?: string;
+                  content?: string;
+                  sentiment?: string;
+                  region?: string;
+                  author?: string;
+                  url?: string;
+                  published_at?: string;
+                }
+              | undefined;
+            if (row?.content) {
+              useMonitorStore.getState().prependSocialPost({
+                id: String(row.id || `rt-${Date.now()}`),
+                platform: String(row.platform || "news"),
+                content: String(row.content),
+                sentiment: String(row.sentiment || "neutral"),
+                districtName: row.region || undefined,
+                author: row.author || undefined,
+                url: row.url || undefined,
+                publishedAt: row.published_at || new Date().toISOString(),
+              });
+            }
             queryClient.invalidateQueries({ queryKey: ["social-posts"] });
             queryClient.invalidateQueries({ queryKey: ["social-intel"] });
             queryClient.invalidateQueries({ queryKey: ["dam-press-observations"] });
@@ -135,13 +162,75 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 const topicPayload = row.data as TopicGroundingPayload;
                 writeLocalTopicCache(topicKey, topicPayload);
                 queryClient.setQueryData(["topic-grounding", topicKey], topicPayload);
+                if (topicKey === "environment_dams" && Array.isArray(topicPayload.damUpdates)) {
+                  const merged = mergeDamIntelligence({
+                    groundedUpdates: topicPayload.damUpdates,
+                  });
+                  useMonitorStore.getState().setDamsSnapshot({
+                    records: merged.dams,
+                    avgOccupancy: merged.avgOccupancy,
+                    verifiedCount: merged.verifiedCount,
+                    hasVerifiedLiveData: merged.hasVerifiedLiveData,
+                    latestSourceSummary: merged.latestSourceSummary,
+                    latestMeasuredAt: merged.latestMeasuredAt,
+                    updatedAt: topicPayload.fetchedAt || row.fetched_at || new Date().toISOString(),
+                  });
+                }
+                if (topicKey === "security_quakes" && Array.isArray(topicPayload.securityEvents)) {
+                  const sec = mergeSecurityIntelligence({
+                    groundedEvents: topicPayload.securityEvents,
+                  });
+                  if (sec.quakes.length > 0) {
+                    useMonitorStore.getState().setEarthquakes(
+                      sec.quakes.map((q) => ({
+                        id: q.id,
+                        magnitude: q.magnitude,
+                        location: q.location,
+                        depthKm: q.depthKm,
+                        occurredAt: q.occurredAt,
+                        url: q.sourceUrl,
+                        sourceName: q.sourceName,
+                      })),
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
+                  }
+                }
               }
             } else {
               queryClient.setQueriesData(
                 { queryKey: ["live-data", row.data_type] },
                 row.data
               );
+              if (row.data_type === "earthquakes") {
+                const sec = mergeSecurityIntelligence({ earthquakeCache: row.data });
+                if (sec.quakes.length > 0) {
+                  useMonitorStore.getState().setEarthquakes(
+                    sec.quakes.map((q) => ({
+                      id: q.id,
+                      magnitude: q.magnitude,
+                      location: q.location,
+                      depthKm: q.depthKm,
+                      occurredAt: q.occurredAt,
+                      url: q.sourceUrl,
+                      sourceName: q.sourceName,
+                    })),
+                    row.fetched_at || new Date().toISOString()
+                  );
+                }
+              } else if (row.data_type === "dams") {
+                const merged = mergeDamIntelligence({ cacheData: row.data });
+                useMonitorStore.getState().setDamsSnapshot({
+                  records: merged.dams,
+                  avgOccupancy: merged.avgOccupancy,
+                  verifiedCount: merged.verifiedCount,
+                  hasVerifiedLiveData: merged.hasVerifiedLiveData,
+                  latestSourceSummary: merged.latestSourceSummary,
+                  latestMeasuredAt: merged.latestMeasuredAt,
+                  updatedAt: row.fetched_at || new Date().toISOString(),
+                });
+              }
             }
+            useMonitorStore.getState().touchLastSynced(row.fetched_at || new Date().toISOString());
 
             if (typeof window !== "undefined") {
               window.dispatchEvent(

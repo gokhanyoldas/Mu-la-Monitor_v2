@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
 import { PanelHelpTooltip } from "@/components/dashboard/PanelHelpTooltip";
 import { cn } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 const TYPE_CONFIG: Record<SummaryType, {
   icon: React.ComponentType<{ className?: string }>;
@@ -43,8 +44,15 @@ export function AISummaryCard({ type = "daily", className }: AISummaryCardProps)
         <div className="flex items-center gap-2">
           {data?.isStale && <span className="text-[9px] font-mono text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded">{t("eski")}</span>}
           {canGenerateAI && (
-            <button onClick={refresh} disabled={isLoading} className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-40" title={t("Yenile")}>
-              <RefreshCw className={cn("h-3.5 w-3.5 text-muted-foreground", isLoading && "animate-spin")} />
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={isLoading}
+              aria-label={t("Yenile")}
+              title={t("Yenile")}
+              className="p-1 rounded hover:bg-muted/50 transition-colors disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5 text-muted-foreground", isLoading && "animate-spin")} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -59,18 +67,23 @@ export function AISummaryCard({ type = "daily", className }: AISummaryCardProps)
         )}
         {error && !data && (
           <div className="flex items-center gap-2 text-xs text-destructive">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span>AI özeti şu an yüklenemedi.</span>
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{t("AI özeti şu an yüklenemedi.")}</span>
           </div>
         )}
         {data && <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-line">{translate(data.summary)}</p>}
       </div>
       {data && (
-        <div className="relative mt-3 flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
-          <TrendingUp className="h-3 w-3" />
+        <div className="tech-meta-only relative mt-3 flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+          <TrendingUp className="h-3 w-3" aria-hidden="true" />
           <span>{t(data.sourceLabel || "Canlı Şehir Nabzı")}</span>
           <span className="mx-1 opacity-40">·</span>
-          <span>{new Date(data.generated_at).toLocaleString(dateLocale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+          <span
+            data-testid="ai-summary-relative-time"
+            title={new Date(data.generated_at).toLocaleString(dateLocale, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          >
+            {formatRelativeTime(data.generated_at, lang)}
+          </span>
         </div>
       )}
     </div>

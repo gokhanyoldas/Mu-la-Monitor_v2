@@ -29,9 +29,13 @@ const VALID_TOPICS = new Set<TopicGroundingKey>([
   "protocol_activity",
 ]);
 
+export function isValidTopicKey(raw: unknown): raw is TopicGroundingKey {
+  return typeof raw === "string" && VALID_TOPICS.has(raw as TopicGroundingKey);
+}
+
 export function normalizeTopicKey(raw: unknown): TopicGroundingKey {
-  if (typeof raw === "string" && VALID_TOPICS.has(raw as TopicGroundingKey)) {
-    return raw as TopicGroundingKey;
+  if (isValidTopicKey(raw)) {
+    return raw;
   }
   return "environment_dams";
 }
@@ -151,13 +155,36 @@ function sendJson(res: VercelResponse, statusCode: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+function isPrivateOrLocalHost(host: string): boolean {
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".invalid")
+  ) {
+    return true;
+  }
+  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
+    return true;
+  }
+  const m172 = host.match(/^172\.(\d{1,3})\./);
+  if (m172) {
+    const second = Number(m172[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
+}
+
 function isValidExternalUrl(uri: unknown): uri is string {
   if (typeof uri !== "string") return false;
   try {
     const parsed = new URL(uri.trim());
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
     const host = parsed.hostname.toLowerCase();
-    return Boolean(host && host.includes(".") && host !== "localhost" && host !== "127.0.0.1");
+    return Boolean(host && host.includes(".") && !isPrivateOrLocalHost(host));
   } catch {
     return false;
   }
@@ -287,22 +314,22 @@ GÖREV:
 
     case "security_quakes":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" asayiş OR "Sahil Güvenlik" deniz güvenliği)
+("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)
 
 GÖREV:
-- Muğla ve kıyı ilçeleri (Bodrum, Marmaris, Datça, Fethiye, Milas, Menteşe, Dalaman, Ortaca, Köyceğiz, Ula, Yatağan, Seydikemer, Kavaklıdere) için son günlerdeki doğrulanmış AFAD/Kandilli depremleri ile Emniyet, Jandarma veya Sahil Güvenlik asayiş/deniz güvenliği gelişmelerini çıkar.
-- Asla uydurma olay veya istatistik üretme; yalnızca gerçek kaynak URL'si bulunan kayıtları ekle (en fazla 8 kayıt).
+- Muğla ve 13 ilçesi (Bodrum, Marmaris, Datça, Fethiye, Milas, Menteşe, Dalaman, Ortaca, Köyceğiz, Ula, Yatağan, Seydikemer, Kavaklıdere) için son günlerdeki doğrulanmış AFAD/Kandilli depremlerine EK OLARAK günlük asayiş olayları, trafik kazaları, Sahil Güvenlik operasyonları ve orman/yerleşim yangını haberlerini çıkar.
+- Asla uydurma olay veya sabit istatistik (485, 128 vb.) üretme; yalnızca gerçek kaynak URL'si bulunan doğrulanmış olayları ekle (en fazla 8 kayıt).
 - SADECE aşağıdaki JSON yapısını döndür:
 {
   "events": [
     {
-      "category": "deprem | asayis | deniz_guvenligi",
+      "category": "deprem | asayis | deniz_guvenligi | trafik_kazasi | yangin",
       "title": "Kısa ve net olay başlığı",
       "district": "İlçe veya deniz açıkları",
       "magnitude": 3.4,
       "depthKm": 7.2,
       "severity": "kritik | yuksek | normal",
-      "sourceName": "AFAD | Kandilli | Sahil Güvenlik | Muğla Emniyet | AA | Yerel Basın",
+      "sourceName": "AFAD | Kandilli | Sahil Güvenlik | Muğla Emniyet | OGM | AA | Yerel Basın",
       "sourceUrl": "https://...",
       "publishedDate": "YYYY-MM-DD",
       "confidence": "high | medium"
@@ -312,16 +339,17 @@ GÖREV:
 
     case "tourism_occupancy":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye") otel doluluk oranı OR turist sayısı TÜRSAB OR BODER OR GETOB
+"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu 2026
 
 GÖREV:
-- Muğla geneli ve Bodrum, Marmaris, Fethiye ilçeleri için güncel doğrulanmış otel doluluk oranlarını ve ziyaretçi/turist sayılarını yerel basın veya turizm birliklerinden (TÜRSAB, BODER, GETOB, Kültür ve Turizm Bakanlığı, AA, Anter Haber) çıkar.
-- Tahmini veya uydurma yüzde yazma; haberde doğrudan belirtilmemişse null bırak. Kaynak URL'si olmayan kaydı ekleme.
+- Muğla geneli ve Bodrum, Marmaris, Fethiye, Datça ilçeleri için doğrulanmış güncel otel doluluk oranlarını, yıllık/dönemlik turist sayısını ve Dalaman / Milas-Bodrum Havalimanı yolcu istatistiklerini (TÜRSAB, BODER, GETOB, DHMİ, Kültür ve Turizm Bakanlığı, AA, yerel basın) çıkar.
+- Tahmini veya uydurma yüzde/rakam yazma; haberde doğrudan yer almıyorsa null bırak. Kaynak URL'si olmayan kaydı ekleme.
 - SADECE aşağıdaki JSON yapısını döndür:
 {
   "hotelOccupancyPct": 68,
-  "annualTourists": "3.85M",
-  "sourceName": "BODER | GETOB | TÜRSAB | Kültür ve Turizm Bakanlığı | Yerel Basın",
+  "annualTourists": "4.2M",
+  "airportPassengers": "5.6M",
+  "sourceName": "BODER | GETOB | TÜRSAB | DHMİ | Kültür ve Turizm Bakanlığı | Yerel Basın",
   "sourceUrl": "https://...",
   "publishedDate": "YYYY-MM-DD",
   "districtRates": [
@@ -335,8 +363,8 @@ GÖREV:
   ],
   "headlines": [
     {
-      "title": "Kısa turizm gelişmesi başlığı",
-      "district": "Muğla | Bodrum | Marmaris | Fethiye",
+      "title": "Kısa turizm veya havalimanı yolcu gelişmesi başlığı",
+      "district": "Muğla | Bodrum | Marmaris | Fethiye | Dalaman",
       "sourceName": "Kaynak adı",
       "sourceUrl": "https://...",
       "publishedDate": "YYYY-MM-DD"
@@ -346,25 +374,40 @@ GÖREV:
 
     case "economy_budget":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-("Muğla Büyükşehir" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" OR "Fethiye Belediyesi") bütçe OR ihale OR yatırım OR ("Muğla" TÜİK işsizlik oranı)
+"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale 2026 OR 2027
 
 GÖREV:
-- Muğla Büyükşehir Belediyesi ve ilçe belediyelerinin güncel bütçe, ihale, yatırım duyuruları ile TÜİK Muğla (TR32) güncel işsizlik/işgücü verilerini çıkar.
-- Tahmini veya uydurma rakam yazma; yalnızca kaynakta yer alan bilgileri döndür ve her kayıt için gerçek kaynak URL'si ver (en fazla 6 kayıt).
+- Muğla Büyükşehir Belediyesi, MUSKİ ve ilçe belediyelerinin (Bodrum, Marmaris, Fethiye, Milas, Menteşe vb.) resmi meclis onaylı 2026 veya 2027 bütçe rakamlarını (milyar TL cinsinden, varsa birleşik toplam ve yıllık artış yüzdesi dahil), güncel ihale/yatırım duyurularını ve varsa güncel TÜİK Muğla işsizlik oranını çıkar.
+- Tahmini veya uydurma rakam yazma; yalnızca arama sonuçlarında doğrudan yer alan resmi rakamları ve gerçek kaynak URL'lerini döndür.
 - SADECE aşağıdaki JSON yapısını döndür:
 {
-  "unemploymentRate": 7.9,
-  "unemploymentPeriod": "TÜİK 2025/Ç2",
-  "unemploymentSource": "TÜİK",
-  "sourceName": "Muğla Büyükşehir | TÜİK | Yerel Basın",
+  "budgetYear": 2026,
+  "combinedTotalBillionTry": 44.8,
+  "budgetYoyChangePct": 30.35,
+  "municipalBudgets": [
+    {
+      "institution": "Muğla Büyükşehir Belediyesi | MUSKİ | Bodrum Belediyesi | Marmaris Belediyesi | Fethiye Belediyesi",
+      "amountBillionTry": 24.3,
+      "year": 2026,
+      "yoyChangePct": 30.35,
+      "investmentBillionTry": 9.8,
+      "sourceName": "Muğla Büyükşehir | MUSKİ | AA | Yerel Basın",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD"
+    }
+  ],
+  "unemploymentRate": null,
+  "unemploymentPeriod": null,
+  "unemploymentSource": null,
+  "sourceName": "Muğla Büyükşehir | MUSKİ | Yerel Basın",
   "sourceUrl": "https://...",
   "publishedDate": "YYYY-MM-DD",
   "items": [
     {
-      "institution": "Muğla Büyükşehir Belediyesi | Bodrum Belediyesi | Fethiye Belediyesi | Marmaris Belediyesi | TÜİK",
+      "institution": "Muğla Büyükşehir Belediyesi | MUSKİ | Bodrum Belediyesi | Marmaris Belediyesi | Fethiye Belediyesi",
       "category": "butce | ihale | yatirim | isgucu",
-      "title": "Kısa ve net gelişme başlığı",
-      "amountLabel": "Varsa tutar örn. 240 Milyon ₺ veya boş",
+      "title": "Kısa ve net bütçe veya ihale gelişmesi başlığı",
+      "amountLabel": "Varsa tutar örn. 44.8 Milyar ₺ veya boş",
       "sourceName": "Kaynak adı",
       "sourceUrl": "https://...",
       "publishedDate": "YYYY-MM-DD"
@@ -657,12 +700,18 @@ async function runTopicGroundingCall(
           if (!title || !url) return null;
           const rawMag = item.magnitude !== null && item.magnitude !== undefined ? Number(item.magnitude) : NaN;
           const rawDepth = item.depthKm !== null && item.depthKm !== undefined ? Number(item.depthKm) : NaN;
+          const rawCat = item.category;
+          const category =
+            rawCat === "deprem" ||
+            rawCat === "deniz_guvenligi" ||
+            rawCat === "trafik_kazasi" ||
+            rawCat === "yangin" ||
+            rawCat === "asayis"
+              ? rawCat
+              : "asayis";
           return {
             id: `sq-${idx}-${Date.now()}`,
-            category:
-              item.category === "deprem" || item.category === "deniz_guvenligi"
-                ? item.category
-                : "asayis",
+            category,
             title,
             district: cleanStr(item.district, 50, "Muğla"),
             magnitude: Number.isFinite(rawMag) && rawMag > 0 && rawMag < 10 ? Math.round(rawMag * 10) / 10 : null,
@@ -702,6 +751,10 @@ async function runTopicGroundingCall(
       const annualTourists =
         topUrl && typeof parsed.annualTourists === "string" && parsed.annualTourists.trim()
           ? parsed.annualTourists.trim().slice(0, 24)
+          : null;
+      const airportPassengers =
+        topUrl && typeof parsed.airportPassengers === "string" && parsed.airportPassengers.trim()
+          ? parsed.airportPassengers.trim().slice(0, 32)
           : null;
 
       const rawDistrictRates = Array.isArray(parsed.districtRates) ? parsed.districtRates : [];
@@ -747,6 +800,7 @@ async function runTopicGroundingCall(
         tourismMetrics: {
           hotelOccupancyPct: validOcc,
           annualTourists,
+          airportPassengers,
           districtRates,
           headlines,
           sourceName: topUrl ? cleanStr(parsed.sourceName, 60, "TÜRSAB / Yerel Basın") : undefined,
@@ -767,6 +821,75 @@ async function runTopicGroundingCall(
       const unemploymentRate =
         topUrl && Number.isFinite(rawUnemp) && rawUnemp > 0 && rawUnemp < 60
           ? Math.round(rawUnemp * 10) / 10
+          : null;
+
+      const rawBudgets = Array.isArray(parsed.municipalBudgets) ? parsed.municipalBudgets : [];
+      const municipalBudgets = rawBudgets
+        .map((entry: Record<string, unknown>) => {
+          const institution = cleanStr(entry?.institution, 80);
+          const amountBn = Number(entry?.amountBillionTry);
+          const url = isValidExternalUrl(entry?.sourceUrl) ? String(entry.sourceUrl).trim() : topUrl;
+          if (!institution || !Number.isFinite(amountBn) || amountBn <= 0 || amountBn > 500 || !url) {
+            return null;
+          }
+          const rawYear = entry?.year !== null && entry?.year !== undefined ? Number(entry.year) : NaN;
+          const year = Number.isFinite(rawYear) && rawYear >= 2020 && rawYear <= 2035 ? Math.round(rawYear) : null;
+          const rawYoy =
+            entry?.yoyChangePct !== null && entry?.yoyChangePct !== undefined
+              ? Number(entry.yoyChangePct)
+              : NaN;
+          const yoyChangePct =
+            Number.isFinite(rawYoy) && rawYoy > -100 && rawYoy < 500
+              ? Math.round(rawYoy * 100) / 100
+              : null;
+          const rawInv =
+            entry?.investmentBillionTry !== null && entry?.investmentBillionTry !== undefined
+              ? Number(entry.investmentBillionTry)
+              : NaN;
+          const investmentBillionTry =
+            Number.isFinite(rawInv) && rawInv > 0 && rawInv <= amountBn
+              ? Math.round(rawInv * 100) / 100
+              : null;
+          return {
+            institution,
+            amountBillionTry: Math.round(amountBn * 100) / 100,
+            year,
+            yoyChangePct,
+            investmentBillionTry,
+            sourceName: cleanStr(entry?.sourceName, 60, cleanStr(parsed.sourceName, 60, "Muğla Büyükşehir / Yerel Basın")),
+            sourceUrl: url,
+            publishedAt: parseIsoDateOrFallback(entry?.publishedDate ?? parsed.publishedDate, nowIso),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 12);
+
+      const rawCombined =
+        parsed.combinedTotalBillionTry !== null && parsed.combinedTotalBillionTry !== undefined
+          ? Number(parsed.combinedTotalBillionTry)
+          : NaN;
+      const combinedTotalBillionTry =
+        (topUrl || municipalBudgets.length > 0) &&
+        Number.isFinite(rawCombined) &&
+        rawCombined > 0 &&
+        rawCombined < 500
+          ? Math.round(rawCombined * 100) / 100
+          : null;
+
+      const rawBudgetYear =
+        parsed.budgetYear !== null && parsed.budgetYear !== undefined ? Number(parsed.budgetYear) : NaN;
+      const budgetYear =
+        Number.isFinite(rawBudgetYear) && rawBudgetYear >= 2020 && rawBudgetYear <= 2035
+          ? Math.round(rawBudgetYear)
+          : null;
+
+      const rawBudgetYoy =
+        parsed.budgetYoyChangePct !== null && parsed.budgetYoyChangePct !== undefined
+          ? Number(parsed.budgetYoyChangePct)
+          : NaN;
+      const budgetYoyChangePct =
+        Number.isFinite(rawBudgetYoy) && rawBudgetYoy > -100 && rawBudgetYoy < 500
+          ? Math.round(rawBudgetYoy * 100) / 100
           : null;
 
       const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
@@ -799,6 +922,10 @@ async function runTopicGroundingCall(
         model: GEMINI_MODEL,
         fetchedAt: nowIso,
         economyUpdates: {
+          budgetYear,
+          combinedTotalBillionTry,
+          budgetYoyChangePct,
+          municipalBudgets,
           unemploymentRate,
           unemploymentPeriod: unemploymentRate !== null ? cleanStr(parsed.unemploymentPeriod, 40, "TÜİK") : null,
           unemploymentSource: unemploymentRate !== null ? cleanStr(parsed.unemploymentSource, 40, "TÜİK") : null,

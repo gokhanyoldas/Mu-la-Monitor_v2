@@ -1,5 +1,6 @@
 import { Zap, Brain, Clock } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 export type DataSourceType = "live" | "estimate" | "cached" | "static";
 
@@ -45,17 +46,10 @@ export const DataSourceBadge = ({
   className = "",
   showIcon = true,
 }: DataSourceBadgeProps) => {
-  const { t } = useTranslation();
+  const { lang, t } = useTranslation();
   const cfg = CONFIG[type];
 
-  const ageLabel = lastUpdated
-    ? (() => {
-        const diff = Math.round((Date.now() - new Date(lastUpdated).getTime()) / 60000);
-        if (diff < 1) return t("just_now", "Az önce");
-        if (diff < 60) return `${diff}${t("min", "dk")} ${t("ago", "önce")}`;
-        return `${Math.round(diff / 60)}${t("hour", "sa")} ${t("ago", "önce")}`;
-      })()
-    : null;
+  const ageLabel = lastUpdated ? formatRelativeTime(lastUpdated, lang, { fallback: "" }) || null : null;
 
   const IconEl = type === "live"
     ? <Zap size={8} />
@@ -66,7 +60,7 @@ export const DataSourceBadge = ({
   return (
     <span
       title={t(cfg.tooltip)}
-      className={`inline-flex items-center gap-0.5 text-[8px] font-mono font-semibold px-1.5 py-0.5 rounded border ${cfg.className} ${className}`}
+      className={`tech-meta-only inline-flex items-center gap-0.5 text-[8px] font-mono font-semibold px-1.5 py-0.5 rounded border ${cfg.className} ${className}`}
     >
       {showIcon && IconEl}
       {t(cfg.label)}

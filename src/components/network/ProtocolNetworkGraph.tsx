@@ -154,9 +154,14 @@ function computeInitialPositions(nodes: ProtocolGraphNode[]): SimNode[] {
   });
 }
 
-export const ProtocolNetworkGraph: React.FC = () => {
+interface ProtocolNetworkGraphProps {
+  initialFocusTerm?: string;
+}
+
+export const ProtocolNetworkGraph: React.FC<ProtocolNetworkGraphProps> = ({ initialFocusTerm }) => {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const { lang, t } = useTranslation();
+  const isEn = lang === "en";
   const hub = useOptionalUnifiedIntelligence();
   const [nodes, setNodes] = useState<ProtocolGraphNode[]>(INITIAL_PROTOCOL_NODES);
   const [links, setLinks] = useState<ProtocolGraphLink[]>(INITIAL_PROTOCOL_LINKS);
@@ -261,6 +266,22 @@ export const ProtocolNetworkGraph: React.FC = () => {
     }
     return ids;
   }, [visibleNodes, normalizedQuery]);
+
+  // Dışarıdan odak terimi (ör. Bodrum) geldiğinde ilgili düğümü seç
+  useEffect(() => {
+    if (!initialFocusTerm?.trim()) return;
+    const term = initialFocusTerm.trim().toLocaleLowerCase("tr-TR");
+    const matched = nodes.find(
+      (n) =>
+        n.label.toLocaleLowerCase("tr-TR").includes(term) ||
+        (n.districtTag || "").toLocaleLowerCase("tr-TR").includes(term) ||
+        n.role.toLocaleLowerCase("tr-TR").includes(term)
+    );
+    if (matched) {
+      setCategoryFilter("all");
+      setSelectedNodeId(matched.id);
+    }
+  }, [initialFocusTerm, nodes]);
 
   // Seçili düğüm görünür filtreden çıktıysa temizle
   useEffect(() => {
@@ -635,10 +656,10 @@ export const ProtocolNetworkGraph: React.FC = () => {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-sm sm:text-base font-mono font-bold tracking-wide text-foreground">
-                  {t("Kamu Kurumları Ağı")}
+                  {t("Protokol İlişki Ağı")}
                 </h2>
                 <PanelHelpTooltip panelTitle="Kamu Kurumları Ağı" />
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 tabular-nums-stat">
                   {visibleNodes.length} {t("Düğüm")} · {visibleLinks.length} {t("Bağlantı")}
                 </span>
               </div>
@@ -651,22 +672,23 @@ export const ProtocolNetworkGraph: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             {/* Arama Kutusu */}
             <div className="relative flex-1 sm:flex-initial min-w-[210px]">
-              <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Düğüm veya ilçe ara (ör. Bodrum)..."
-                className="w-full h-8 pl-8 pr-7 rounded-md border border-border bg-background/80 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                aria-label={isEn ? "Search node or district" : "Düğüm veya ilçe ara"}
+                placeholder={isEn ? "Search node or district (e.g. Bodrum)..." : "Düğüm veya ilçe ara (ör. Bodrum)..."}
+                className="w-full h-8 pl-8 pr-7 rounded-md border border-border bg-background/80 text-xs font-mono text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  aria-label="Aramayı temizle"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  aria-label={isEn ? "Clear search" : "Aramayı temizle"}
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3.5 h-3.5" aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -678,25 +700,26 @@ export const ProtocolNetworkGraph: React.FC = () => {
                   key={opt.value}
                   type="button"
                   onClick={() => setCategoryFilter(opt.value)}
-                  className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors ${
+                  className={`px-2.5 py-1 rounded text-[11px] font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                     categoryFilter === opt.value
                       ? "bg-primary/20 text-primary border border-primary/40 font-semibold"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
                   }`}
                 >
-                  {opt.label}
+                  {t(opt.label)}
                 </button>
               ))}
             </div>
 
-            {/* Yeni Düğüm/Bağlantı Ekle (Test) */}
+            {/* Yeni Düğüm/Bağlantı Ekle */}
             <button
               type="button"
               onClick={() => setIsAddModalOpen(true)}
-              className="h-8 px-3 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-semibold flex items-center gap-1.5 transition-colors"
+              aria-label={isEn ? "Add new node or connection" : "Yeni düğüm veya bağlantı ekle"}
+              className="h-8 px-3 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-semibold flex items-center gap-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <Plus className="w-3.5 h-3.5" />
-              Yeni Düğüm/Bağlantı Ekle (Test)
+              <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+              {isEn ? "Add Node / Connection" : "Yeni Düğüm / Bağlantı Ekle"}
             </button>
           </div>
         </div>

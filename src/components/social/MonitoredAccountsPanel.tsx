@@ -3,6 +3,8 @@ import { Twitter, Youtube, Instagram, Facebook, Linkedin, Plus, Trash2, RefreshC
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "@/hooks/useTranslation";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type Platform = "twitter" | "youtube" | "instagram" | "facebook" | "linkedin";
@@ -113,20 +115,9 @@ const PLATFORM_META: Record<Platform, {
 const ACTIVE_PLATFORMS: Platform[] = ["twitter", "youtube"];
 const SOON_PLATFORMS: Platform[] = ["instagram", "facebook", "linkedin"];
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function relativeTime(iso: string | null) {
-  if (!iso) return "henüz kontrol edilmedi";
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "az önce";
-  if (mins < 60) return `${mins}dk önce`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}sa önce`;
-  return `${Math.floor(hrs / 24)}g önce`;
-}
-
 // ── Component ──────────────────────────────────────────────────────────────
 export const MonitoredAccountsPanel = () => {
+  const { lang } = useTranslation();
   const { canManageData } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -357,7 +348,9 @@ export const MonitoredAccountsPanel = () => {
                   </div>
                   <div className="text-[8px] font-mono text-muted-foreground/50 flex items-center gap-1.5 mt-0.5">
                     <RefreshCw size={7} />
-                    {relativeTime(acc.last_checked)}
+                    {formatRelativeTime(acc.last_checked, lang, {
+                      fallback: lang === "en" ? "not checked yet" : "henüz kontrol edilmedi",
+                    })}
                     <span>·</span>
                     <span className={m.color}>{m.label}</span>
                     <span className="text-[7.5px] text-primary/60 group-hover:text-primary font-mono ml-auto opacity-0 group-hover:opacity-100 transition-opacity">

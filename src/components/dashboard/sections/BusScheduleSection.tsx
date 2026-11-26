@@ -3,6 +3,7 @@ import { DashboardPanel } from "../DashboardPanel";
 import { Bus, RefreshCw, Loader2, Clock } from "lucide-react";
 import { DataOriginBadge, type DataOrigin } from "../DataOriginBadge";
 import { supabase } from "@/integrations/supabase/client";
+import { useTranslation } from "@/hooks/useTranslation";
 
 type BusRoute = {
   carrier: string;
@@ -50,6 +51,8 @@ const getNextDeparture = (departures: string[]) => {
 };
 
 export const BusScheduleSection = () => {
+  const { lang } = useTranslation();
+  const isEn = lang === "en";
   const [routes, setRoutes] = useState<BusRoute[]>(mockRoutes);
   const [filter, setFilter] = useState<"all" | "ilçe" | "şehirlerarası">("all");
   const [direction, setDirection] = useState<"gidiş" | "dönüş">("gidiş");
@@ -170,21 +173,25 @@ export const BusScheduleSection = () => {
               <button
                 key={dir}
                 onClick={() => setDirection(dir)}
-                className={`text-[9px] font-mono px-2 py-0.5 rounded transition-colors ${
+                className={`text-[9px] font-mono px-2 py-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                   direction === dir
                     ? "bg-primary/20 text-primary border border-primary/30 font-bold"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {dir === "gidiş" ? "→ Gidiş" : "← Dönüş"}
+                {dir === "gidiş" ? (isEn ? "→ Outbound" : "→ Gidiş") : (isEn ? "← Return" : "← Dönüş")}
               </button>
             ))}
           </div>
-          {([["all", "Tümü"], ["ilçe", "İlçe"], ["şehirlerarası", "Şehirlerarası"]] as const).map(([val, label]) => (
+          {([
+            ["all", isEn ? "All" : "Tümü"],
+            ["ilçe", isEn ? "District" : "İlçe"],
+            ["şehirlerarası", isEn ? "Intercity" : "Şehirlerarası"],
+          ] as const).map(([val, label]) => (
             <button
               key={val}
               onClick={() => setFilter(val)}
-              className={`text-[10px] font-mono px-2 py-1 rounded transition-colors ${
+              className={`text-[10px] font-mono px-2 py-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 filter === val
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -199,7 +206,8 @@ export const BusScheduleSection = () => {
           <button
             onClick={fetchLiveData}
             disabled={loading}
-            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40"
+            aria-label={isEn ? "Refresh bus schedules" : "Otobüs seferlerini yenile"}
+            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           </button>
@@ -216,6 +224,9 @@ export const BusScheduleSection = () => {
           const displayTimes = times.length > 0 ? times : route.departures;
           const next = getNextDeparture(displayTimes);
           const displayPrice = isReturn ? (route.return_price ?? route.price) : route.price;
+          const displayDuration = isEn
+            ? route.duration.replace(/(\d+)s\b/g, "$1h").replace(/(\d+)dk\b/g, "$1m")
+            : route.duration;
           return (
             <div key={i} className="px-2.5 py-2 rounded bg-muted/10 hover:bg-muted/25 transition-colors">
               <div className="flex items-center justify-between mb-1">
@@ -226,7 +237,7 @@ export const BusScheduleSection = () => {
                   <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded ${
                     route.type === "ilçe" ? "bg-accent/15 text-accent" : "bg-primary/15 text-primary"
                   }`}>
-                    {route.type === "ilçe" ? "İLÇE" : "ŞEHİRLERARASI"}
+                    {route.type === "ilçe" ? (isEn ? "DISTRICT" : "İLÇE") : (isEn ? "INTERCITY" : "ŞEHİRLERARASI")}
                   </span>
                 </div>
                 <span className="text-[10px] font-mono font-bold text-accent">{displayPrice}</span>
@@ -237,11 +248,11 @@ export const BusScheduleSection = () => {
                   <DataOriginBadge origin={route.dataMode ?? dataMode} />
                   <span className="text-[8px] text-muted-foreground">•</span>
                   <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-                    <Clock size={8} /> {route.duration}
+                    <Clock size={8} /> {displayDuration}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className="text-[8px] text-muted-foreground">Sonraki:</span>
+                  <span className="text-[8px] text-muted-foreground">{isEn ? "Next:" : "Sonraki:"}</span>
                   <span className="text-[10px] font-mono font-bold text-success">{next}</span>
                 </div>
               </div>
@@ -267,14 +278,19 @@ export const BusScheduleSection = () => {
 
       {/* Summary */}
       <div className="flex items-center gap-3 mt-2 pt-2 border-t border-border/30 text-[9px] font-mono text-muted-foreground">
-        <span>Toplam: {filtered.length} hat</span>
+        <span>{isEn ? `Total: ${filtered.length} routes` : `Toplam: ${filtered.length} hat`}</span>
         <span>•</span>
-        <span>{direction === "dönüş" ? "Dönüş" : "Gidiş"} sefer: {filtered.reduce((s, r) => {
-          const t = direction === "dönüş"
-            ? (r.return_weekday ?? r.departures)
-            : (r.outbound_weekday ?? r.departures);
-          return s + (t.length > 0 ? t.length : r.departures.length);
-        }, 0)}</span>
+        <span>
+          {isEn
+            ? `${direction === "dönüş" ? "Return" : "Outbound"} trips:`
+            : `${direction === "dönüş" ? "Dönüş" : "Gidiş"} sefer:`}{" "}
+          {filtered.reduce((s, r) => {
+            const t = direction === "dönüş"
+              ? (r.return_weekday ?? r.departures)
+              : (r.outbound_weekday ?? r.departures);
+            return s + (t.length > 0 ? t.length : r.departures.length);
+          }, 0)}
+        </span>
       </div>
     </DashboardPanel>
   );

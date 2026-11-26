@@ -79,7 +79,8 @@ const DISTRICT_MULTIPLIERS: Record<string, number> = {
 };
 
 export const TourismForecastPanel = () => {
-  const { t } = useTranslation();
+  const { t, translate, lang } = useTranslation();
+  const isEn = lang === "en";
   const tourismIntel = useTourismIntelligence();
   const [forecast, setForecast] = useState<DayForecast[]>([]);
   const [view, setView] = useState<"trend" | "districts">("trend");
@@ -153,11 +154,11 @@ export const TourismForecastPanel = () => {
               <button
                 key={v}
                 onClick={() => setView(v)}
-                className={`text-[9px] font-mono px-2 py-0.5 rounded transition-colors ${
+                className={`text-[9px] font-mono px-2 py-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                   view === v ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {v === "trend" ? t("30 Günlük Trend", "30 Günlük Trend") : t("İlçe Tahmini", "İlçe Tahmini")}
+                {v === "trend" ? t("30 Günlük Trend") : t("İlçe Tahmini")}
               </button>
             ))}
           </div>
@@ -184,11 +185,21 @@ export const TourismForecastPanel = () => {
                   {...tooltip}
                   formatter={(val: number, name: string) => [
                     `${val}%`,
-                    name === "visitors" ? "🏖️ Ziyaretçi" : name === "hotels" ? "🏨 Otel" : "🌊 Plaj",
+                    name === "visitors"
+                      ? (isEn ? "🏖️ Visitors" : "🏖️ Ziyaretçi")
+                      : name === "hotels"
+                        ? (isEn ? "🏨 Hotels" : "🏨 Otel")
+                        : (isEn ? "🌊 Beaches" : "🌊 Plaj"),
                   ]}
                 />
                 <Legend
-                  formatter={v => v === "visitors" ? "Ziyaretçi" : v === "hotels" ? "Otel Dol." : "Plaj Dol."}
+                  formatter={v =>
+                    v === "visitors"
+                      ? (isEn ? "Visitors" : "Ziyaretçi")
+                      : v === "hotels"
+                        ? (isEn ? "Hotel Occ." : "Otel Dol.")
+                        : (isEn ? "Beach Occ." : "Plaj Dol.")
+                  }
                   wrapperStyle={{ fontSize: 9, fontFamily: "monospace" }}
                 />
                 <Area type="monotone" dataKey="visitors"    stroke="#3b82f6" fill="url(#vis)" strokeWidth={1.5} />
@@ -203,18 +214,20 @@ export const TourismForecastPanel = () => {
                 <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 8, fontFamily: "monospace" }} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fontFamily: "monospace" }} width={60} />
                 <Tooltip {...tooltip} formatter={(v: number) => [`${v}/100`]} />
-                <Bar dataKey="tahmin" name="Bugün" fill="#3b82f6" radius={[0, 2, 2, 0]} />
-                <Bar dataKey="max"    name="7g Max" fill="#8b5cf6" radius={[0, 2, 2, 0]} />
+                <Bar dataKey="tahmin" name={t("Bugün")} fill="#3b82f6" radius={[0, 2, 2, 0]} />
+                <Bar dataKey="max"    name={isEn ? "7d Max" : "7g Max"} fill="#8b5cf6" radius={[0, 2, 2, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
 
-          <div className="flex items-center justify-between gap-2 mt-2">
+          <div className="tech-meta-only flex items-center justify-between gap-2 mt-2">
             <DataSourceBadge type={tourismIntel.hasVerifiedOccupancy ? "verified" : "estimate"} />
             <span className="text-[8px] font-mono text-muted-foreground text-right">
               {tourismIntel.hasVerifiedOccupancy
-                ? tourismIntel.occupancySourceSummary
-                : "Sezonsal tahmin grafiği · Canlı doluluk için TÜRSAB/BODER teyidi bekleniyor"}
+                ? translate(tourismIntel.occupancySourceSummary)
+                : (isEn
+                    ? "Seasonal forecast model · Awaiting TÜRSAB/BODER confirmation for live occupancy"
+                    : "Sezonsal tahmin grafiği · Canlı doluluk için TÜRSAB/BODER teyidi bekleniyor")}
             </span>
           </div>
         </>

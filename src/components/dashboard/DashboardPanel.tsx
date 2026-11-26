@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, type KeyboardEvent } from "react";
 import { ChevronDown } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { PanelHelpTooltip } from "./PanelHelpTooltip";
@@ -27,6 +27,13 @@ const badgeStyles = {
   alert: "bg-destructive/20 text-destructive border-destructive/30",
 };
 
+/** Teknik sensör/model/kaynak etiketleri Sade Mod'da gizlenir, vatandaş uyarıları görünür kalır */
+function isTechnicalBadge(badge: string): boolean {
+  return /REFERANS|TÜİK|TAHMİN|ÖNBELLEK|STATİK|2024 RESMİ|MEB|TİCARET|KÜLTÜR|TARIM|SAĞLIK|UNESCO|RSS|\/ DB|HABER TAKİBİ|MODEL|OPENAI|GEMINI|REIDIN|MUTTAŞ|ADS-B|USGS/i.test(
+    badge
+  );
+}
+
 export const DashboardPanel = ({
   title,
   subtitle,
@@ -44,21 +51,33 @@ export const DashboardPanel = ({
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const open = collapsible ? isOpen : true;
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!collapsible) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      setIsOpen((v) => !v);
+    }
+  };
+
   return (
     <div className={`panel-border rounded-lg overflow-visible ${className}`}>
       <div
         className={`flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/30 rounded-t-lg ${
-          collapsible ? "cursor-pointer select-none hover:bg-secondary/50 transition-colors" : ""
+          collapsible
+            ? "cursor-pointer select-none hover:bg-secondary/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+            : ""
         }`}
-        onClick={collapsible ? () => setIsOpen(v => !v) : undefined}
+        onClick={collapsible ? () => setIsOpen((v) => !v) : undefined}
+        onKeyDown={handleKeyDown}
+        tabIndex={collapsible ? 0 : undefined}
         role={collapsible ? "button" : undefined}
         aria-expanded={collapsible ? open : undefined}
       >
         <div className="flex items-center gap-2 min-w-0">
-          {icon && <span className="text-primary text-sm shrink-0">{icon}</span>}
+          {icon && <span className="text-primary text-sm shrink-0" aria-hidden="true">{icon}</span>}
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <h3 className="font-mono text-xs font-semibold uppercase tracking-wider text-foreground/80 truncate">
+              <h3 className="font-mono text-xs font-semibold uppercase tracking-wider text-foreground/85 truncate">
                 {t(title)}
               </h3>
               <PanelHelpTooltip panelTitle={title} customHelpText={helpText} />
@@ -70,20 +89,25 @@ export const DashboardPanel = ({
             )}
           </div>
           {count !== undefined && (
-            <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+            <span className="text-[10px] font-mono tabular-nums-stat text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
               {count}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {badge && (
-            <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${badgeStyles[badgeVariant]}`}>
+            <span
+              className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border whitespace-nowrap ${
+                badgeStyles[badgeVariant]
+              } ${isTechnicalBadge(badge) ? "tech-meta-only" : ""}`}
+            >
               {t(badge)}
             </span>
           )}
           {collapsible && (
             <ChevronDown
               size={14}
+              aria-hidden="true"
               className={`text-muted-foreground transition-transform duration-300 ${open ? "rotate-180" : ""}`}
             />
           )}
@@ -94,9 +118,7 @@ export const DashboardPanel = ({
         style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
       >
         <div className="overflow-hidden rounded-b-lg">
-          <div className="p-3">
-            {children}
-          </div>
+          <div className="p-3">{children}</div>
         </div>
       </div>
     </div>

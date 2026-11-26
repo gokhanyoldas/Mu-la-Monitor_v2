@@ -2,11 +2,12 @@
 // Sabit veya gerçek dışı mock değerler yerine Gemini Search Grounding (/api/intel/topic-grounding)
 // ve doğrulanmış yerel basın/kurum kaynaklarından (Anter Haber, AA, MUSKİ, DSİ vb.) beslenir.
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { useLiveData } from "@/hooks/useLiveData";
 import { isValidVerificationUrl } from "@/services/fieldArbitrationEngine";
+import { useMonitorStore } from "@/store/useMonitorStore";
 
 export type SectorTopicKey =
   | "environment_dams"
@@ -39,22 +40,22 @@ export const TOPIC_GROUNDING_QUERIES: Record<
     query: '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
   },
   security_quakes: {
-    label: "Güvenlik / AFAD & Asayiş",
+    label: "Güvenlik / AFAD, Asayiş & Yangın",
     tab: "Güvenlik",
     query:
-      '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" asayiş OR "Sahil Güvenlik" deniz güvenliği)',
+      '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)',
   },
   tourism_occupancy: {
-    label: "Turizm / Doluluk",
+    label: "Turizm / Doluluk & Yolcu",
     tab: "Turizm",
     query:
-      '("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye") otel doluluk oranı OR turist sayısı TÜRSAB OR BODER OR GETOB',
+      '"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu 2026',
   },
   economy_budget: {
     label: "Ekonomi / Bütçe & İhale",
     tab: "Ekonomi",
     query:
-      '("Muğla Büyükşehir" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" OR "Fethiye Belediyesi") bütçe OR ihale OR yatırım OR ("Muğla" TÜİK işsizlik oranı)',
+      '"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale 2026 OR 2027',
   },
   protocol_activity: {
     label: "Muğla Protokol / Son 24s",
@@ -515,7 +516,7 @@ export interface EnergyIntelligenceSnapshot {
 
 export interface SecurityTopicEvent {
   id: string;
-  category: "deprem" | "asayis" | "deniz_guvenligi";
+  category: "deprem" | "asayis" | "deniz_guvenligi" | "trafik_kazasi" | "yangin";
   title: string;
   district: string;
   magnitude?: number | null;
@@ -544,6 +545,11 @@ export interface SecurityIntelligenceSnapshot {
   quakeCount: number | null;
   publicOrderEvents: SecurityTopicEvent[];
   publicOrderCount: number | null;
+  fireEvents: SecurityTopicEvent[];
+  trafficAccidentEvents: SecurityTopicEvent[];
+  fireRiskLevel: "YÜKSEK" | "ORTA" | "DÜŞÜK";
+  quakeRiskLevel: "YÜKSEK" | "ORTA" | "DÜŞÜK";
+  activeAlertCount: number;
   overviewValue: string;
   hasVerifiedLiveData: boolean;
   latestSourceSummary: string;
@@ -569,6 +575,7 @@ export interface TourismTopicHeadline {
 export interface TourismTopicMetrics {
   hotelOccupancyPct?: number | null;
   annualTourists?: string | null;
+  airportPassengers?: string | null;
   districtRates?: TourismDistrictRate[];
   headlines?: TourismTopicHeadline[];
   sourceName?: string;
@@ -602,7 +609,22 @@ export interface EconomyBudgetItem {
   publishedAt: string;
 }
 
+export interface MunicipalBudgetUpdate {
+  institution: string;
+  amountBillionTry: number;
+  year?: number | null;
+  yoyChangePct?: number | null;
+  investmentBillionTry?: number | null;
+  sourceName: string;
+  sourceUrl: string;
+  publishedAt: string;
+}
+
 export interface EconomyTopicUpdates {
+  budgetYear?: number | null;
+  combinedTotalBillionTry?: number | null;
+  budgetYoyChangePct?: number | null;
+  municipalBudgets?: MunicipalBudgetUpdate[];
   unemploymentRate?: number | null;
   unemploymentPeriod?: string | null;
   unemploymentSource?: string | null;
@@ -618,6 +640,12 @@ export interface EconomyIntelligenceSnapshot {
   tourismRevenueBn: string | null;
   newCompanies: number | null;
   budgetItems: EconomyBudgetItem[];
+  municipalBudgets: MunicipalBudgetUpdate[];
+  combinedTotalBillionTry: number | null;
+  budgetYear: number | null;
+  budgetYoyChangePct: number | null;
+  budgetSourceSummary: string;
+  hasVerifiedBudgetUpdate: boolean;
   hasVerifiedLiveData: boolean;
   latestSourceSummary: string;
   latestMeasuredAt: string | null;
@@ -664,6 +692,7 @@ export function resetTopicGroundingClientState() {
   clientRateLimitCooldownUntil = 0;
   topicNegativeCacheUntil.clear();
   inFlightClientTopicFetches.clear();
+  useMonitorStore.getState().resetStore();
   if (typeof window !== "undefined") {
     try {
       window.localStorage.removeItem(TOPIC_COOLDOWN_KEY);
@@ -1054,12 +1083,41 @@ export function mergeSecurityIntelligence(params: {
   quakes.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime());
 
   const publicOrderEvents = verifiedGrounded
-    .filter((e) => e.category === "asayis" || e.category === "deniz_guvenligi")
+    .filter(
+      (e) =>
+        e.category === "asayis" ||
+        e.category === "deniz_guvenligi" ||
+        e.category === "trafik_kazasi" ||
+        e.category === "yangin"
+    )
     .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  const fireEvents = publicOrderEvents.filter((e) => e.category === "yangin");
+  const trafficAccidentEvents = publicOrderEvents.filter((e) => e.category === "trafik_kazasi");
+  const fireRiskLevel: "YÜKSEK" | "ORTA" | "DÜŞÜK" =
+    fireEvents.some((e) => e.severity === "kritik" || e.severity === "yuksek") ||
+    fireEvents.length >= 2
+      ? "YÜKSEK"
+      : fireEvents.length === 1
+      ? "ORTA"
+      : "DÜŞÜK";
 
   const latestQuake = quakes[0] ?? null;
   const maxMagnitude =
     quakes.length > 0 ? Math.max(...quakes.map((q) => q.magnitude)) : null;
+
+  const quakeRiskLevel: "YÜKSEK" | "ORTA" | "DÜŞÜK" =
+    maxMagnitude !== null && maxMagnitude >= 4.0
+      ? "YÜKSEK"
+      : maxMagnitude !== null && maxMagnitude >= 2.5
+      ? "ORTA"
+      : "DÜŞÜK";
+
+  const highSeverityIncidents = publicOrderEvents.filter(
+    (e) => e.severity === "kritik" || e.severity === "yuksek" || e.category === "yangin"
+  );
+  const activeAlertCount =
+    highSeverityIncidents.length + (maxMagnitude !== null && maxMagnitude >= 4.0 ? 1 : 0);
 
   const latestItems: Array<{ sourceName: string; isoDate: string }> = [];
   if (latestQuake) {
@@ -1084,15 +1142,20 @@ export function mergeSecurityIntelligence(params: {
 
   const latestSourceSummary = newest
     ? buildSourceAttribution(newest.sourceName, newest.isoDate)
-    : "Canlı AFAD/Kandilli veya asayiş verisi yok · Tarama bekleniyor";
+    : "Canlı AFAD/Kandilli veya asayiş/yangın verisi yok · Tarama bekleniyor";
 
   return {
     quakes: quakes.slice(0, 6),
     latestQuake,
     maxMagnitude,
     quakeCount: quakes.length > 0 ? quakes.length : null,
-    publicOrderEvents: publicOrderEvents.slice(0, 5),
+    publicOrderEvents: publicOrderEvents.slice(0, 6),
     publicOrderCount: publicOrderEvents.length > 0 ? publicOrderEvents.length : null,
+    fireEvents: fireEvents.slice(0, 4),
+    trafficAccidentEvents: trafficAccidentEvents.slice(0, 4),
+    fireRiskLevel,
+    quakeRiskLevel,
+    activeAlertCount,
     overviewValue,
     hasVerifiedLiveData,
     latestSourceSummary,
@@ -1101,8 +1164,9 @@ export function mergeSecurityIntelligence(params: {
 }
 
 /**
- * 3. TURİZM: Muğla/Bodrum/Marmaris/Fethiye otel doluluk ve turist verilerini yerel kaynaklardan
- * günceller; eski sentetik sezonsal %41/%38 değerlerini canlı ölçüm gibi göstermez.
+ * 3. TURİZM: Muğla/Bodrum/Marmaris/Fethiye otel doluluk, turist sayısı ve Dalaman Havalimanı
+ * yolcu verilerini yerel kaynaklardan günceller; eski sentetik sezonsal %41/%38 değerlerini canlı
+ * ölçüm gibi göstermez.
  */
 export function mergeTourismIntelligence(params: {
   tourismCache?: any;
@@ -1163,6 +1227,13 @@ export function mergeTourismIntelligence(params: {
       ? groundedTourism.annualTourists.trim()
       : null;
 
+  const groundedAirportPassengers =
+    groundedHasUrl &&
+    typeof groundedTourism?.airportPassengers === "string" &&
+    groundedTourism.airportPassengers.trim()
+      ? groundedTourism.airportPassengers.trim()
+      : null;
+
   const cachePeriod =
     typeof tourismCache?.source_period === "string" && tourismCache.source_period.trim()
       ? tourismCache.source_period.trim()
@@ -1173,9 +1244,10 @@ export function mergeTourismIntelligence(params: {
     (cachePeriod && tourismCache?.annual_tourists ? String(tourismCache.annual_tourists) : null);
 
   const airportPassengers =
-    cachePeriod && tourismCache?.airport_passengers
+    groundedAirportPassengers ??
+    (cachePeriod && tourismCache?.airport_passengers
       ? String(tourismCache.airport_passengers)
-      : null;
+      : null);
   const cruiseShips =
     cachePeriod && Number.isFinite(Number(tourismCache?.cruise_ships))
       ? Number(tourismCache.cruise_ships)
@@ -1194,9 +1266,9 @@ export function mergeTourismIntelligence(params: {
       : "Canlı otel doluluk verisi yok · TÜRSAB/BODER taraması bekleniyor";
 
   let movementSourceSummary = "Canlı turizm verisi yok · Kültür-Turizm/yerel kaynak bekleniyor";
-  if (groundedAnnualTourists) {
+  if (groundedAnnualTourists || groundedAirportPassengers) {
     movementSourceSummary = buildSourceAttribution(
-      groundedTourism?.sourceName || "Kültür ve Turizm Bakanlığı",
+      groundedTourism?.sourceName || "Kültür ve Turizm Bakanlığı / DHMİ",
       groundedTourism?.measuredAt
     );
   } else if (verifiedHeadlines[0]) {
@@ -1204,7 +1276,7 @@ export function mergeTourismIntelligence(params: {
       verifiedHeadlines[0].sourceName,
       verifiedHeadlines[0].publishedAt
     );
-  } else if (cachePeriod && annualTourists) {
+  } else if (cachePeriod && (annualTourists || airportPassengers)) {
     movementSourceSummary = `Kaynak: Kültür ve Turizm Bakanlığı • ${cachePeriod}`;
   }
 
@@ -1220,6 +1292,7 @@ export function mergeTourismIntelligence(params: {
     hasVerifiedLiveData:
       hotelOccupancyPct !== null ||
       annualTourists !== null ||
+      airportPassengers !== null ||
       verifiedHeadlines.length > 0,
     occupancySourceSummary,
     movementSourceSummary,
@@ -1227,9 +1300,63 @@ export function mergeTourismIntelligence(params: {
   };
 }
 
+export function canonicalizeBudgetInstitution(rawName: string): string {
+  const low = normTr(rawName);
+  if (low.includes("muski") || low.includes("muskİ")) return "MUSKİ";
+  if (
+    low.includes("büyükşehir") ||
+    low.includes("buyuksehir") ||
+    low === "mbb" ||
+    low.includes("muğla bb")
+  ) {
+    return "Büyükşehir Belediyesi";
+  }
+  if (low.includes("valili")) return "Muğla Valiliği";
+  const districts = [
+    ["bodrum", "Bodrum Belediyesi"],
+    ["fethiye", "Fethiye Belediyesi"],
+    ["marmaris", "Marmaris Belediyesi"],
+    ["milas", "Milas Belediyesi"],
+    ["dalaman", "Dalaman Belediyesi"],
+    ["datça", "Datça Belediyesi"],
+    ["datca", "Datça Belediyesi"],
+    ["ortaca", "Ortaca Belediyesi"],
+    ["köyceğiz", "Köyceğiz Belediyesi"],
+    ["koycegiz", "Köyceğiz Belediyesi"],
+    ["yatağan", "Yatağan Belediyesi"],
+    ["yatagan", "Yatağan Belediyesi"],
+    ["ula", "Ula Belediyesi"],
+    ["kavaklıdere", "Kavaklıdere Belediyesi"],
+    ["kavaklidere", "Kavaklıdere Belediyesi"],
+    ["seydikemer", "Seydikemer Belediyesi"],
+    ["menteşe", "Menteşe Belediyesi"],
+    ["mentese", "Menteşe Belediyesi"],
+  ] as const;
+  for (const [needle, canonical] of districts) {
+    if (low.includes(needle)) return canonical;
+  }
+  return rawName.trim();
+}
+
+function parseBillionTryFromLabel(raw?: string): number | null {
+  if (!raw || typeof raw !== "string") return null;
+  const low = normTr(raw);
+  const bnMatch = low.match(/(\d+(?:[.,]\d+)?)\s*(?:milyar|bn|\bb\b)/);
+  if (bnMatch?.[1]) {
+    const val = Number(bnMatch[1].replace(",", "."));
+    if (Number.isFinite(val) && val > 0 && val < 500) return Math.round(val * 100) / 100;
+  }
+  const mnMatch = low.match(/(\d+(?:[.,]\d+)?)\s*(?:milyon)/);
+  if (mnMatch?.[1]) {
+    const val = Number(mnMatch[1].replace(",", "."));
+    if (Number.isFinite(val) && val > 0 && val < 500000) return Math.round((val / 1000) * 100) / 100;
+  }
+  return null;
+}
+
 /**
- * 4. EKONOMİ: Muğla Büyükşehir & ilçe belediyelerinin güncel bütçe/ihale/yatırım gelişmeleri
- * ve TÜİK işgücü verilerini kaynak tarihiyle birleştirir. Veri yoksa "—" gösterir.
+ * 4. EKONOMİ: Muğla Büyükşehir, MUSKİ & ilçe belediyelerinin resmi meclis bütçe rakamları,
+ * ihale/yatırım gelişmeleri ve TÜİK işgücü verilerini kaynak tarihiyle birleştirir.
  */
 export function mergeEconomyIntelligence(params: {
   economyCache?: any;
@@ -1242,6 +1369,102 @@ export function mergeEconomyIntelligence(params: {
     .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
 
   const groundedHasUrl = isValidVerificationUrl(groundedEconomy?.sourceUrl);
+
+  // Yapılandırılmış belediye/MUSKİ bütçe kayıtlarını doğrula ve kurum bazında tekilleştir
+  const budgetMap = new Map<string, MunicipalBudgetUpdate>();
+  const registerBudget = (entry: MunicipalBudgetUpdate) => {
+    if (
+      !entry?.institution ||
+      !Number.isFinite(entry.amountBillionTry) ||
+      entry.amountBillionTry <= 0 ||
+      entry.amountBillionTry > 500 ||
+      !isValidVerificationUrl(entry.sourceUrl)
+    ) {
+      return;
+    }
+    const canonical = canonicalizeBudgetInstitution(entry.institution);
+    const normalized: MunicipalBudgetUpdate = {
+      ...entry,
+      institution: canonical,
+      amountBillionTry: Math.round(entry.amountBillionTry * 100) / 100,
+    };
+    const existing = budgetMap.get(canonical);
+    if (
+      !existing ||
+      new Date(normalized.publishedAt).getTime() >= new Date(existing.publishedAt).getTime()
+    ) {
+      budgetMap.set(canonical, normalized);
+    }
+  };
+
+  for (const b of groundedEconomy?.municipalBudgets ?? []) {
+    registerBudget(b);
+  }
+
+  // Yapılandırılmış municipalBudgets boşsa, `butce` kategorili doğrulanmış item'lardan tutar çıkar
+  if (budgetMap.size === 0) {
+    for (const item of verifiedItems) {
+      if (item.category !== "butce") continue;
+      const amountBn =
+        parseBillionTryFromLabel(item.amountLabel) ?? parseBillionTryFromLabel(item.title);
+      if (amountBn === null) continue;
+      const yearMatch = `${item.title}`.match(/\b(202[5-9]|203\d)\b/);
+      registerBudget({
+        institution: item.institution,
+        amountBillionTry: amountBn,
+        year: yearMatch ? Number(yearMatch[1]) : null,
+        yoyChangePct: null,
+        investmentBillionTry: null,
+        sourceName: item.sourceName,
+        sourceUrl: item.sourceUrl,
+        publishedAt: item.publishedAt,
+      });
+    }
+  }
+
+  const municipalBudgets = Array.from(budgetMap.values()).sort(
+    (a, b) => b.amountBillionTry - a.amountBillionTry
+  );
+
+  const mbbBudget = budgetMap.get("Büyükşehir Belediyesi") ?? null;
+  const muskiBudget = budgetMap.get("MUSKİ") ?? null;
+  const rawCombined =
+    groundedEconomy?.combinedTotalBillionTry !== null &&
+    groundedEconomy?.combinedTotalBillionTry !== undefined
+      ? Number(groundedEconomy.combinedTotalBillionTry)
+      : NaN;
+  const combinedTotalBillionTry =
+    (groundedHasUrl || municipalBudgets.length > 0) &&
+    Number.isFinite(rawCombined) &&
+    rawCombined > 0 &&
+    rawCombined < 500
+      ? Math.round(rawCombined * 100) / 100
+      : mbbBudget && muskiBudget
+      ? Math.round((mbbBudget.amountBillionTry + muskiBudget.amountBillionTry) * 100) / 100
+      : null;
+
+  const budgetYear =
+    typeof groundedEconomy?.budgetYear === "number" &&
+    groundedEconomy.budgetYear >= 2020 &&
+    groundedEconomy.budgetYear <= 2035
+      ? groundedEconomy.budgetYear
+      : municipalBudgets.find((b) => typeof b.year === "number" && b.year !== null)?.year ?? null;
+
+  const rawBudgetYoy =
+    groundedEconomy?.budgetYoyChangePct !== null &&
+    groundedEconomy?.budgetYoyChangePct !== undefined
+      ? Number(groundedEconomy.budgetYoyChangePct)
+      : NaN;
+  const budgetYoyChangePct =
+    Number.isFinite(rawBudgetYoy) && rawBudgetYoy > -100 && rawBudgetYoy < 500
+      ? Math.round(rawBudgetYoy * 100) / 100
+      : municipalBudgets.find(
+          (b) => typeof b.yoyChangePct === "number" && Number.isFinite(b.yoyChangePct)
+        )?.yoyChangePct ?? null;
+
+  const hasVerifiedBudgetUpdate =
+    municipalBudgets.length > 0 || combinedTotalBillionTry !== null;
+
   const groundedUnemp =
     groundedHasUrl &&
     typeof groundedEconomy?.unemploymentRate === "number" &&
@@ -1280,14 +1503,35 @@ export function mergeEconomyIntelligence(params: {
       ? Math.round(rawCompanies)
       : null;
 
+  const newestBudget = [...municipalBudgets].sort(
+    (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+  )[0] ?? null;
   const latestItem = verifiedItems[0] ?? null;
+
+  const budgetSourceSummary = newestBudget
+    ? buildSourceAttribution(newestBudget.sourceName, newestBudget.publishedAt)
+    : combinedTotalBillionTry !== null && groundedHasUrl
+    ? buildSourceAttribution(
+        groundedEconomy?.sourceName || "Muğla Büyükşehir / MUSKİ",
+        groundedEconomy?.measuredAt
+      )
+    : "2024 resmi meclis bütçe referansı · Güncel meclis kararı bekleniyor";
+
   const latestMeasuredAt =
+    newestBudget?.publishedAt ??
     latestItem?.publishedAt ??
     (groundedHasUrl ? groundedEconomy?.measuredAt ?? null : null);
 
   let latestSourceSummary = "Canlı bütçe/ihale ve TÜİK verisi yok · Tarama bekleniyor";
-  if (latestItem) {
+  if (newestBudget) {
+    latestSourceSummary = buildSourceAttribution(newestBudget.sourceName, newestBudget.publishedAt);
+  } else if (latestItem) {
     latestSourceSummary = buildSourceAttribution(latestItem.sourceName, latestItem.publishedAt);
+  } else if (combinedTotalBillionTry !== null && groundedHasUrl) {
+    latestSourceSummary = buildSourceAttribution(
+      groundedEconomy?.sourceName || "Muğla Büyükşehir / MUSKİ",
+      groundedEconomy?.measuredAt
+    );
   } else if (groundedUnemp !== null) {
     latestSourceSummary = buildSourceAttribution(
       groundedEconomy?.unemploymentSource || groundedEconomy?.sourceName || "TÜİK",
@@ -1303,11 +1547,18 @@ export function mergeEconomyIntelligence(params: {
     tourismRevenueBn,
     newCompanies,
     budgetItems: verifiedItems.slice(0, 5),
+    municipalBudgets,
+    combinedTotalBillionTry,
+    budgetYear,
+    budgetYoyChangePct,
+    budgetSourceSummary,
+    hasVerifiedBudgetUpdate,
     hasVerifiedLiveData:
       unemploymentRate !== null ||
       tourismRevenueBn !== null ||
       newCompanies !== null ||
-      verifiedItems.length > 0,
+      verifiedItems.length > 0 ||
+      hasVerifiedBudgetUpdate,
     latestSourceSummary,
     latestMeasuredAt,
   };
@@ -1564,6 +1815,23 @@ export function useDamIntelligence() {
     [cacheData, topicData?.damUpdates, pressUpdates]
   );
 
+  useEffect(() => {
+    const existing = useMonitorStore.getState().dams;
+    // Wait until initial queries settle before overwriting a verified store snapshot
+    if (!snapshot.hasVerifiedLiveData && (cacheLoading || topicLoading) && existing.hasVerifiedLiveData) {
+      return;
+    }
+    useMonitorStore.getState().setDamsSnapshot({
+      records: snapshot.dams,
+      avgOccupancy: snapshot.avgOccupancy,
+      verifiedCount: snapshot.verifiedCount,
+      hasVerifiedLiveData: snapshot.hasVerifiedLiveData,
+      latestSourceSummary: snapshot.latestSourceSummary,
+      latestMeasuredAt: snapshot.latestMeasuredAt,
+      updatedAt: topicData?.fetchedAt ?? snapshot.latestMeasuredAt ?? existing.updatedAt,
+    });
+  }, [snapshot, topicData?.fetchedAt, cacheLoading, topicLoading]);
+
   return {
     ...snapshot,
     isLoading: cacheLoading || topicLoading,
@@ -1647,6 +1915,22 @@ export function useSecurityIntelligence() {
       }),
     [earthquakeCache, topicData?.securityEvents]
   );
+
+  useEffect(() => {
+    if (snapshot.quakes.length === 0) return;
+    useMonitorStore.getState().setEarthquakes(
+      snapshot.quakes.map((q) => ({
+        id: q.id,
+        magnitude: q.magnitude,
+        location: q.location,
+        depthKm: q.depthKm,
+        occurredAt: q.occurredAt,
+        url: q.sourceUrl,
+        sourceName: q.sourceName,
+      })),
+      topicData?.fetchedAt ?? snapshot.latestMeasuredAt ?? new Date().toISOString()
+    );
+  }, [snapshot.quakes, snapshot.latestMeasuredAt, topicData?.fetchedAt]);
 
   return {
     ...snapshot,

@@ -1,50 +1,129 @@
-/**
- * Format a date to Turkish relative time string
- * "Şimdi", "2 dk önce", "1 saat önce", "3 gün önce" etc.
- */
-export function relativeTime(date: Date | string | number): string {
-  const now = Date.now();
-  const then = new Date(date).getTime();
-  const diff = now - then;
+import { formatDistanceToNow } from "date-fns";
+import { tr, enUS } from "date-fns/locale";
 
-  if (diff < 0) return "Şimdi";
+export type RelativeTimeLang = "tr" | "en" | "de";
 
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-  const weeks = Math.floor(days / 7);
+export interface FormatRelativeTimeOptions {
+  /** Reference timestamp for deterministic formatting & testing (defaults to Date.now()) */
+  now?: Date | number;
+  /** Include "önce" / "ago" suffix (default: true) */
+  addSuffix?: boolean;
+  /** Fallback text when date is missing or invalid */
+  fallback?: string;
+}
 
-  if (seconds < 30) return "Şimdi";
-  if (seconds < 60) return `${seconds} sn önce`;
-  if (minutes < 60) return `${minutes} dk önce`;
-  if (hours < 24) return `${hours} saat önce`;
-  if (days < 7) return `${days} gün önce`;
-  if (weeks < 4) return `${weeks} hafta önce`;
-
-  return new Date(date).toLocaleDateString("tr-TR", {
-    day: "2-digit",
-    month: "short",
-  });
+function toValidDate(input: Date | string | number | null | undefined): Date | null {
+  if (input === null || input === undefined || input === "") return null;
+  const d = input instanceof Date ? input : new Date(input);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /**
- * Format for live feed status
+ * Standardizes all "how long ago updated" timestamps across Muğla Monitör v2
+ * using `date-fns` (`formatDistanceToNow` + `tr` / `enUS` locales).
+ *
+ * Guarantees zero English abbreviations (`2min`, `1h ago`, `Just now`) in Turkish mode,
+ * and zero Turkish words in English mode.
  */
-export function feedStatus(lastUpdate: Date | string | number | null): {
+export function formatRelativeTime(
+  date: Date | string | number | null | undefined,
+  lang: RelativeTimeLang = "tr",
+  options: FormatRelativeTimeOptions = {}
+): string {
+  const { now, addSuffix = true, fallback = "—" } = options;
+  const parsed = toValidDate(date);
+  if (!parsed) return fallback;
+
+  const nowMs = now instanceof Date ? now.getTime() : typeof now === "number" ? now : Date.now();
+  const diffMs = nowMs - parsed.getTime();
+
+  // Very recent (< 30s) or slight clock skew -> localized "just now"
+  if (diffMs < 30_000) {
+    return lang === "en" ? "Just now" : "Az önce";
+  }
+
+  const locale = lang === "en" ? enUS : tr;
+
+  // When a deterministic `now` is supplied, shift the target date relative to real Date.now()
+  // so date-fns's formatDistanceToNow computes the exact distance.
+  const effectiveDate =
+    now !== undefined ? new Date(Date.now() - diffMs) : parsed;
+
+  const formatted = formatDistanceToNow(effectiveDate, {
+    addSuffix,
+    locale,
+  });
+
+  if (lang === "en") {
+    return formatted;
+  }
+
+  // Ensure crisp Turkish wording with zero stray English time tokens
+  return formatted
+    .replace(/\b1 dakikadan az önce\b/i, "Az önce")
+    .replace(/\byaklaşık\s+/i, "")
+    .trim();
+}
+
+/**
+ * Backwards-compatible helper delegating directly to `formatRelativeTime`.
+ */
+export function relativeTime(
+  date: Date | string | number | null | undefined,
+  lang: RelativeTimeLang = "tr"
+): string {
+  return formatRelativeTime(date, lang);
+}
+
+/**
+ * Format for live feed status badges (localized TR / EN via `formatRelativeTime`).
+ */
+export function feedStatus(
+  lastUpdate: Date | string | number | null,
+  lang: RelativeTimeLang = "tr"
+): {
   label: string;
   isLive: boolean;
   color: string;
 } {
-  if (!lastUpdate) return { label: "Bağlantı yok", isLive: false, color: "text-muted-foreground" };
+  const parsed = toValidDate(lastUpdate);
+  if (!parsed) {
+    return {
+      label: lang === "en" ? "Offline" : "Bağlantı yok",
+      isLive: false,
+      color: "text-muted-foreground",
+    };
+  }
 
-  const diff = Date.now() - new Date(lastUpdate).getTime();
-  const minutes = Math.floor(diff / 60000);
+  const diff = Date.now() - parsed.getTime();
+  const minutes = Math.floor(diff / 60_000);
 
-  if (minutes < 2) return { label: "CANLI", isLive: true, color: "text-green-500" };
-  if (minutes < 10) return { label: `${minutes} dk önce`, isLive: true, color: "text-cyan-400" };
-  if (minutes < 60) return { label: `${minutes} dk önce`, isLive: false, color: "text-yellow-500" };
-  return { label: relativeTime(lastUpdate), isLive: false, color: "text-orange-500" };
+  if (minutes < 2) {
+    return {
+      label: lang === "en" ? "LIVE" : "CANLI",
+      isLive: true,
+      color: "text-green-500",
+    };
+  }
+  if (minutes < 10) {
+    return {
+      label: formatRelativeTime(parsed, lang),
+      isLive: true,
+      color: "text-cyan-400",
+    };
+  }
+  if (minutes < 60) {
+    return {
+      label: formatRelativeTime(parsed, lang),
+      isLive: false,
+      color: "text-yellow-500",
+    };
+  }
+  return {
+    label: formatRelativeTime(parsed, lang),
+    isLive: false,
+    color: "text-orange-500",
+  };
 }
 
 /**

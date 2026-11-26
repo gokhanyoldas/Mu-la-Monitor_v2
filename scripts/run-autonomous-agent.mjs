@@ -162,11 +162,11 @@ export const SECTOR_TOPIC_QUERIES = {
   energy_outages:
     '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
   security_quakes:
-    '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" asayiş OR "Sahil Güvenlik" deniz güvenliği)',
+    '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)',
   tourism_occupancy:
-    '("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye") otel doluluk oranı OR turist sayısı TÜRSAB OR BODER OR GETOB',
+    '"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu 2026',
   economy_budget:
-    '("Muğla Büyükşehir" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" OR "Fethiye Belediyesi") bütçe OR ihale OR yatırım OR ("Muğla" TÜİK işsizlik oranı)',
+    '"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale 2026 OR 2027',
   protocol_activity:
     '("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat',
 };
@@ -547,7 +547,9 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
       const depth = item?.depth_km !== undefined && item?.depth_km !== null ? Number(item.depth_km) : null;
       return {
         id: `agent-sec-${idx}-${Date.now()}`,
-        category: ["deprem", "asayis", "deniz_guvenligi"].includes(item?.category)
+        category: ["deprem", "asayis", "deniz_guvenligi", "trafik_kazasi", "yangin"].includes(
+          item?.category
+        )
           ? item.category
           : "asayis",
         title,
@@ -565,13 +567,24 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
       };
     })
     .filter(Boolean)
-    .slice(0, 6);
+    .slice(0, 8);
 
   const rawTourism = rawJson?.tourism_metrics;
   let tourismMetrics = null;
   if (rawTourism && typeof rawTourism === "object") {
     const tUrl = resolveUrl(rawTourism.source_url, 0);
-    const occNum = Number(rawTourism.hotel_occupancy_pct);
+    const occNum =
+      rawTourism.hotel_occupancy_pct !== null && rawTourism.hotel_occupancy_pct !== undefined
+        ? Number(rawTourism.hotel_occupancy_pct)
+        : NaN;
+    const annualTourists =
+      typeof rawTourism.annual_tourists === "string" && rawTourism.annual_tourists.trim()
+        ? rawTourism.annual_tourists.trim().slice(0, 40)
+        : null;
+    const airportPassengers =
+      typeof rawTourism.airport_passengers === "string" && rawTourism.airport_passengers.trim()
+        ? rawTourism.airport_passengers.trim().slice(0, 40)
+        : null;
     const districtRates = (Array.isArray(rawTourism.district_rates) ? rawTourism.district_rates : [])
       .map((r, idx) => {
         const rate = Number(r?.occupancy_pct);
@@ -604,18 +617,20 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
       .slice(0, 4);
 
     if (
-      (allowUnverified || tUrl) &&
-      (Number.isFinite(occNum) || districtRates.length > 0 || headlines.length > 0)
+      (allowUnverified || tUrl || districtRates.length > 0 || headlines.length > 0) &&
+      (Number.isFinite(occNum) ||
+        annualTourists !== null ||
+        airportPassengers !== null ||
+        districtRates.length > 0 ||
+        headlines.length > 0)
     ) {
       tourismMetrics = {
         hotelOccupancyPct:
-          Number.isFinite(occNum) && occNum >= 0 && occNum <= 100
+          (allowUnverified || tUrl) && Number.isFinite(occNum) && occNum >= 0 && occNum <= 100
             ? Math.round(occNum * 10) / 10
             : null,
-        annualTourists:
-          typeof rawTourism.annual_tourists === "string" && rawTourism.annual_tourists.trim()
-            ? rawTourism.annual_tourists.trim().slice(0, 40)
-            : null,
+        annualTourists: allowUnverified || tUrl ? annualTourists : null,
+        airportPassengers: allowUnverified || tUrl ? airportPassengers : null,
         districtRates,
         headlines,
         sourceName: String(rawTourism.source_name || "TÜRSAB / Yerel Basın").trim(),
@@ -629,7 +644,77 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
   let economyUpdates = null;
   if (rawEco && typeof rawEco === "object") {
     const eUrl = resolveUrl(rawEco.source_url, 0);
-    const unemp = Number(rawEco.unemployment_rate);
+    const unemp =
+      rawEco.unemployment_rate !== null && rawEco.unemployment_rate !== undefined
+        ? Number(rawEco.unemployment_rate)
+        : NaN;
+    const rawBudgets = Array.isArray(rawEco.municipal_budgets) ? rawEco.municipal_budgets : [];
+    const municipalBudgets = rawBudgets
+      .map((b, idx) => {
+        const institution = typeof b?.institution === "string" ? b.institution.trim().slice(0, 80) : "";
+        const amountBn = Number(b?.amount_billion_try ?? b?.amountBillionTry);
+        const bUrl = resolveUrl(b?.source_url || eUrl, idx);
+        if (!institution || !Number.isFinite(amountBn) || amountBn <= 0 || amountBn > 500) return null;
+        if (!allowUnverified && !bUrl) return null;
+        const yrRaw = b?.year !== null && b?.year !== undefined ? Number(b.year) : NaN;
+        const yoyRaw =
+          b?.yoy_change_pct !== null && b?.yoy_change_pct !== undefined
+            ? Number(b.yoy_change_pct)
+            : b?.yoyChangePct !== null && b?.yoyChangePct !== undefined
+            ? Number(b.yoyChangePct)
+            : NaN;
+        const invRaw =
+          b?.investment_billion_try !== null && b?.investment_billion_try !== undefined
+            ? Number(b.investment_billion_try)
+            : b?.investmentBillionTry !== null && b?.investmentBillionTry !== undefined
+            ? Number(b.investmentBillionTry)
+            : NaN;
+        return {
+          institution,
+          amountBillionTry: Math.round(amountBn * 100) / 100,
+          year: Number.isFinite(yrRaw) && yrRaw >= 2020 && yrRaw <= 2035 ? Math.round(yrRaw) : null,
+          yoyChangePct:
+            Number.isFinite(yoyRaw) && yoyRaw > -100 && yoyRaw < 500
+              ? Math.round(yoyRaw * 100) / 100
+              : null,
+          investmentBillionTry:
+            Number.isFinite(invRaw) && invRaw > 0 && invRaw <= amountBn
+              ? Math.round(invRaw * 100) / 100
+              : null,
+          sourceName: String(b?.source_name || rawEco.source_name || "Muğla Büyükşehir / Yerel Basın").trim(),
+          sourceUrl: bUrl || "",
+          publishedAt: parseIsoDate(b?.published_date || rawEco.published_date),
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 12);
+
+    const rawCombined =
+      rawEco.combined_total_billion_try !== null && rawEco.combined_total_billion_try !== undefined
+        ? Number(rawEco.combined_total_billion_try)
+        : NaN;
+    const combinedTotalBillionTry =
+      (allowUnverified || eUrl || municipalBudgets.length > 0) &&
+      Number.isFinite(rawCombined) &&
+      rawCombined > 0 &&
+      rawCombined < 500
+        ? Math.round(rawCombined * 100) / 100
+        : null;
+    const rawBudgetYear =
+      rawEco.budget_year !== null && rawEco.budget_year !== undefined ? Number(rawEco.budget_year) : NaN;
+    const budgetYear =
+      Number.isFinite(rawBudgetYear) && rawBudgetYear >= 2020 && rawBudgetYear <= 2035
+        ? Math.round(rawBudgetYear)
+        : null;
+    const rawBudgetYoy =
+      rawEco.budget_yoy_change_pct !== null && rawEco.budget_yoy_change_pct !== undefined
+        ? Number(rawEco.budget_yoy_change_pct)
+        : NaN;
+    const budgetYoyChangePct =
+      Number.isFinite(rawBudgetYoy) && rawBudgetYoy > -100 && rawBudgetYoy < 500
+        ? Math.round(rawBudgetYoy * 100) / 100
+        : null;
+
     const items = (Array.isArray(rawEco.items) ? rawEco.items : [])
       .map((it, idx) => {
         const itUrl = resolveUrl(it?.source_url || eUrl, idx);
@@ -651,11 +736,21 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
         };
       })
       .filter(Boolean)
-      .slice(0, 5);
-    if ((allowUnverified || eUrl) && (Number.isFinite(unemp) || items.length > 0)) {
+      .slice(0, 6);
+    if (
+      (allowUnverified || eUrl || municipalBudgets.length > 0 || items.length > 0) &&
+      (Number.isFinite(unemp) ||
+        items.length > 0 ||
+        municipalBudgets.length > 0 ||
+        combinedTotalBillionTry !== null)
+    ) {
       economyUpdates = {
+        budgetYear,
+        combinedTotalBillionTry,
+        budgetYoyChangePct,
+        municipalBudgets,
         unemploymentRate:
-          Number.isFinite(unemp) && unemp > 0 && unemp < 60
+          (allowUnverified || eUrl) && Number.isFinite(unemp) && unemp > 0 && unemp < 60
             ? Math.round(unemp * 10) / 10
             : null,
         unemploymentPeriod:
@@ -667,7 +762,7 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
             ? rawEco.unemployment_source.trim().slice(0, 60)
             : null,
         items,
-        sourceName: String(rawEco.source_name || "TÜİK / Yerel Basın").trim(),
+        sourceName: String(rawEco.source_name || "Muğla Büyükşehir / TÜİK").trim(),
         sourceUrl: eUrl || undefined,
         measuredAt: parseIsoDate(rawEco.published_date),
       };
@@ -1133,19 +1228,81 @@ export function buildGroundingPrompt(group) {
         ],
         security_events: [
           {
-            category: "deprem | asayis | deniz_guvenligi",
-            title: "Gelişme başlığı",
+            category: "deprem | asayis | deniz_guvenligi | trafik_kazasi | yangin",
+            title: "Gelişme başlığı (asayiş, trafik kazası, Sahil Güvenlik, yangın veya deprem)",
             district: group.districts[0],
             magnitude: null,
             depth_km: null,
             severity: "kritik | yuksek | normal",
-            source_name: "AFAD | Kandilli | Sahil Güvenlik",
+            source_name: "AFAD | Kandilli | Sahil Güvenlik | Muğla Emniyet | OGM | Yerel Basın",
             source_url: "https://...",
             published_date: "YYYY-MM-DD",
           },
         ],
-        tourism_metrics: null,
-        economy_updates: null,
+        tourism_metrics: assignedTopics.includes("tourism_occupancy")
+          ? {
+              hotel_occupancy_pct: null,
+              annual_tourists: null,
+              airport_passengers: null,
+              source_name: "BODER | GETOB | TÜRSAB | DHMİ",
+              source_url: "https://...",
+              published_date: "YYYY-MM-DD",
+              district_rates: [
+                {
+                  district: "Bodrum | Marmaris | Fethiye",
+                  occupancy_pct: 68,
+                  source_name: "Kaynak adı",
+                  source_url: "https://...",
+                  published_date: "YYYY-MM-DD",
+                },
+              ],
+              headlines: [
+                {
+                  title: "Doğrulanmış turizm veya havalimanı yolcu gelişmesi",
+                  district: group.districts[0],
+                  source_name: "Kaynak adı",
+                  source_url: "https://...",
+                  published_date: "YYYY-MM-DD",
+                },
+              ],
+            }
+          : null,
+        economy_updates: assignedTopics.includes("economy_budget")
+          ? {
+              budget_year: 2026,
+              combined_total_billion_try: null,
+              budget_yoy_change_pct: null,
+              municipal_budgets: [
+                {
+                  institution: "Muğla Büyükşehir Belediyesi | MUSKİ | Bodrum Belediyesi | Marmaris Belediyesi",
+                  amount_billion_try: 24.3,
+                  year: 2026,
+                  yoy_change_pct: 30.35,
+                  investment_billion_try: null,
+                  source_name: "Muğla Büyükşehir | MUSKİ | Yerel Basın",
+                  source_url: "https://...",
+                  published_date: "YYYY-MM-DD",
+                },
+              ],
+              unemployment_rate: null,
+              unemployment_period: null,
+              unemployment_source: null,
+              source_name: "Muğla Büyükşehir | MUSKİ | Yerel Basın",
+              source_url: "https://...",
+              published_date: "YYYY-MM-DD",
+              items: [
+                {
+                  institution: "Muğla Büyükşehir Belediyesi | MUSKİ | Bodrum Belediyesi",
+                  category: "butce | ihale | yatirim | isgucu",
+                  title: "Resmi meclis bütçesi veya ihale gelişmesi",
+                  amount_label: "44.8 Milyar ₺",
+                  source_name: "Kaynak adı",
+                  source_url: "https://...",
+                  published_date: "YYYY-MM-DD",
+                },
+              ],
+            }
+          : null,
         protocol_activities: [],
       },
       null,

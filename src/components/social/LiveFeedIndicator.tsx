@@ -1,6 +1,7 @@
 import { Radio } from "lucide-react";
-import { feedStatus } from "@/lib/time-utils";
+import { feedStatus, formatRelativeTime } from "@/lib/time-utils";
 import { useEffect, useState } from "react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface LiveFeedIndicatorProps {
   lastUpdate: Date | string | number | null;
@@ -9,8 +10,10 @@ interface LiveFeedIndicatorProps {
 }
 
 export const LiveFeedIndicator = ({ lastUpdate, itemCount, isCollecting }: LiveFeedIndicatorProps) => {
+  const { lang } = useTranslation();
+  const isEn = lang === "en";
   const [, setTick] = useState(0);
-  const status = feedStatus(lastUpdate);
+  const status = feedStatus(lastUpdate, lang);
 
   // Refresh every 30s to update relative time
   useEffect(() => {
@@ -32,21 +35,21 @@ export const LiveFeedIndicator = ({ lastUpdate, itemCount, isCollecting }: LiveF
           <span className="w-2 h-2 rounded-full bg-muted-foreground/30" />
         )}
         <span className={`text-[10px] font-mono font-bold ${status.color}`}>
-          {isCollecting ? "TOPLANIYOR..." : status.label}
+          {isCollecting ? (isEn ? "COLLECTING..." : "TOPLANIYOR...") : status.label}
         </span>
       </div>
 
       <div className="h-3 w-px bg-border/50" />
 
       <span className="text-[9px] font-mono text-muted-foreground">
-        {itemCount} post
+        {itemCount} {isEn ? "posts" : "gönderi"}
       </span>
 
       {lastUpdate && (
         <>
           <div className="h-3 w-px bg-border/50" />
           <span className="text-[9px] font-mono text-muted-foreground/60">
-            Son: {new Date(lastUpdate).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+            {isEn ? "Updated:" : "Son:"} {formatRelativeTime(lastUpdate, lang)}
           </span>
         </>
       )}

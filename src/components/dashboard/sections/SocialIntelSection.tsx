@@ -9,10 +9,21 @@ import { Link } from "react-router-dom";
 import { useLiveData } from "@/hooks/useLiveData";
 import { socialIntelService } from "@/services/social-intel-service";
 import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { useTranslation } from "@/hooks/useTranslation";
+import { formatRelativeTime } from "@/lib/time-utils";
+import {
+  useMonitorStore,
+  selectSocialFeed,
+  selectActiveDistrict,
+} from "@/store/useMonitorStore";
 
 export const SocialIntelSection = () => {
+  const { lang } = useTranslation();
+  const isEn = lang === "en";
   const { data: trendsData, isLoading: liveLoading } = useLiveData<any>("trends", { refetchInterval: 15 * 60 * 1000 });
   const { lexicon, arbitratedEvents } = useUnifiedIntelligence();
+  const socialFeed = useMonitorStore(selectSocialFeed);
+  const activeDistrict = useMonitorStore(selectActiveDistrict);
 
   const [dbData, setDbData] = useState<{
     trends: Array<{ keyword: string; mentions: number; change: number; sentiment: "positive" | "negative" | "neutral" }>;
@@ -37,6 +48,14 @@ export const SocialIntelSection = () => {
     socialIntelService.getLiveTrends().then((res) => {
       if (isMounted) {
         setDbData(res);
+        if (res.isLiveDb || res.totalMentions > 0) {
+          useMonitorStore.getState().setSocialFeed({
+            totalMentions: res.totalMentions,
+            positiveRatio: res.positiveRatio,
+            negativeRatio: res.negativeRatio,
+            lastUpdatedAt: new Date().toISOString(),
+          });
+        }
       }
     });
     return () => { isMounted = false; };
@@ -49,10 +68,12 @@ export const SocialIntelSection = () => {
     : [];
 
   const hasLiveFeed = rawLive.length > 0;
-  const isLive = hasLiveFeed || dbData.isLiveDb || arbitratedEvents.length > 0;
+  const isLive = hasLiveFeed || dbData.isLiveDb || socialFeed.totalMentions > 0 || arbitratedEvents.length > 0;
 
   const baseMentions = (dbData?.totalMentions ?? 0) > 0
     ? dbData.totalMentions
+    : socialFeed.totalMentions > 0
+    ? socialFeed.totalMentions
     : hasLiveFeed
     ? rawLive.reduce((a: number, t: any) => a + (t.mentions || t.count || 0), 0)
     : 0;
@@ -61,8 +82,8 @@ export const SocialIntelSection = () => {
   // Step 1: Cumulative append-only LivingLexicon replaces fixed 8 fallback
   const activeKeywords = lexicon.length;
 
-  const positiveRate = dbData?.positiveRatio ?? 0;
-  const negativeRate = dbData?.negativeRatio ?? 0;
+  const positiveRate = dbData?.positiveRatio > 0 ? dbData.positiveRatio : socialFeed.positiveRatio;
+  const negativeRate = dbData?.negativeRatio > 0 ? dbData.negativeRatio : socialFeed.negativeRatio;
 
   const mentionTrend = (Array.isArray(dbData?.chartData) && dbData.chartData.length > 0 && dbData.chartData.some(d => d.value > 0))
     ? dbData.chartData
@@ -121,8 +142,14 @@ export const SocialIntelSection = () => {
           <MiniChart data={sentimentTrend} color="hsl(160, 60%, 45%)" height={50} showAxis />
         </div>
 
+        {socialFeed.lastUpdatedAt && (
+          <p className="mt-2 text-[9px] font-mono text-muted-foreground/75 text-right">
+            {isEn ? "Updated" : "Son güncelleme"}: {formatRelativeTime(socialFeed.lastUpdatedAt, lang)}
+          </p>
+        )}
+
         <Link
-          to="/social-intel"
+          to={activeDistrict ? `/ilce/${activeDistrict}` : "/social-intel"}
           className="mt-3 flex items-center justify-center gap-1.5 text-[10px] font-mono text-primary hover:text-primary/90 transition-colors py-2 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary/20 font-semibold"
         >
           <BarChart3 size={13} />

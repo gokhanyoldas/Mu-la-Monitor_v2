@@ -16,6 +16,8 @@ import {
   type DistrictFeedItem,
 } from "@/data/districtSocialBaselines";
 import { extractLexiconMatches } from "@/services/livingLexiconService";
+import { formatRelativeTime } from "@/lib/time-utils";
+import { useMonitorStore } from "@/store/useMonitorStore";
 import { toast } from "sonner";
 
 interface PostItem {
@@ -63,6 +65,7 @@ const DistrictPage = () => {
 
   useEffect(() => {
     if (!district) return;
+    useMonitorStore.getState().setActiveDistrict(district.slug);
     let mounted = true;
     const load = async () => {
       setIsLoading(true);
@@ -400,9 +403,7 @@ const DistrictPage = () => {
                         {sentimentLabels[p.sentiment] ?? `⚪ ${t("Nötr", "Nötr")}`}
                       </span>
                       <span className="text-[8px] font-mono text-muted-foreground ml-auto">
-                        {p.published_at
-                          ? new Date(p.published_at).toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit" })
-                          : "—"}
+                        {formatRelativeTime(p.published_at, lang)}
                       </span>
                     </div>
                     <p className="text-[11px] font-sans text-foreground/90 leading-relaxed">

@@ -58,9 +58,12 @@ export default defineConfig(({ command, mode }) => {
       host: "0.0.0.0",
       port: 3000,
       strictPort: true,
-      hmr: {
-        overlay: false,
-      },
+      hmr:
+        mergedEnv.DISABLE_HMR === "true" || Boolean(mergedEnv.K_SERVICE)
+          ? false
+          : {
+              overlay: false,
+            },
     },
     define: {
       "process.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),

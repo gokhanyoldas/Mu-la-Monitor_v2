@@ -2,81 +2,27 @@ import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { MiniChart } from "../MiniChart";
 import { useState } from "react";
-import { TrendingUp, Building2, Home, Info, ChevronDown } from "lucide-react";
+import { TrendingUp, Building2, Home, ChevronDown, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useEconomyIntelligence } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
 
-const gdpData = [
+const gdpDataTr = [
   { name: "Oca", value: 82 }, { name: "Şub", value: 85 }, { name: "Mar", value: 88 },
   { name: "Nis", value: 91 }, { name: "May", value: 95 }, { name: "Haz", value: 110 },
   { name: "Tem", value: 125 }, { name: "Ağu", value: 130 }, { name: "Eyl", value: 115 },
   { name: "Eki", value: 100 }, { name: "Kas", value: 92 }, { name: "Ara", value: 88 },
 ];
 
-const realEstateData = [
-  { name: "Oca", value: 12500 }, { name: "Şub", value: 12800 }, { name: "Mar", value: 13200 },
-  { name: "Nis", value: 14000 }, { name: "May", value: 15200 }, { name: "Haz", value: 16800 },
-  { name: "Tem", value: 17500 }, { name: "Ağu", value: 17200 }, { name: "Eyl", value: 16500 },
-  { name: "Eki", value: 15800 }, { name: "Kas", value: 15200 }, { name: "Ara", value: 14800 },
+const gdpDataEn = [
+  { name: "Jan", value: 82 }, { name: "Feb", value: 85 }, { name: "Mar", value: 88 },
+  { name: "Apr", value: 91 }, { name: "May", value: 95 }, { name: "Jun", value: 110 },
+  { name: "Jul", value: 125 }, { name: "Aug", value: 130 }, { name: "Sep", value: 115 },
+  { name: "Oct", value: 100 }, { name: "Nov", value: 92 }, { name: "Dec", value: 88 },
 ];
 
 export const EconomySection = () => {
-  const { data: ecoData } = useLiveData<any>("economy", { refetchInterval: 30 * 60 * 1000 });
-  const { data: reData } = useLiveData<any>("real_estate", { refetchInterval: 30 * 60 * 1000 });
-
-  const unemployment = ecoData?.unemployment_rate ?? 10.8;
-  const newCompanies = ecoData?.new_companies ?? 342;
-
-  // Turizm geliri: Kültür ve Turizm Bakanlığı (USD milyon) × güncel kur (Frankfurter/ECB)
-  const tourismRevenueBn = ecoData?.tourism_revenue_usd_m && ecoData?.usd_try
-    ? ((ecoData.tourism_revenue_usd_m * ecoData.usd_try) / 1000).toFixed(1)
-    : "4.8";
-
-  // m² fiyatları: REIDIN ilçe kırılımı (13 ilçe)
-  const DISTRICT_LABELS: Record<string, string> = {
-    bodrum: "Bodrum", marmaris: "Marmaris", fethiye: "Fethiye", mugla_merkez: "Menteşe",
-    datca: "Datça", milas: "Milas", dalaman: "Dalaman", koycegiz: "Köyceğiz",
-    ortaca: "Ortaca", ula: "Ula", seydikemer: "Seydikemer", yatagan: "Yatağan", kavaklidere: "Kavaklıdere",
-  };
-  const districtPrices = reData?.avg_price_per_m2_try
-    ? Object.entries(reData.avg_price_per_m2_try as Record<string, number>)
-        .map(([slug, price]) => ({ name: DISTRICT_LABELS[slug] ?? slug, price }))
-        .sort((a, b) => b.price - a.price)
-    : null;
-  const maxPrice = districtPrices?.[0]?.price ?? 1;
-  const yoyChange = reData?.yoy_change_pct ?? 42;
-
-  const ecoBadge = ecoData?.source_period ?? "TÜİK 2024/Ç4";
-  const isLive = Boolean(reData);
-  const reBadge = reData?.source_period ?? "REFERANS · REIDIN 2024";
-
-  // 13 ilçe m² fiyatı — ilk 4 varsayılan, gerisi tıklayınca açılır
-  const ALL_DISTRICT_PRICES = [
-    { name: "Bodrum", price: 95000 },
-    { name: "Marmaris", price: 72000 },
-    { name: "Fethiye", price: 55000 },
-    { name: "Menteşe", price: 28000 },
-    { name: "Milas", price: 26500 },
-    { name: "Datça", price: 52000 },
-    { name: "Dalaman", price: 24500 },
-    { name: "Köyceğiz", price: 23000 },
-    { name: "Ortaca", price: 21000 },
-    { name: "Seydikemer", price: 18500 },
-    { name: "Ula", price: 19800 },
-    { name: "Yatağan", price: 16800 },
-    { name: "Kavaklıdere", price: 12500 },
-  ];
-  const [showAllDistricts, setShowAllDistricts] = useState(false);
-  // API verisi geldiyse onu kullan, yoksa 13 ilçe referans listesi
-  const displayPrices = (districtPrices && districtPrices.length >= 13)
-    ? districtPrices
-    : (districtPrices && districtPrices.length > 0)
-      ? [...districtPrices, ...ALL_DISTRICT_PRICES.filter(a => !districtPrices.some(d => d.name === a.name))]
-      : ALL_DISTRICT_PRICES;
-  const visibleDistricts = showAllDistricts ? displayPrices : displayPrices.slice(0, 4);
-  const maxDistrictPrice = displayPrices[0]?.price ?? 1;
-
   return (
     <div className="space-y-3">
       <EconomyOverviewPanel />
@@ -86,76 +32,207 @@ export const EconomySection = () => {
 };
 
 export const EconomyOverviewPanel = () => {
-  const { t } = useTranslation();
-  const { data: ecoData } = useLiveData<any>("economy", { refetchInterval: 30 * 60 * 1000 });
-  const unemployment = ecoData?.unemployment_rate ?? 10.8;
-  const newCompanies = ecoData?.new_companies ?? 342;
-  const tourismRevenueBn = ecoData?.tourism_revenue_usd_m && ecoData?.usd_try
-    ? ((ecoData.tourism_revenue_usd_m * ecoData.usd_try) / 1000).toFixed(1)
-    : "4.8";
-  const ecoBadge = ecoData?.source_period ?? "TÜİK 2024/Ç4";
+  const { lang, t, translate } = useTranslation();
+  const isEn = lang === "en";
+  const {
+    unemploymentRate,
+    unemploymentPeriod,
+    tourismRevenueBn,
+    newCompanies,
+    budgetItems,
+    municipalBudgets,
+    combinedTotalBillionTry,
+    budgetYear,
+    budgetYoyChangePct,
+    hasVerifiedBudgetUpdate,
+    hasVerifiedLiveData,
+    latestSourceSummary,
+    isLoading,
+  } = useEconomyIntelligence();
+
+  const ecoBadge =
+    hasVerifiedBudgetUpdate || budgetItems.length > 0
+      ? budgetYear
+        ? `${budgetYear} BÜTÇE`
+        : "BÜTÇE / İHALE"
+      : unemploymentPeriod
+      ? unemploymentPeriod
+      : hasVerifiedLiveData
+      ? "GÜNCEL"
+      : "ÖLÇÜM BEKLENİYOR";
+
+  const verifiedBudgetDisplayBn =
+    combinedTotalBillionTry !== null
+      ? combinedTotalBillionTry
+      : municipalBudgets.length > 0
+      ? municipalBudgets[0].amountBillionTry
+      : null;
 
   return (
-    <DashboardPanel title="Ekonomi & İstihdam" icon={<TrendingUp size={14} />} badge={ecoBadge} badgeVariant="info" count={8}>
+    <DashboardPanel
+      title="Ekonomi & İstihdam"
+      icon={<TrendingUp size={14} />}
+      badge={ecoBadge}
+      badgeVariant={hasVerifiedLiveData ? "active" : "warning"}
+      count={
+        budgetItems.length > 0
+          ? budgetItems.length
+          : municipalBudgets.length > 0
+          ? municipalBudgets.length
+          : undefined
+      }
+    >
+      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "pending"} className="mb-2" />
+      {isLoading && !hasVerifiedLiveData && (
+        <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
+      )}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
         <StatCard
-          label="İşsizlik" value={String(unemployment)} unit="%" change={-0.8} variant="primary"
-          info="TÜİK İşgücü İstatistikleri, 2024/Ç4 dönemi. Çeyreklik yayınlanır; değişim bir önceki çeyreğe göredir."
+          label="İşsizlik"
+          value={unemploymentRate !== null ? String(unemploymentRate) : "—"}
+          unit={unemploymentRate !== null ? "%" : undefined}
+          variant="primary"
+          info={isEn ? "TurkStat regional labor force rate." : "TÜİK İşgücü İstatistikleri."}
         />
         <StatCard
-          label="Turizm Geliri" value={tourismRevenueBn} unit="Milyar ₺" change={12.5} variant="primary"
-          info="Kültür ve Turizm Bakanlığı 2024 yıllık verisi (1580M USD) × güncel TCMB/ECB kuru (Frankfurter, günlük). Değişim yıllık bazdadır."
+          label="Turizm Geliri"
+          value={tourismRevenueBn ?? "—"}
+          unit={tourismRevenueBn !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
+          variant="primary"
+          info={isEn ? "Ministry of Culture & Tourism annual revenue × live FX rate." : "Kültür ve Turizm Bakanlığı yıllık verisi × güncel TCMB/ECB kuru."}
         />
         <StatCard
-          label="Yeni Şirket" value={String(newCompanies)} change={5.2} variant="accent"
-          info="TOBB şirket kuruluş istatistikleri, yıllık toplam. Değişim oranı yıllık bazda hesaplanır."
+          label="Yeni Şirket"
+          value={newCompanies !== null ? String(newCompanies) : "—"}
+          variant="accent"
+          info={isEn ? "TOBB company formation statistics." : "TOBB şirket kuruluş istatistikleri."}
         />
         <StatCard
-          label="KOBİ Sayısı" value="18.5K" change={2.1}
-          info="TOBB + KOSGEB kayıtlı aktif KOBİ sayısı, 2024. Değişim yıllık bazdadır."
+          label="Bütçe / İhale"
+          value={
+            verifiedBudgetDisplayBn !== null
+              ? verifiedBudgetDisplayBn.toFixed(1)
+              : budgetItems.length > 0
+              ? String(budgetItems.length)
+              : "—"
+          }
+          unit={verifiedBudgetDisplayBn !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
+          change={verifiedBudgetDisplayBn !== null && budgetYoyChangePct !== null ? budgetYoyChangePct : undefined}
+          info={
+            verifiedBudgetDisplayBn !== null
+              ? isEn
+                ? `Verified ${budgetYear ?? 2026} municipal budget total (${latestSourceSummary}).`
+                : `Doğrulanmış ${budgetYear ?? 2026} belediye bütçe toplamı (${latestSourceSummary}).`
+              : isEn
+              ? "Verified municipal budget, tender, and investment notices."
+              : "Doğrulanmış belediye bütçe, ihale ve yatırım gelişmeleri."
+          }
         />
       </div>
-      <p className="text-[8px] font-mono text-muted-foreground/70 mb-2 -mt-1">
-        {t("Kaynak: TÜİK + Kültür ve Turizm Bakanlığı + TCMB (Frankfurter/ECB günlük kur)", "Kaynak: TÜİK + Kültür ve Turizm Bakanlığı + TCMB (Frankfurter/ECB günlük kur)")}
-      </p>
+
+      {municipalBudgets.length > 0 && (
+        <div className="mb-2 space-y-1">
+          {municipalBudgets.slice(0, 3).map((b) => (
+            <a
+              key={`${b.institution}-${b.amountBillionTry}`}
+              href={b.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-primary/10 hover:bg-primary/15 border border-primary/20 transition-colors text-[10px] font-mono"
+            >
+              <span className="truncate text-foreground/90">
+                <b className="text-primary">{translate(b.institution)}:</b>{" "}
+                {b.year ? `${b.year} ` : ""}
+                {isEn ? "Council Budget" : "Meclis Bütçesi"}
+              </span>
+              <span className="shrink-0 text-amber-400 font-bold tabular-nums-stat">
+                {b.amountBillionTry.toFixed(1)} {isEn ? "B ₺" : "Milyar ₺"}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {budgetItems.length > 0 && (
+        <div className="mb-3 space-y-1">
+          {budgetItems.slice(0, 3).map((item) => (
+            <a
+              key={item.id}
+              href={item.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-muted/20 hover:bg-muted/40 transition-colors text-[10px] font-mono"
+            >
+              <span className="truncate text-foreground/90">
+                <b className="text-primary">{item.institution}:</b> {translate(item.title)}
+              </span>
+              {item.amountLabel && (
+                <span className="shrink-0 text-amber-400 font-bold">{translate(item.amountLabel)}</span>
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">{t("Turizm Gelir Endeksi", "Turizm Gelir Endeksi")}</span>
-          <MiniChart data={gdpData} color="hsl(160, 60%, 45%)" showAxis />
+          <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">
+            {t("Turizm Gelir Endeksi", "Turizm Gelir Endeksi")}
+          </span>
+          <MiniChart data={isEn ? gdpDataEn : gdpDataTr} color="hsl(160, 60%, 45%)" showAxis />
         </div>
         <div>
-          <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">{t("Sektör Dağılımı", "Sektör Dağılımı")}</span>
+          <span className="text-[9px] font-mono text-muted-foreground uppercase mb-1 block">
+            {t("Sektör Dağılımı", "Sektör Dağılımı")}
+          </span>
           <div className="space-y-1.5 mt-1">
             {[
               { label: "Turizm & Hizmet", pct: 62 },
               { label: "Tarım", pct: 18 },
               { label: "İnşaat", pct: 12 },
               { label: "Sanayi", pct: 8 },
-            ].map(s => (
+            ].map((s) => (
               <div key={s.label} className="flex items-center gap-2">
                 <span className="text-[10px] text-muted-foreground w-24 shrink-0">{t(s.label)}</span>
                 <div className="flex-1 bg-muted/30 rounded-full h-1.5">
                   <div className="bg-primary rounded-full h-1.5 transition-all" style={{ width: `${s.pct}%` }} />
                 </div>
-                <span className="text-[10px] font-mono text-foreground w-8 text-right">{s.pct}%</span>
+                <span className="text-[10px] font-mono text-foreground w-8 text-right tabular-nums-stat">
+                  {s.pct}%
+                </span>
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      <p className="text-[8px] font-mono text-muted-foreground/75 mt-2" data-testid="economy-source-note">
+        {translate(latestSourceSummary)}
+      </p>
     </DashboardPanel>
   );
 };
 
 export const RealEstatePanel = () => {
-  const { t } = useTranslation();
+  const { lang, t } = useTranslation();
+  const isEn = lang === "en";
   const { data: reData } = useLiveData<any>("real_estate", { refetchInterval: 30 * 60 * 1000 });
   const isLive = Boolean(reData);
   const reBadge = reData?.source_period ?? "REFERANS · REIDIN 2024";
   const DISTRICT_LABELS: Record<string, string> = {
-    bodrum: "Bodrum", marmaris: "Marmaris", fethiye: "Fethiye", mugla_merkez: "Menteşe",
-    datca: "Datça", milas: "Milas", dalaman: "Dalaman", koycegiz: "Köyceğiz",
-    ortaca: "Ortaca", ula: "Ula", seydikemer: "Seydikemer", yatagan: "Yatağan", kavaklidere: "Kavaklıdere",
+    bodrum: "Bodrum",
+    marmaris: "Marmaris",
+    fethiye: "Fethiye",
+    mugla_merkez: "Menteşe",
+    datca: "Datça",
+    milas: "Milas",
+    dalaman: "Dalaman",
+    koycegiz: "Köyceğiz",
+    ortaca: "Ortaca",
+    ula: "Ula",
+    seydikemer: "Seydikemer",
+    yatagan: "Yatağan",
+    kavaklidere: "Kavaklıdere",
   };
   const districtPrices = reData?.avg_price_per_m2_try
     ? Object.entries(reData.avg_price_per_m2_try as Record<string, number>)
@@ -179,42 +256,60 @@ export const RealEstatePanel = () => {
     { name: "Kavaklıdere", price: 12500 },
   ];
   const [showAllDistricts, setShowAllDistricts] = useState(false);
-  const displayPrices = (districtPrices && districtPrices.length >= 13)
-    ? districtPrices
-    : (districtPrices && districtPrices.length > 0)
-      ? [...districtPrices, ...ALL_DISTRICT_PRICES.filter(a => !districtPrices.some(d => d.name === a.name))]
+  const displayPrices =
+    districtPrices && districtPrices.length >= 13
+      ? districtPrices
+      : districtPrices && districtPrices.length > 0
+      ? [...districtPrices, ...ALL_DISTRICT_PRICES.filter((a) => !districtPrices.some((d) => d.name === a.name))]
       : ALL_DISTRICT_PRICES;
   const visibleDistricts = showAllDistricts ? displayPrices : displayPrices.slice(0, 4);
   const maxDistrictPrice = displayPrices[0]?.price ?? 1;
 
   return (
-    <DashboardPanel title="Gayrimenkul" icon={<Building2 size={14} />} badge={reBadge} badgeVariant={isLive ? "info" : "warning"}>
+    <DashboardPanel
+      title="Gayrimenkul"
+      icon={<Building2 size={14} />}
+      badge={reBadge}
+      badgeVariant={isLive ? "info" : "warning"}
+    >
       <DataOriginBadge origin={isLive ? "live" : "reference"} className="mb-2" />
       <div className="space-y-2.5">
         <div className="grid grid-cols-3 gap-2 mb-1">
           <StatCard
-            label="Kira Ort." value={reData?.avg_rent ? `${(reData.avg_rent / 1000).toFixed(1)}K` : "15.2K"} unit="₺/ay" change={22.1} variant="destructive"
-            info="REIDIN-GYODER 2024 kira ortalaması. Değişim yıllık bazdadır (YoY)."
+            label="Kira Ort."
+            value={reData?.avg_rent ? `${(reData.avg_rent / 1000).toFixed(1)}K` : "15.2K"}
+            unit={isEn ? "₺/mo" : "₺/ay"}
+            change={22.1}
+            variant="destructive"
+            info={isEn ? "REIDIN-GYODER 2024 average rent (YoY change)." : "REIDIN-GYODER 2024 kira ortalaması. Değişim yıllık bazdadır (YoY)."}
           />
           <StatCard
-            label="Satılık" value={reData?.total_for_sale ? reData.total_for_sale.toLocaleString() : "8,420"} change={-3.2}
-            info="Sahibinden aktif satılık ilan sayısı, anlık. Değişim aylık bazdadır."
+            label="Satılık"
+            value={reData?.total_for_sale ? reData.total_for_sale.toLocaleString() : "8,420"}
+            change={-3.2}
+            info={isEn ? "Active for-sale listings." : "Sahibinden aktif satılık ilan sayısı, anlık."}
           />
           <StatCard
-            label="Kiralık" value={reData?.total_for_rent ? reData.total_for_rent.toLocaleString() : "2,180"} change={-12.5}
-            info="Sahibinden aktif kiralık ilan sayısı, anlık. Değişim aylık bazdadır."
+            label="Kiralık"
+            value={reData?.total_for_rent ? reData.total_for_rent.toLocaleString() : "2,180"}
+            change={-12.5}
+            info={isEn ? "Active rental listings." : "Sahibinden aktif kiralık ilan sayısı, anlık."}
           />
         </div>
 
         <div className="flex items-center justify-between text-[8px] font-mono text-muted-foreground uppercase">
           <span>{t("İlçe Bazında Konut m² Fiyatı (₺)", "İlçe Bazında Konut m² Fiyatı (₺)")}</span>
-          <span className="text-amber-400">YoY %{yoyChange}</span>
+          <span className="text-amber-400">
+            {isEn ? `YoY ${yoyChange}%` : `Yıllık %${yoyChange}`}
+          </span>
         </div>
-        {visibleDistricts.map(d => (
+        {visibleDistricts.map((d) => (
           <div key={d.name} className="space-y-0.5">
             <div className="flex justify-between text-[10px] font-mono">
-              <span className="text-foreground flex items-center gap-1"><Home size={9} className="text-amber-400" /> {d.name}</span>
-              <span className="font-bold text-amber-400">{(d.price / 1000).toFixed(1)}K ₺</span>
+              <span className="text-foreground flex items-center gap-1">
+                <Home size={9} className="text-amber-400" aria-hidden="true" /> {d.name}
+              </span>
+              <span className="font-bold text-amber-400 tabular-nums-stat">{(d.price / 1000).toFixed(1)}K ₺</span>
             </div>
             <div className="w-full bg-muted/30 rounded-full h-2 overflow-hidden">
               <div
@@ -226,11 +321,15 @@ export const RealEstatePanel = () => {
         ))}
         {displayPrices.length > 4 && (
           <button
-            onClick={() => setShowAllDistricts(v => !v)}
-            className="w-full flex items-center justify-center gap-1 text-[9px] font-mono text-amber-400/80 hover:text-amber-400 pt-0.5 transition-colors"
+            type="button"
+            onClick={() => setShowAllDistricts((v) => !v)}
+            aria-expanded={showAllDistricts}
+            className="w-full flex items-center justify-center gap-1 text-[9px] font-mono text-amber-400/80 hover:text-amber-400 pt-0.5 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
-            {showAllDistricts ? t("Daha az göster", "Daha az göster") : `${t("Tüm ilçeler", "Tüm ilçeler")} (+${displayPrices.length - 4})`}
-            <ChevronDown size={10} className={`transition-transform ${showAllDistricts ? "rotate-180" : ""}`} />
+            {showAllDistricts
+              ? t("Daha az göster", "Daha az göster")
+              : `${t("Tüm ilçeler", "Tüm ilçeler")} (+${displayPrices.length - 4})`}
+            <ChevronDown size={10} aria-hidden="true" className={`transition-transform ${showAllDistricts ? "rotate-180" : ""}`} />
           </button>
         )}
         {reData?.tcmb_hpi_series && reData.tcmb_hpi_series.length >= 2 && (
@@ -241,14 +340,19 @@ export const RealEstatePanel = () => {
             </div>
             <MiniChart
               data={reData.tcmb_hpi_series.map((it: { month: string; index: number }) => ({
-                name: it.month.slice(5), value: it.index,
+                name: it.month.slice(5),
+                value: it.index,
               }))}
-              color="hsl(38, 92%, 50%)" height={44} showAxis
+              color="hsl(38, 92%, 50%)"
+              height={44}
+              showAxis
             />
           </div>
         )}
-        <p className="text-[8px] font-mono text-muted-foreground/70 pt-1">
-          Kaynak: REIDIN-GYODER 2024 + Sahibinden bölge ortalaması · Kira getirisi %{reData?.rental_yield_pct ?? 5.2}
+        <p className="tech-meta-only text-[8px] font-mono text-muted-foreground/70 pt-1">
+          {isEn
+            ? `Source: REIDIN-GYODER 2024 + Regional Listings · Rental yield ${reData?.rental_yield_pct ?? 5.2}%`
+            : `Kaynak: REIDIN-GYODER 2024 + Sahibinden bölge ortalaması · Kira getirisi %${reData?.rental_yield_pct ?? 5.2}`}
         </p>
       </div>
     </DashboardPanel>

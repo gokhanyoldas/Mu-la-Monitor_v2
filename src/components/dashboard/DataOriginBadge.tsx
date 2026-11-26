@@ -14,10 +14,18 @@ export function DataOriginBadge({ origin, className = "" }: { origin: DataOrigin
   const item = styles[origin];
   const Icon = item.Icon;
   const { lang } = useTranslation();
-  const labels = lang === "en" ? { live: "LIVE DATA", cached: "CACHED", reference: "REFERENCE DATA", pending: "DATA PENDING" } : lang === "de" ? { live: "LIVE-DATEN", cached: "CACHE", reference: "REFERENZDATEN", pending: "DATEN AUSSTEHEND" } : { live: item.label, cached: item.label, reference: item.label, pending: item.label };
+  const labels: Record<DataOrigin, string> =
+    lang === "en"
+      ? { live: "LIVE DATA", cached: "CACHED", reference: "REFERENCE DATA", pending: "DATA PENDING" }
+      : lang === "de"
+      ? { live: "LIVE-DATEN", cached: "CACHE", reference: "REFERENZDATEN", pending: "DATEN AUSSTEHEND" }
+      : { live: "CANLI VERİ", cached: "ÖNBELLEK", reference: "REFERANS VERİ", pending: "VERİ BEKLENİYOR" };
+
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase ${item.className} ${className}`}>
-      <Icon size={10} /> {item.label}
+    <span
+      className={`tech-meta-only inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase ${item.className} ${className}`}
+    >
+      <Icon size={10} aria-hidden="true" /> {labels[origin]}
     </span>
   );
 }

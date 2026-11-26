@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { cacheManager, TTL } from "@/lib/cache-manager";
 import { useLiveData } from "@/hooks/useLiveData";
+import { useTranslation, translateText, type Language } from "@/hooks/useTranslation";
 import {
   useDamIntelligence,
   useTourismIntelligence,
@@ -47,9 +48,28 @@ const COMPASS_TR: Record<string, string> = {
   NNW: "kuzey-kuzeybatısı",
 };
 
+const COMPASS_EN: Record<string, string> = {
+  N: "north",
+  NNE: "north-northeast",
+  NE: "northeast",
+  ENE: "east-northeast",
+  E: "east",
+  ESE: "east-southeast",
+  SE: "southeast",
+  SSE: "south-southeast",
+  S: "south",
+  SSW: "south-southwest",
+  SW: "southwest",
+  WSW: "west-southwest",
+  W: "west",
+  WNW: "west-northwest",
+  NW: "northwest",
+  NNW: "north-northwest",
+};
+
 /**
  * USGS/AFAD İngilizce konum metinlerini (ör. "10 km WSW of Bodrum, Turkey")
- * doğal Türkçe formata dönüştürür ("Bodrum — 10 km batı-güneybatısı").
+ * doğal Türkçe formata dönüştürür ("Bodrum (10 km batı-güneybatısı)").
  */
 export function formatQuakeLocationTr(rawLocation?: string | null): string {
   if (!rawLocation || typeof rawLocation !== "string") return "Muğla çevresi";
@@ -76,14 +96,72 @@ export function formatQuakeLocationTr(rawLocation?: string | null): string {
   return cleaned || "Muğla çevresi";
 }
 
+/**
+ * USGS/AFAD konum metinlerini temiz ve tutarlı İngilizce formata dönüştürür
+ * ("Bodrum (10 km west-southwest)").
+ */
+export function formatQuakeLocationEn(rawLocation?: string | null): string {
+  if (!rawLocation || typeof rawLocation !== "string") return "Muğla region";
+  const cleaned = rawLocation
+    .trim()
+    .replace(/,\s*Turkey$/i, "")
+    .replace(/,\s*Türkiye$/i, "")
+    .replace(/\bEge Denizi\b/gi, "Aegean Sea")
+    .replace(/\bAkdeniz\b/gi, "Mediterranean Sea")
+    .replace(/\bAçıkları\b/gi, "Offshore")
+    .replace(/\bOn İki Adalar\b/gi, "Dodecanese Islands")
+    .trim();
+
+  const usgsMatch = cleaned.match(
+    /^(\d+(?:[.,]\d+)?)\s*km\s+([NSEW]{1,3})\s+of\s+(.+)$/i
+  );
+  if (usgsMatch) {
+    const km = usgsMatch[1].replace(",", ".");
+    const dir = COMPASS_EN[usgsMatch[2].toUpperCase()] || usgsMatch[2];
+    const place = usgsMatch[3].trim();
+    return `${place} (${km} km ${dir})`;
+  }
+
+  return cleaned || "Muğla region";
+}
+
+export function formatQuakeLocation(rawLocation?: string | null, lang: Language = "tr"): string {
+  return lang === "en" ? formatQuakeLocationEn(rawLocation) : formatQuakeLocationTr(rawLocation);
+}
+
 function getAqiLabelTr(aqi: number, fallbackLabel?: string): string {
-  if (fallbackLabel && fallbackLabel.trim()) return fallbackLabel.trim();
+  if (fallbackLabel && fallbackLabel.trim()) {
+    const mapEnToTr: Record<string, string> = {
+      "very good": "Çok İyi",
+      good: "İyi",
+      fair: "Orta",
+      moderate: "Orta",
+      sensitive: "Hassas",
+      poor: "Kötü",
+      "very poor": "Çok Kötü",
+    };
+    const low = fallbackLabel.trim().toLowerCase();
+    return mapEnToTr[low] || fallbackLabel.trim();
+  }
   if (aqi <= 20) return "Çok İyi";
   if (aqi <= 40) return "İyi";
   if (aqi <= 60) return "Orta";
   if (aqi <= 80) return "Hassas";
   if (aqi <= 100) return "Kötü";
   return "Çok Kötü";
+}
+
+function getAqiLabelEn(aqi: number, fallbackLabel?: string): string {
+  if (fallbackLabel && fallbackLabel.trim()) {
+    const translated = translateText(fallbackLabel.trim(), "en");
+    if (translated && translated !== fallbackLabel.trim()) return translated;
+  }
+  if (aqi <= 20) return "Very Good";
+  if (aqi <= 40) return "Good";
+  if (aqi <= 60) return "Moderate";
+  if (aqi <= 80) return "Sensitive";
+  if (aqi <= 100) return "Poor";
+  return "Very Poor";
 }
 
 export interface DynamicCityPulseInput {
@@ -106,11 +184,15 @@ export interface DynamicCityPulseInput {
 
 /**
  * Üst KPI kutularıyla birebir aynı canlı state kaynaklarından 4 maddelik
- * dinamik Türkçe Şehir Nabzı metni üretir. Sabit %44 baraj, %41 otel veya
- * İngilizce USGS kalıntısı asla içermez.
+ * dinamik TR veya EN Şehir Nabzı metni üretir. Sabit %44 baraj, %41 otel veya
+ * karışık dil kalıntısı asla içermez.
  */
-export function buildDynamicCityPulse(input: DynamicCityPulseInput): AISummary {
+export function buildDynamicCityPulse(
+  input: DynamicCityPulseInput,
+  lang: Language = "tr"
+): AISummary {
   const { weather, airQuality, traffic, dams, tourism, security } = input;
+  const isEn = lang === "en";
 
   // 1. Hava & Hava Kalitesi
   const tempNum =
@@ -125,23 +207,41 @@ export function buildDynamicCityPulse(input: DynamicCityPulseInput): AISummary {
   const hasAqi = Number.isFinite(aqiNum);
 
   let p1: string;
-  if (hasTemp && hasAqi) {
-    const cond = weather?.condition ? ` (${weather.condition})` : "";
-    const label = getAqiLabelTr(aqiNum, airQuality?.aqi_label ?? undefined);
-    p1 = `1. Muğla genelinde sıcaklık ${weather!.temperature}°C${cond}, hava kalitesi EAQI ${aqiNum} (${label}) seviyesindedir.`;
-  } else if (hasTemp) {
-    const cond = weather?.condition ? ` (${weather.condition})` : "";
-    p1 = `1. Muğla genelinde sıcaklık ${weather!.temperature}°C${cond}; hava kalitesi için güncel ölçüm bekleniyor.`;
-  } else if (hasAqi) {
-    const label = getAqiLabelTr(aqiNum, airQuality?.aqi_label ?? undefined);
-    p1 = `1. Muğla hava kalitesi EAQI ${aqiNum} (${label}) seviyesindedir; güncel sıcaklık ölçümü bekleniyor.`;
+  if (isEn) {
+    const cond = weather?.condition ? ` (${translateText(weather.condition, "en")})` : "";
+    if (hasTemp && hasAqi) {
+      const label = getAqiLabelEn(aqiNum, airQuality?.aqi_label ?? undefined);
+      p1 = `1. Temperature across Muğla is ${weather!.temperature}°C${cond}, with air quality at EAQI ${aqiNum} (${label}).`;
+    } else if (hasTemp) {
+      p1 = `1. Temperature across Muğla is ${weather!.temperature}°C${cond}; live air quality reading is pending.`;
+    } else if (hasAqi) {
+      const label = getAqiLabelEn(aqiNum, airQuality?.aqi_label ?? undefined);
+      p1 = `1. Air quality across Muğla is at EAQI ${aqiNum} (${label}); live temperature reading is pending.`;
+    } else {
+      p1 = "1. Live meteorological readings for temperature and air quality across Muğla are pending.";
+    }
   } else {
-    p1 = "1. Muğla genelinde hava durumu ve hava kalitesi için canlı meteoroloji ölçümü bekleniyor.";
+    const cond = weather?.condition ? ` (${translateText(weather.condition, "tr")})` : "";
+    if (hasTemp && hasAqi) {
+      const label = getAqiLabelTr(aqiNum, airQuality?.aqi_label ?? undefined);
+      p1 = `1. Muğla genelinde sıcaklık ${weather!.temperature}°C${cond}, hava kalitesi EAQI ${aqiNum} (${label}) seviyesindedir.`;
+    } else if (hasTemp) {
+      p1 = `1. Muğla genelinde sıcaklık ${weather!.temperature}°C${cond}; hava kalitesi için güncel ölçüm bekleniyor.`;
+    } else if (hasAqi) {
+      const label = getAqiLabelTr(aqiNum, airQuality?.aqi_label ?? undefined);
+      p1 = `1. Muğla hava kalitesi EAQI ${aqiNum} (${label}) seviyesindedir; güncel sıcaklık ölçümü bekleniyor.`;
+    } else {
+      p1 = "1. Muğla genelinde hava durumu ve hava kalitesi için canlı meteoroloji ölçümü bekleniyor.";
+    }
   }
 
   // 2. Su & Barajlar (üst KPI "Baraj" ile birebir senkron)
-  const p2 =
-    dams.avgOccupancy !== null
+  const damSource = isEn ? translateText(dams.latestSourceSummary, "en") : dams.latestSourceSummary;
+  const p2 = isEn
+    ? dams.avgOccupancy !== null
+      ? `2. According to verified sources, average dam occupancy in Muğla stands at ${dams.avgOccupancy}% (${damSource}).`
+      : `2. Latest dam occupancy reading is pending (${damSource}).`
+    : dams.avgOccupancy !== null
       ? `2. Doğrulanmış kaynaklara göre Muğla barajlarında ortalama doluluk %${dams.avgOccupancy} seviyesindedir (${dams.latestSourceSummary}).`
       : `2. Barajlar için güncel ölçüm bekleniyor (${dams.latestSourceSummary}).`;
 
@@ -158,39 +258,72 @@ export function buildDynamicCityPulse(input: DynamicCityPulseInput): AISummary {
     );
     const busiest = [...validHotspots].sort((a, b) => Number(b.density) - Number(a.density))[0];
     const criticalCount = validHotspots.filter((h) => Number(h.density) >= 50).length;
-    p3 =
-      criticalCount > 0
-        ? `3. ${validHotspots.length} ilçede anlık ortalama trafik yoğunluğu %${avgDensity}; en yoğun nokta ${busiest.name} (%${busiest.density}) ve ${criticalCount} bölgede kritik yoğunluk izleniyor.`
-        : `3. ${validHotspots.length} ilçede anlık ortalama trafik yoğunluğu %${avgDensity} ile akıcı seyrediyor; en yoğun nokta ${busiest.name} (%${busiest.density}).`;
+    if (isEn) {
+      p3 =
+        criticalCount > 0
+          ? `3. Average live traffic congestion across ${validHotspots.length} districts is ${avgDensity}%; busiest district is ${busiest.name} (${busiest.density}%) with ${criticalCount} congested zones monitored.`
+          : `3. Traffic is flowing smoothly across ${validHotspots.length} districts at ${avgDensity}% average congestion; busiest district is ${busiest.name} (${busiest.density}%).`;
+    } else {
+      p3 =
+        criticalCount > 0
+          ? `3. ${validHotspots.length} ilçede anlık ortalama trafik yoğunluğu %${avgDensity}; en yoğun nokta ${busiest.name} (%${busiest.density}) ve ${criticalCount} bölgede kritik yoğunluk izleniyor.`
+          : `3. ${validHotspots.length} ilçede anlık ortalama trafik yoğunluğu %${avgDensity} ile akıcı seyrediyor; en yoğun nokta ${busiest.name} (%${busiest.density}).`;
+    }
   } else {
-    p3 = "3. İl genelinde canlı trafik yoğunluğu sensör verisi bekleniyor.";
+    p3 = isEn
+      ? "3. Live province-wide traffic congestion sensor data is pending."
+      : "3. İl genelinde canlı trafik yoğunluğu sensör verisi bekleniyor.";
   }
 
   // 4. Turizm & Deprem / Güvenlik (üst KPI "Otel Doluluk" ve "Güvenlik" ile birebir senkron)
+  const tourSource = isEn
+    ? translateText(tourism.occupancySourceSummary, "en")
+    : tourism.occupancySourceSummary;
   let tourismPart: string;
-  if (tourism.hotelOccupancyPct !== null) {
-    const annualPart = tourism.annualTourists
-      ? `, yıllık ${tourism.annualTourists} ziyaretçi`
-      : "";
-    tourismPart = `Turizmde güncel otel doluluğu %${tourism.hotelOccupancyPct}${annualPart} (${tourism.occupancySourceSummary}).`;
-  } else if (tourism.annualTourists) {
-    tourismPart = `Turizmde otel doluluğu için güncel ölçüm bekleniyor; yıllık ziyaretçi verisi ${tourism.annualTourists}.`;
+  if (isEn) {
+    if (tourism.hotelOccupancyPct !== null) {
+      const annualPart = tourism.annualTourists
+        ? `, with ${tourism.annualTourists} annual visitors`
+        : "";
+      tourismPart = `Current hotel occupancy is ${tourism.hotelOccupancyPct}%${annualPart} (${tourSource}).`;
+    } else if (tourism.annualTourists) {
+      tourismPart = `Current hotel occupancy reading is pending; annual visitor figure stands at ${tourism.annualTourists}.`;
+    } else {
+      tourismPart = "Current hotel occupancy data is pending.";
+    }
   } else {
-    tourismPart = "Turizmde güncel otel doluluğu verisi bekleniyor.";
+    if (tourism.hotelOccupancyPct !== null) {
+      const annualPart = tourism.annualTourists
+        ? `, yıllık ${tourism.annualTourists} ziyaretçi`
+        : "";
+      tourismPart = `Turizmde güncel otel doluluğu %${tourism.hotelOccupancyPct}${annualPart} (${tourism.occupancySourceSummary}).`;
+    } else if (tourism.annualTourists) {
+      tourismPart = `Turizmde otel doluluğu için güncel ölçüm bekleniyor; yıllık ziyaretçi verisi ${tourism.annualTourists}.`;
+    } else {
+      tourismPart = "Turizmde güncel otel doluluğu verisi bekleniyor.";
+    }
   }
 
   let securityPart: string;
   if (security.latestQuake) {
-    const locTr = formatQuakeLocationTr(security.latestQuake.location);
+    const loc = formatQuakeLocation(security.latestQuake.location, lang);
     const depthPart =
       security.latestQuake.depthKm !== null
-        ? ` (${security.latestQuake.depthKm} km derinlik)`
+        ? isEn
+          ? ` (${security.latestQuake.depthKm} km depth)`
+          : ` (${security.latestQuake.depthKm} km derinlik)`
         : "";
-    securityPart = `Son deprem kaydı: ${locTr} — M${security.latestQuake.magnitude.toFixed(1)}${depthPart}.`;
+    securityPart = isEn
+      ? `Latest earthquake record: ${loc} — M${security.latestQuake.magnitude.toFixed(1)}${depthPart}.`
+      : `Son deprem kaydı: ${loc} — M${security.latestQuake.magnitude.toFixed(1)}${depthPart}.`;
   } else if (security.publicOrderEvents.length > 0) {
-    securityPart = `Güvenlik ve asayişte ${security.publicOrderEvents.length} güncel gelişme takip ediliyor.`;
+    securityPart = isEn
+      ? `${security.publicOrderEvents.length} recent public order updates are being monitored.`
+      : `Güvenlik ve asayişte ${security.publicOrderEvents.length} güncel gelişme takip ediliyor.`;
   } else {
-    securityPart = "Muğla ve çevresinde güncel kritik deprem kaydı bulunmuyor.";
+    securityPart = isEn
+      ? "No critical earthquake records detected in Muğla and surrounding areas."
+      : "Muğla ve çevresinde güncel kritik deprem kaydı bulunmuyor.";
   }
   const p4 = `4. ${tourismPart} ${securityPart}`;
 
@@ -338,6 +471,7 @@ async function buildLiveFallback(type: SummaryType): Promise<AISummary> {
 }
 
 export function useAISummary(type: SummaryType = "daily") {
+  const { lang } = useTranslation();
   const isPulse = type === "pulse";
 
   // Pulse modu doğrudan üst KPI kutularıyla aynı canlı state katmanına bağlanır (0 ek Gemini kotası)
@@ -359,15 +493,18 @@ export function useAISummary(type: SummaryType = "daily") {
 
   const livePulseSummary = useMemo<AISummary | null>(() => {
     if (!isPulse) return null;
-    return buildDynamicCityPulse({
-      weather: weatherData,
-      airQuality: aqData,
-      traffic: trafficData,
-      dams: damIntel,
-      tourism: tourismIntel,
-      security: securityIntel,
-    });
-  }, [isPulse, weatherData, aqData, trafficData, damIntel, tourismIntel, securityIntel]);
+    return buildDynamicCityPulse(
+      {
+        weather: weatherData,
+        airQuality: aqData,
+        traffic: trafficData,
+        dams: damIntel,
+        tourism: tourismIntel,
+        security: securityIntel,
+      },
+      lang
+    );
+  }, [isPulse, weatherData, aqData, trafficData, damIntel, tourismIntel, securityIntel, lang]);
 
   const [data, setData] = useState<AISummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);

@@ -3,6 +3,13 @@ import path from "node:path";
 import fs from "node:fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import {
+  executeTopicGrounding,
+  isValidTopicKey,
+  isGeminiRateLimitError,
+  markGeminiRateLimited,
+  RATE_LIMIT_COOLDOWN_MS,
+} from "./api/intel/topic-grounding.ts";
 
 const PORT = Number(process.env.PORT || 3000);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-4-hydrogen";
@@ -262,11 +269,101 @@ Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında 
     }
   });
 
+  app.post("/api/intel/topic-grounding", async (req, res) => {
+    const rawTopic = req.body && typeof req.body === "object" ? req.body.topic : undefined;
+    if (!isValidTopicKey(rawTopic)) {
+      return res.status(400).json({ ok: false, error: "Geçersiz konu (topic) parametresi." });
+    }
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    try {
+      const payload = await executeTopicGrounding(rawTopic, apiKey);
+      return res.json(payload);
+    } catch (err) {
+      if (isGeminiRateLimitError(err)) {
+        const retryAfterMs = markGeminiRateLimited(RATE_LIMIT_COOLDOWN_MS);
+        return res.json({
+          ok: false,
+          fallback: true,
+          rateLimited: true,
+          retryAfterMs,
+          topic: rawTopic,
+          reason:
+            "Gemini API kota/hız limiti nedeniyle geçici bekleme modunda; mevcut doğrulanmış veriler korunuyor.",
+        });
+      }
+      console.error("[/api/intel/topic-grounding] error:", err);
+      return res.json({
+        ok: false,
+        fallback: true,
+        topic: rawTopic,
+        reason: "Konu bazlı Google Search Grounding geçici olarak kullanılamıyor.",
+      });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false, ws: false },
       appType: "spa",
     });
+
+    // In HMR-disabled dev mode (e.g. Cloud Run / iframe preview), Vite 8 still injects
+    // <script type="module" src="/@vite/client"> whose default bundle unconditionally
+    // opens a WebSocket and throws "WebSocket closed without opened.".
+    // Serve a clean no-WebSocket client shim that preserves CSS injection and import.meta.hot API.
+    app.get("/@vite/client", (_req, res) => {
+      res.type("application/javascript; charset=utf-8");
+      res.setHeader("Cache-Control", "no-store");
+      res.send(`
+const sheetsMap = new Map();
+export function updateStyle(id, content) {
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement("style");
+    style.setAttribute("type", "text/css");
+    style.setAttribute("data-vite-dev-id", id);
+    style.textContent = content;
+    document.head.appendChild(style);
+  } else if (style.textContent !== content) {
+    style.textContent = content;
+  }
+  sheetsMap.set(id, style);
+}
+export function removeStyle(id) {
+  const style = sheetsMap.get(id);
+  if (style) {
+    style.remove();
+    sheetsMap.delete(id);
+  }
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    decline() {},
+    invalidate() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url, queryToInject) {
+  if (url[0] !== "." && url[0] !== "/") return url;
+  const pathname = url.replace(/[?#].*$/, "");
+  const { search, hash } = new URL(url, "http://vite.dev");
+  return pathname + "?" + queryToInject + (search ? "&" + search.slice(1) : "") + (hash || "");
+}
+export class ErrorOverlay extends HTMLElement {
+  close() {
+    this.remove();
+  }
+}
+`);
+    });
+
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), "dist");

@@ -3,6 +3,7 @@ import { dataQualityTracker } from "@/lib/data-quality";
 import { Clock, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, Zap } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTranslation } from "@/hooks/useTranslation";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 interface DataFreshnessIndicatorProps {
   category: string;
@@ -56,15 +57,15 @@ export const DataFreshnessIndicator = ({ category, size = "sm" }: DataFreshnessI
   };
 
   const getDescription = () => {
+    const relative = lastUpdate
+      ? formatRelativeTime(lastUpdate, lang)
+      : formatRelativeTime(Date.now() - status.age * 60_000, lang);
+
     if (!status.isFresh) {
-      return `${t("stale_data", "Eski veri")}: ${status.age} ${t("min", "dk")} ${t("ago", "önce")}`;
+      return `${t("stale_data", "Eski veri")}: ${relative}`;
     }
 
-    if (status.age === 0) {
-      return t("just_updated", "Yeni güncelleme (saniyeler)");
-    }
-
-    return `${status.age} ${t("min", "dk")} ${t("ago", "önce")}`;
+    return relative;
   };
 
   const timeFormatted = lastUpdate
@@ -79,7 +80,7 @@ export const DataFreshnessIndicator = ({ category, size = "sm" }: DataFreshnessI
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex items-center gap-1 cursor-help">
+          <div className="tech-meta-only flex items-center gap-1 cursor-help">
             {getIcon()}
             <span className={`text-[10px] font-mono font-semibold text-muted-foreground opacity-75`}>
               {getDescription()}

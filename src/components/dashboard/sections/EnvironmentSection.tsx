@@ -10,8 +10,21 @@ import {
   useDamIntelligence,
   formatShortTurkishDate,
 } from "@/services/topicGroundingService";
+import {
+  useMonitorStore,
+  selectDams,
+  selectActiveDistrict,
+} from "@/store/useMonitorStore";
 
-const defaultWeather = { temperature: 14, humidity: 68, wind_speed: 22, windspeed: 22, uv_index: 3, sea_temp: 16, condition: 'Açık' };
+const defaultWeather = {
+  temperature: 14,
+  humidity: 68,
+  wind_speed: 22,
+  windspeed: 22,
+  uv_index: 3,
+  sea_temp: 16,
+  condition: "Açık",
+};
 
 // Safe display value: returns String(v) if defined/non-null, else fallback
 const sv = (v: any, fallback: number | string) =>
@@ -29,6 +42,8 @@ export const EnvironmentSection = () => {
 };
 
 export const WeatherClimatePanel = () => {
+  const { lang, t } = useTranslation();
+  const isEn = lang === "en";
   const { data: weatherData } = useLiveData<any>("weather", { refetchInterval: 15 * 60 * 1000 });
   const w = weatherData || defaultWeather;
 
@@ -39,29 +54,58 @@ export const WeatherClimatePanel = () => {
           <DataFreshnessIndicator category="weather" size="sm" />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-          <StatCard label="Sıcaklık" value={sv(w.temperature, 14)} unit="°C" variant="primary"
-            info="Open-Meteo güncel hava istasyonu (Muğla merkez). 15 dakikada bir güncellenir." />
-          <StatCard label="Nem" value={sv(w.humidity, 68)} unit="%"
-            info="Open-Meteo bağıl nem. 15 dakikada bir güncellenir." />
-          <StatCard label="Rüzgar" value={sv(w.windspeed ?? w.wind_speed, 22)} unit="km/h"
-            info="Open-Meteo 10m rüzgar hızı. 15 dakikada bir güncellenir." />
-          <StatCard label="UV İndeksi" value={sv(w.uv_index, 0)} variant="accent"
-            info="Open-Meteo UV indeksi (0-11+). Günlük maksimum." />
+          <StatCard
+            label="Sıcaklık"
+            value={sv(w.temperature, 14)}
+            unit="°C"
+            variant="primary"
+            info={isEn ? "Open-Meteo live weather station (Muğla center). Updated every 15 min." : "Open-Meteo güncel hava istasyonu (Muğla merkez). 15 dakikada bir güncellenir."}
+          />
+          <StatCard
+            label="Nem"
+            value={sv(w.humidity, 68)}
+            unit="%"
+            info={isEn ? "Open-Meteo relative humidity. Updated every 15 min." : "Open-Meteo bağıl nem. 15 dakikada bir güncellenir."}
+          />
+          <StatCard
+            label="Rüzgar"
+            value={sv(w.windspeed ?? w.wind_speed, 22)}
+            unit={isEn ? "km/h" : "km/sa"}
+            info={isEn ? "Open-Meteo 10m wind speed. Updated every 15 min." : "Open-Meteo 10m rüzgar hızı. 15 dakikada bir güncellenir."}
+          />
+          <StatCard
+            label="UV İndeksi"
+            value={sv(w.uv_index, 0)}
+            variant="accent"
+            info={isEn ? "Open-Meteo UV index (0-11+). Daily maximum." : "Open-Meteo UV indeksi (0-11+). Günlük maksimum."}
+          />
         </div>
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Deniz Suyu" value={sv(w.sea_temp, 16)} unit="°C" variant="accent"
-            info="Open-Meteo deniz yüzey sıcaklığı (Ege). Günlük güncellenir." />
-          <StatCard label="Durum" value={w.condition || 'Açık'}
-            info="Open-Meteo WMO hava kodu çevirisi. Anlık durum." />
+          <StatCard
+            label="Deniz Suyu"
+            value={sv(w.sea_temp, 16)}
+            unit="°C"
+            variant="accent"
+            info={isEn ? "Open-Meteo sea surface temperature (Aegean). Daily update." : "Open-Meteo deniz yüzey sıcaklığı (Ege). Günlük güncellenir."}
+          />
+          <StatCard
+            label="Durum"
+            value={t(w.condition || "Açık")}
+            info={isEn ? "Live WMO weather condition." : "Open-Meteo WMO hava kodu çevirisi. Anlık durum."}
+          />
         </div>
         {w.districts && Array.isArray(w.districts) && w.districts.length > 0 && (
           <>
-            <span className="text-[9px] font-mono text-muted-foreground uppercase mb-2 block">İlçe Sıcaklıkları</span>
+            <span className="text-[9px] font-mono text-muted-foreground uppercase mb-2 block">
+              {t("İlçe Sıcaklıkları")}
+            </span>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 mb-2">
               {w.districts.map((d: any, i: number) => (
                 <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-muted/20">
                   <span className="text-[10px] font-mono text-foreground/80">{d.name}</span>
-                  <span className="text-[10px] font-mono font-bold text-primary">{d.temperature}°C</span>
+                  <span className="text-[10px] font-mono font-bold text-primary tabular-nums-stat">
+                    {d.temperature}°C
+                  </span>
                 </div>
               ))}
             </div>
@@ -73,12 +117,18 @@ export const WeatherClimatePanel = () => {
 };
 
 export const AirQualityPanel = () => {
+  const { lang } = useTranslation();
+  const isEn = lang === "en";
   const { data: airData } = useLiveData<any>("air_quality", { refetchInterval: 30 * 60 * 1000 });
   const aq = airData || defaultAirQuality;
 
   return (
     <div className="relative">
-      <DashboardPanel title="Hava Kalitesi" badge={aq.aqi_label ?? aq.quality_label ?? "ORTA"} badgeVariant={aq.aqi <= 50 ? "active" : aq.aqi <= 100 ? "warning" : "alert"}>
+      <DashboardPanel
+        title="Hava Kalitesi"
+        badge={aq.aqi_label ?? aq.quality_label ?? "ORTA"}
+        badgeVariant={aq.aqi <= 50 ? "active" : aq.aqi <= 100 ? "warning" : "alert"}
+      >
         <div className="absolute top-2 right-12 opacity-75">
           <DataFreshnessIndicator category="air_quality" size="sm" />
         </div>
@@ -87,8 +137,10 @@ export const AirQualityPanel = () => {
           <Gauge value={aq.pm25} max={50} label="PM2.5" variant="primary" />
           <Gauge value={aq.pm10} max={100} label="PM10" variant="primary" />
         </div>
-        <p className="text-[8px] font-mono text-muted-foreground/70 mt-2 text-center">
-          Kaynak: Open-Meteo Air Quality API (30 dk) · Avrupa AQI standardı
+        <p className="tech-meta-only text-[8px] font-mono text-muted-foreground/75 mt-2 text-center">
+          {isEn
+            ? "Source: Open-Meteo Air Quality API (30m) · European AQI standard"
+            : "Kaynak: Open-Meteo Air Quality API (30 dk) · Avrupa AQI standardı"}
         </p>
       </DashboardPanel>
     </div>
@@ -96,13 +148,24 @@ export const AirQualityPanel = () => {
 };
 
 export const WaterDamsPanel = () => {
-  const { t } = useTranslation();
-  const {
-    dams,
-    hasVerifiedLiveData,
-    latestSourceSummary,
-    isLoading,
-  } = useDamIntelligence();
+  const { lang, t, translate } = useTranslation();
+  const isEn = lang === "en";
+  const damQuery = useDamIntelligence();
+  const storeDams = useMonitorStore(selectDams);
+  const activeDistrict = useMonitorStore(selectActiveDistrict);
+
+  const useStoreRecords =
+    storeDams.records.length > 0 &&
+    (storeDams.hasVerifiedLiveData || !damQuery.hasVerifiedLiveData);
+  const dams = useStoreRecords ? storeDams.records : damQuery.dams;
+  const hasVerifiedLiveData = useStoreRecords
+    ? storeDams.hasVerifiedLiveData
+    : damQuery.hasVerifiedLiveData;
+  const latestSourceSummary = useStoreRecords
+    ? storeDams.latestSourceSummary
+    : damQuery.latestSourceSummary;
+  const isLoading = damQuery.isLoading;
+
   const hub = useOptionalUnifiedIntelligence();
   const waterAlerts = (hub?.arbitratedEvents ?? [])
     .map((e) => e.envWaterAlert)
@@ -124,15 +187,23 @@ export const WaterDamsPanel = () => {
             const hasRate = dam.occupancyRate !== null;
             const rate = dam.occupancyRate ?? 0;
             const shortDate = formatShortTurkishDate(dam.measuredAt);
+            const localizedCap = t(dam.capacityLabel);
+            const isDistrictMatch =
+              Boolean(activeDistrict) &&
+              dam.district.toLocaleLowerCase("tr-TR").includes(activeDistrict!);
             const rowTitle = hasRate
-              ? `${dam.name}: %${dam.occupancyRate} · ${dam.sourceName || "Yerel Basın/DSİ"}${shortDate ? ` (${shortDate})` : ""}`
-              : `${dam.name} (${dam.capacityLabel}) · Canlı resmi ölçüm bekleniyor`;
+              ? `${t(dam.name)}: %${dam.occupancyRate} · ${dam.sourceName || (isEn ? "Local Press/DSİ" : "Yerel Basın/DSİ")}${shortDate ? ` (${translate(shortDate)})` : ""}`
+              : `${t(dam.name)} (${localizedCap}) · ${isEn ? "Awaiting official live measurement" : "Canlı resmi ölçüm bekleniyor"}`;
 
             return (
               <div
                 key={dam.id}
                 title={rowTitle}
-                className="flex items-center gap-2 px-2 py-1 rounded bg-muted/20"
+                className={`flex items-center gap-2 px-2 py-1 rounded transition-colors ${
+                  isDistrictMatch
+                    ? "bg-primary/15 border border-primary/40"
+                    : "bg-muted/20"
+                }`}
               >
                 <span className="text-[10px] font-mono text-foreground/80 w-28 truncate shrink-0">
                   {t(dam.name)}
@@ -148,7 +219,7 @@ export const WaterDamsPanel = () => {
                   )}
                 </div>
                 <span
-                  className={`text-[10px] font-mono font-bold w-9 text-right ${
+                  className={`text-[10px] font-mono font-bold tabular-nums-stat w-9 text-right ${
                     !hasRate
                       ? "text-muted-foreground"
                       : rate >= 60
@@ -160,8 +231,8 @@ export const WaterDamsPanel = () => {
                 >
                   {hasRate ? `${dam.occupancyRate}%` : "—"}
                 </span>
-                <span className="text-[9px] font-mono text-muted-foreground w-16 text-right shrink-0">
-                  {dam.capacityLabel}
+                <span className="text-[9px] font-mono text-muted-foreground w-20 text-right shrink-0">
+                  {localizedCap}
                 </span>
               </div>
             );
@@ -171,14 +242,16 @@ export const WaterDamsPanel = () => {
           <div className="mb-2 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-2 space-y-1">
             {waterAlerts.slice(0, 2).map((wa, idx) => (
               <div key={idx} className="text-[10px] font-mono leading-snug">
-                <span className="font-bold text-cyan-300">💧 {wa.title} ({wa.districtName}): </span>
-                <span className="text-foreground/90">{wa.detail}</span>
+                <span className="font-bold text-cyan-300">
+                  💧 {translate(wa.title)} ({wa.districtName}):{" "}
+                </span>
+                <span className="text-foreground/90">{translate(wa.detail)}</span>
               </div>
             ))}
           </div>
         )}
-        <p className="text-[8px] font-mono text-muted-foreground/70 mt-2" data-testid="dam-source-note">
-          {latestSourceSummary}
+        <p className="text-[8px] font-mono text-muted-foreground/75 mt-2" data-testid="dam-source-note">
+          {translate(latestSourceSummary)}
         </p>
       </DashboardPanel>
     </div>

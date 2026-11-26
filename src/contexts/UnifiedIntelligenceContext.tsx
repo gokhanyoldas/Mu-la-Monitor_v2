@@ -20,6 +20,7 @@ import type {
   InvestigationLink,
 } from "@/data/investigationData";
 import type { DistrictFeedItem } from "@/data/districtSocialBaselines";
+import { useMonitorStore } from "@/store/useMonitorStore";
 
 const LEGACY_HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v1";
 const HUB_EVENTS_STORAGE_KEY = "mugla_unified_hub_events_v2";
@@ -194,6 +195,25 @@ export const UnifiedIntelligenceProvider: React.FC<{ children: React.ReactNode }
           return next;
         });
         setActiveDynamicDossierId(event.dossier.id);
+
+        // Mirror verified arbitrated submission into selective Zustand store
+        useMonitorStore.getState().prependSocialPost({
+          id: event.id,
+          platform: event.rawText.toLocaleLowerCase("tr-TR").includes("instagram")
+            ? "instagram"
+            : event.rawText.toLocaleLowerCase("tr-TR").includes("facebook")
+            ? "facebook"
+            : "twitter",
+          content: event.rawText,
+          sentiment: event.sentiment,
+          districtSlug: event.districtSlug,
+          districtName: event.districtName,
+          author: event.imageName
+            ? `Saha İhbarı (${event.dossier.code})`
+            : `Saha İhbarı (${event.dossier.code})`,
+          publishedAt: event.timestamp,
+        });
+        useMonitorStore.getState().touchLastSynced(event.timestamp);
 
         if (typeof window !== "undefined") {
           window.dispatchEvent(

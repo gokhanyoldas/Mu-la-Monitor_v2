@@ -27,6 +27,8 @@ import { MonitoredAccountsPanel } from "@/components/social/MonitoredAccountsPan
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { useTranslation } from "@/hooks/useTranslation";
+import { useMonitorStore } from "@/store/useMonitorStore";
 
 type AnalysisItem = {
   id?: string;
@@ -70,10 +72,11 @@ const platformIcons: Record<string, React.ReactNode> = {
 };
 
 const SocialIntel = () => {
+  const { lang } = useTranslation();
   const { isAuthenticated } = useAuth();
   const { ingestedDistrictPosts } = useUnifiedIntelligence();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [activeSection, setActiveSection] = useState<IntelSection>("feed");
 
   useEffect(() => {
@@ -126,8 +129,28 @@ const SocialIntel = () => {
         .order("published_at", { ascending: false })
         .limit(200);
       if (!error && data && data.length > 0) {
-        setAnalyses(data.map(mapPostToItem));
-        setLastUpdate(new Date());
+        const mapped = data.map(mapPostToItem);
+        const nowIso = new Date().toISOString();
+        setAnalyses(mapped);
+        setLastUpdate(new Date(nowIso));
+        const pos = mapped.filter((m) => m.sentiment === "positive").length;
+        const neg = mapped.filter((m) => m.sentiment === "negative").length;
+        useMonitorStore.getState().setSocialFeed({
+          items: mapped.slice(0, 60).map((m, idx) => ({
+            id: m.id || `social-${idx}`,
+            platform: m.platform,
+            content: m.content,
+            sentiment: m.sentiment,
+            districtName: m.region,
+            author: m.source_author,
+            url: m.source_url,
+            publishedAt: m.collected_at || nowIso,
+          })),
+          totalMentions: mapped.length,
+          positiveRatio: mapped.length > 0 ? Math.round((pos / mapped.length) * 100) : 0,
+          negativeRatio: mapped.length > 0 ? Math.round((neg / mapped.length) * 100) : 0,
+          lastUpdatedAt: nowIso,
+        });
         return;
       }
     } catch {
@@ -284,8 +307,20 @@ const SocialIntel = () => {
         { event: "INSERT", schema: "public", table: "social_posts" },
         (payload) => {
           const newPost = payload.new as Record<string, unknown>;
-          setAnalyses((prev) => [mapPostToItem(newPost), ...prev]);
-          setLastUpdate(new Date());
+          const mapped = mapPostToItem(newPost);
+          const nowIso = new Date().toISOString();
+          setAnalyses((prev) => [mapped, ...prev]);
+          setLastUpdate(new Date(nowIso));
+          useMonitorStore.getState().prependSocialPost({
+            id: mapped.id || `rt-${Date.now()}`,
+            platform: mapped.platform,
+            content: mapped.content,
+            sentiment: mapped.sentiment,
+            districtName: mapped.region,
+            author: mapped.source_author,
+            url: mapped.source_url,
+            publishedAt: mapped.collected_at || nowIso,
+          });
         }
       )
       .subscribe();
@@ -573,7 +608,7 @@ const SocialIntel = () => {
                       </div>
                       {item.collected_at && (
                         <span className="text-[8px] font-mono text-muted-foreground/40 mt-1 block">
-                          {relativeTime(item.collected_at)}
+                          {relativeTime(item.collected_at, lang)}
                         </span>
                       )}
                       <div className="flex gap-2 text-[8px] font-mono text-muted-foreground/50 mt-1">

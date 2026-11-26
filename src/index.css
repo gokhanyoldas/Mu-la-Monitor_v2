@@ -300,14 +300,39 @@
 .scrollbar-thin::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 99px; }
 
 /* ═══════════════════════════════════════════════════════════
-   3. Ajan: Her Yaş Grubu İçin Yazı Boyutu (A-/A+) & Yüksek Kontrast
+   3. Ajan + Sprint 4: Her Yaş Grubu İçin Sade Mod, Yazı Boyutu (A-/A+) & Kontrast
    ═══════════════════════════════════════════════════════════ */
+html[data-view-mode="citizen"] {
+  font-size: 106.25%;
+  --foreground: 180 12% 94%;
+  --card-foreground: 180 12% 94%;
+  --secondary-foreground: 180 12% 88%;
+  --muted-foreground: 215 18% 72%;
+  --border: 220 18% 28%;
+}
+
+html[data-view-mode="citizen"] body {
+  line-height: 1.65;
+}
+
+html[data-view-mode="citizen"] .tech-meta-only {
+  display: none !important;
+}
+
 html[data-font-scale="large"] {
   font-size: 112.5%;
 }
 
+html[data-view-mode="citizen"][data-font-scale="large"] {
+  font-size: 118.75%;
+}
+
 html[data-font-scale="xlarge"] {
   font-size: 125%;
+}
+
+html[data-view-mode="citizen"][data-font-scale="xlarge"] {
+  font-size: 131.25%;
 }
 
 html.high-contrast-mode {
@@ -337,4 +362,5 @@ html.high-contrast-mode .panel-border {
 .tabular-nums-stat {
   font-variant-numeric: tabular-nums;
 }
+
 

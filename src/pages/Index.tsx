@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useState } from "react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { DashboardHeader, type DashboardTab } from "@/components/dashboard/DashboardHeader";
+import { useMonitorUrlState } from "@/hooks/useMonitorUrlState";
 import {
   TourismMovementPanel,
   AccommodationPanel,
@@ -46,7 +46,7 @@ import { FireRiskIndicator } from "@/components/FireRiskIndicator";
 import { TourismForecastPanel } from "@/components/TourismForecastPanel";
 // Şehir Özeti: güncel şehir durumunu tek kartta toplar
 import { AISummaryCard } from "@/components/AISummaryCard";
-import { InvestigationHub, type InvestigationHubView } from "@/components/investigation/InvestigationHub";
+import { InvestigationHub } from "@/components/investigation/InvestigationHub";
 
 import { EconomyOverviewPanel, RealEstatePanel } from "@/components/dashboard/sections/EconomySection";
 import { WeatherClimatePanel, AirQualityPanel, WaterDamsPanel } from "@/components/dashboard/sections/EnvironmentSection";
@@ -186,24 +186,13 @@ const DEFAULT_METRIC_ORDER = [
 
 const Index = () => {
   const { t, translate } = useTranslation();
-  const [activeTab, setActiveTab] = useState<DashboardTab>("genel");
-  const [hubInitialView, setHubInitialView] = useState<InvestigationHubView>("verification");
-  const [searchParams] = useSearchParams();
-  useEffect(() => {
-    const tab = searchParams.get("tab");
-    const view = searchParams.get("view");
-    if (tab === "ag_grafigi") {
-      setActiveTab("diyagram");
-      setHubInitialView("protocol_network");
-      return;
-    }
-    if (tab && ["ekonomi", "cevre", "turizm", "ulasim", "sosyal", "guvenlik", "enerji", "protokol", "diyagram"].includes(tab)) {
-      setActiveTab(tab as DashboardTab);
-      if (tab === "diyagram") {
-        setHubInitialView(view === "network" ? "protocol_network" : "verification");
-      }
-    }
-  }, [searchParams]);
+  const {
+    activeTab,
+    hubInitialView,
+    activeDistrict,
+    setActiveTab,
+    setActiveDistrict,
+  } = useMonitorUrlState();
 
   // Apple Stili Düzenleme Modu (Genel Bakış)
   const [isEditMode, setIsEditMode] = useState<boolean>(false);
@@ -415,16 +404,51 @@ const Index = () => {
 
   const allMetricsMap: Record<
     string,
-    { label: string; value: string; color: string; category: string; targetTab: DashboardTab }
+    { label: string; value: string; color: string; category: string; targetTab: DashboardTab; sourceNote?: string }
   > = {
     "Nüfus": { label: "Nüfus", value: population, color: "text-primary", category: "demographics", targetTab: "sosyal" },
-    "Turist/Yıl": { label: "Turist/Yıl", value: annualTourists, color: "text-accent", category: "tourism", targetTab: "turizm" },
-    "İşsizlik": { label: "İşsizlik", value: unemployment, color: "text-warning", category: "economy", targetTab: "ekonomi" },
+    "Turist/Yıl": {
+      label: "Turist/Yıl",
+      value: annualTourists,
+      color: "text-accent",
+      category: "tourism",
+      targetTab: "turizm",
+      sourceNote: tourismIntel.movementSourceSummary,
+    },
+    "İşsizlik": {
+      label: "İşsizlik",
+      value: unemployment,
+      color: "text-warning",
+      category: "economy",
+      targetTab: "ekonomi",
+      sourceNote: ecoIntel.latestSourceSummary,
+    },
     "Hava": { label: "Hava", value: temperature, color: "text-foreground", category: "weather", targetTab: "cevre" },
     "AQI": { label: "AQI", value: aqi, color: "text-success", category: "air_quality", targetTab: "cevre" },
-    "Otel Doluluk": { label: "Otel Doluluk", value: hotelOccupancy, color: "text-accent", category: "tourism", targetTab: "turizm" },
-    "Baraj": { label: "Baraj", value: avgDam, color: "text-warning", category: "dams", targetTab: "cevre" },
-    "Güvenlik": { label: "Güvenlik", value: secIntel.overviewValue, color: "text-primary", category: "security", targetTab: "guvenlik" },
+    "Otel Doluluk": {
+      label: "Otel Doluluk",
+      value: hotelOccupancy,
+      color: "text-accent",
+      category: "tourism",
+      targetTab: "turizm",
+      sourceNote: tourismIntel.occupancySourceSummary,
+    },
+    "Baraj": {
+      label: "Baraj",
+      value: avgDam,
+      color: "text-warning",
+      category: "dams",
+      targetTab: "cevre",
+      sourceNote: damIntel.latestSourceSummary,
+    },
+    "Güvenlik": {
+      label: "Güvenlik",
+      value: secIntel.overviewValue,
+      color: "text-primary",
+      category: "security",
+      targetTab: "guvenlik",
+      sourceNote: secIntel.latestSourceSummary,
+    },
   };
 
   const isGenel = activeTab === "genel";
@@ -480,7 +504,8 @@ const Index = () => {
                   type="button"
                   onClick={() => shiftCol(colKey, -1, widgetId)}
                   disabled={colKey === "col1"}
-                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
+                  aria-label={t("Sola / Önceki sütuna taşı")}
+                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   title={t("Sola / Önceki sütuna taşı")}
                 >
                   ◀
@@ -489,7 +514,8 @@ const Index = () => {
                   type="button"
                   onClick={() => moveWithinCol(colKey, idx, -1)}
                   disabled={idx === 0}
-                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
+                  aria-label={t("Yukarı taşı")}
+                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   title={t("Yukarı taşı")}
                 >
                   ▲
@@ -498,7 +524,8 @@ const Index = () => {
                   type="button"
                   onClick={() => moveWithinCol(colKey, idx, 1)}
                   disabled={idx === totalCount - 1}
-                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
+                  aria-label={t("Aşağı taşı")}
+                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   title={t("Aşağı taşı")}
                 >
                   ▼
@@ -507,15 +534,17 @@ const Index = () => {
                   type="button"
                   onClick={() => shiftCol(colKey, 1, widgetId)}
                   disabled={colKey === "col3"}
-                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors"
+                  aria-label={t("Sağa / Sonraki sütuna taşı")}
+                  className="px-1 py-0.5 rounded hover:bg-background text-muted-foreground hover:text-foreground disabled:opacity-20 text-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   title={t("Sağa / Sonraki sütuna taşı")}
                 >
                   ▶
                 </button>
                 <select
                   value={colKey}
+                  aria-label={t("Doğrudan sütun seç")}
                   onChange={(e) => moveToCol(colKey, e.target.value as "col1" | "col2" | "col3", widgetId)}
-                  className="bg-background/90 border border-border/70 rounded px-1 py-0.5 text-[9px] text-foreground/90 focus:outline-none cursor-pointer"
+                  className="bg-background/90 border border-border/70 rounded px-1 py-0.5 text-[9px] text-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"
                   title={t("Doğrudan sütun seç")}
                 >
                   <option value="col1">S.1</option>
@@ -538,7 +567,12 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background scanline">
-      <DashboardHeader activeTab={activeTab} onTabChange={setActiveTab} />
+      <DashboardHeader
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        activeDistrict={activeDistrict}
+        onDistrictChange={setActiveDistrict}
+      />
 
       {/* M10: Earthquake banner — always visible above main content */}
       <EarthquakeAlertBanner />
@@ -565,16 +599,18 @@ const Index = () => {
                   <button
                     type="button"
                     data-testid={`overview-metric-${item.label}`}
+                    data-source-summary={item.sourceNote ? translate(item.sourceNote) : undefined}
+                    aria-label={`${t(item.label)}: ${translate(item.value)}`}
                     onClick={() => {
                       if (!isEditMode) {
                         setActiveTab(item.targetTab);
                       }
                     }}
-                    title={`${t(item.label)}`}
+                    title={item.sourceNote ? `${t(item.label)} · ${translate(item.sourceNote)}` : `${t(item.label)}`}
                     className={`w-full bg-secondary/25 border border-border/50 rounded-lg px-2.5 py-2 text-center transition-colors ${
                       isEditMode
                         ? "cursor-grab"
-                        : "cursor-pointer hover:border-primary/60 hover:bg-secondary/45 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        : "cursor-pointer hover:border-primary/60 hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     }`}
                   >
                     <div className="text-[10px] font-mono text-muted-foreground tracking-wide">
@@ -583,6 +619,11 @@ const Index = () => {
                     <div className={`text-sm font-mono font-bold tabular-nums-stat mt-0.5 ${item.color}`}>
                       {translate(item.value)}
                     </div>
+                    {item.label === "Otel Doluluk" && tourismIntel.hasVerifiedOccupancy && (
+                      <div className="text-[8px] font-mono text-muted-foreground/80 truncate mt-0.5">
+                        {translate(tourismIntel.occupancySourceSummary)}
+                      </div>
+                    )}
                   </button>
                 </SmartCard>
               </div>

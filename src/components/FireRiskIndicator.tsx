@@ -170,10 +170,10 @@ export const FireRiskIndicator = () => {
             </div>
           )}
 
-          <div className="flex items-center justify-between mt-2">
+          <div className="tech-meta-only flex items-center justify-between mt-2">
             <DataSourceBadge type="estimate" lastUpdated={data.lastUpdated} />
             <span className="text-[8px] font-mono text-muted-foreground">
-              {t("source", "Kaynak")}: {data.source}
+              {t("source", "Kaynak")}: {translate(data.source.replace("FWI Modeli", t("FWI Modeli", "FWI Model")))}
             </span>
           </div>
         </>

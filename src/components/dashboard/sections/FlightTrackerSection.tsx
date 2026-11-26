@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { DashboardPanel } from "../DashboardPanel";
 import { PlaneTakeoff, PlaneLanding, RefreshCw, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useTranslation } from "@/hooks/useTranslation";
 
 type Flight = {
   flightNo: string;
@@ -29,7 +30,7 @@ type AirportData = {
   arrivals: Flight[];
 };
 
-const statusLabels: Record<Flight["status"], string> = {
+const statusLabelsTr: Record<Flight["status"], string> = {
   on_time: "ZAMANINDA",
   delayed: "GECİKMELİ",
   landed: "İNDİ",
@@ -40,7 +41,19 @@ const statusLabels: Record<Flight["status"], string> = {
   approach: "İNİŞTE",
   transit: "GEÇİŞ",
 };
-const statusLabel = (s: string) => statusLabels[s as Flight["status"]] ?? "BİLİNMİYOR";
+const statusLabelsEn: Record<Flight["status"], string> = {
+  on_time: "ON TIME",
+  delayed: "DELAYED",
+  landed: "LANDED",
+  boarding: "BOARDING",
+  departed: "DEPARTED",
+  cancelled: "CANCELLED",
+  en_route: "AIRBORNE",
+  approach: "APPROACH",
+  transit: "TRANSIT",
+};
+const statusLabel = (s: string, isEn: boolean) =>
+  (isEn ? statusLabelsEn : statusLabelsTr)[s as Flight["status"]] ?? (isEn ? "UNKNOWN" : "BİLİNMİYOR");
 
 const statusColors: Record<Flight["status"], string> = {
   on_time: "text-success bg-success/15",
@@ -55,7 +68,7 @@ const statusColors: Record<Flight["status"], string> = {
 };
 const statusColor = (s: string) => statusColors[s as Flight["status"]] ?? "text-muted-foreground bg-muted/30";
 
-const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) => {
+const FlightRow = ({ flight, type, isEn }: { flight: Flight; type: "dep" | "arr"; isEn: boolean }) => {
   // ADS-B canlı uçak: callsign + tip + irtifa/hız/mesafe
   const isLiveAircraft = flight.altitude !== undefined || flight.distance_km !== undefined;
   const displayStatus = flight.status;
@@ -74,13 +87,15 @@ const FlightRow = ({ flight, type }: { flight: Flight; type: "dep" | "arr" }) =>
     </span>
     {flight.gate && <span className="w-8 text-center text-accent">{flight.gate}</span>}
     <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${statusColor(displayStatus)}`}>
-      {statusLabel(displayStatus)}
+      {statusLabel(displayStatus, isEn)}
     </span>
   </div>
   );
 };
 
 export const FlightTrackerSection = () => {
+  const { lang } = useTranslation();
+  const isEn = lang === "en";
   const [airports, setAirports] = useState<AirportData[]>([]);
   const [selectedAirport, setSelectedAirport] = useState(0);
   const [viewMode, setViewMode] = useState<"dep" | "arr">("dep");
@@ -180,13 +195,16 @@ export const FlightTrackerSection = () => {
           <button
             onClick={fetchLiveData}
             disabled={loading}
-            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40"
+            aria-label={isEn ? "Refresh live flight data" : "Canlı uçuş verisini yenile"}
+            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           </button>
         </div>
         <p className="text-[10px] font-mono text-muted-foreground text-center py-4">
-          {loading ? "Canlı uçuş verisi yükleniyor (adsb.fi)…" : "Canlı uçuş verisi alınamadı — adsb.fi'ye erişim hatası."}
+          {loading
+            ? (isEn ? "Loading live flight data (adsb.fi)…" : "Canlı uçuş verisi yükleniyor (adsb.fi)…")
+            : (isEn ? "Live flight data unavailable — adsb.fi connection pending." : "Canlı uçuş verisi alınamadı — adsb.fi'ye erişim hatası.")}
         </p>
       </DashboardPanel>
     );
@@ -207,7 +225,7 @@ export const FlightTrackerSection = () => {
             <button
               key={ap.code}
               onClick={() => setSelectedAirport(i)}
-              className={`text-[10px] font-mono px-2 py-1 rounded transition-colors ${
+              className={`text-[10px] font-mono px-2 py-1 rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 selectedAirport === i
                   ? "bg-primary/20 text-primary border border-primary/30"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -221,25 +239,26 @@ export const FlightTrackerSection = () => {
           <div className="flex gap-1">
             <button
               onClick={() => setViewMode("dep")}
-              className={`text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 ${
+              className={`text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 viewMode === "dep" ? "bg-accent/20 text-accent" : "text-muted-foreground"
               }`}
             >
-              <PlaneTakeoff size={10} /> KALKIŞ
+              <PlaneTakeoff size={10} /> {isEn ? "DEPARTURES" : "KALKIŞ"}
             </button>
             <button
               onClick={() => setViewMode("arr")}
-              className={`text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 ${
+              className={`text-[9px] font-mono px-2 py-0.5 rounded flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
                 viewMode === "arr" ? "bg-accent/20 text-accent" : "text-muted-foreground"
               }`}
             >
-              <PlaneLanding size={10} /> İNİŞ
+              <PlaneLanding size={10} /> {isEn ? "ARRIVALS" : "İNİŞ"}
             </button>
           </div>
           <button
             onClick={fetchLiveData}
             disabled={loading}
-            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40"
+            aria-label={isEn ? "Refresh live flight data" : "Canlı uçuş verisini yenile"}
+            className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           </button>
@@ -249,28 +268,30 @@ export const FlightTrackerSection = () => {
       {/* Airport name */}
       <div className="text-[9px] font-mono text-muted-foreground mb-2 flex items-center justify-between">
         <span>{airport.name}</span>
-        {lastUpdate && <span>Güncelleme: {lastUpdate}</span>}
+        {lastUpdate && <span>{isEn ? "Updated:" : "Güncelleme:"} {lastUpdate}</span>}
       </div>
 
       {/* Header */}
       <div className="flex items-center gap-2 px-2 py-1 text-[8px] font-mono text-muted-foreground uppercase tracking-wider border-b border-border/50 mb-1">
-        <span className="w-14">Uçuş</span>
-        <span className="w-16">Havayolu</span>
-        <span className="flex-1">Rota / Uçak</span>
-        <span className="w-10 text-center">Plan</span>
-        <span className="w-10 text-center">Tahmin</span>
-        <span className="w-8 text-center">Kapı</span>
-        <span className="w-16 text-center">Durum</span>
+        <span className="w-14">{isEn ? "Flight" : "Uçuş"}</span>
+        <span className="w-16">{isEn ? "Airline" : "Havayolu"}</span>
+        <span className="flex-1">{isEn ? "Route / Aircraft" : "Rota / Uçak"}</span>
+        <span className="w-10 text-center">{isEn ? "Sched" : "Plan"}</span>
+        <span className="w-10 text-center">{isEn ? "Est" : "Tahmin"}</span>
+        <span className="w-8 text-center">{isEn ? "Gate" : "Kapı"}</span>
+        <span className="w-16 text-center">{isEn ? "Status" : "Durum"}</span>
       </div>
 
       {/* Flight rows */}
       <div className="space-y-1 max-h-[320px] overflow-y-auto">
         {flights.map((f) => (
-          <FlightRow key={f.flightNo} flight={f} type={viewMode} />
+          <FlightRow key={f.flightNo} flight={f} type={viewMode} isEn={isEn} />
         ))}
         {flights.length === 0 && (
           <p className="text-[10px] font-mono text-muted-foreground text-center py-4">
-            Şu an bu havalimanına iniş/kalkış yapan uçak yok (transit uçaklar hariç)
+            {isEn
+              ? "No aircraft currently landing or departing this airport (excluding transit flights)"
+              : "Şu an bu havalimanına iniş/kalkış yapan uçak yok (transit uçaklar hariç)"}
           </p>
         )}
       </div>
@@ -281,7 +302,7 @@ export const FlightTrackerSection = () => {
           const count = flights.filter((f) => f.status === s).length;
           return (
             <span key={s} className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${statusColors[s as Flight["status"]]}`}>
-              {statusLabel(s)}: {count}
+              {statusLabel(s, isEn)}: {count}
             </span>
           );
         })}
