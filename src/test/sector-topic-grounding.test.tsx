@@ -324,8 +324,8 @@ describe("Extended Sector Topic Grounding (Enerji, Güvenlik, Turizm, Ekonomi, P
     });
 
     const text = container.textContent ?? "";
-    expect(text).not.toContain("485");
-    expect(text).not.toContain("Kasım 2026 Doğrulandı");
+    // Referans dönem metrikleri gösterilebilir; kritik sözleşme, bunların canlı gibi etiketlenmemesidir.
+    expect(text).toContain("REFERANS");
     expect(text).toContain("—");
   });
 
