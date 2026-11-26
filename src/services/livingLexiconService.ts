@@ -144,7 +144,7 @@ export const INITIAL_LIVING_LEXICON: LexiconEntry[] = [
   ...seedList(
     [
       "Sn Aras", "Ahmet Aras", "Sn Ünlü", "Acar Ünlü", "Sn Mete", "Kadem Mete",
-      "Dr. İdris Akbıyık", "Nurullah Kaya", "Gonca Köksal Aras", "Tamer Mandalinci",
+      "Seddar Yavuz", "Nurullah Kaya", "Gonca Köksal Aras", "Tamer Mandalinci",
       "Alim Karaca", "Mesut Günay", "Mehmet Demir", "Fevzi Topuz",
       "Yol Hizmetleri Daire Başkanı", "Süleyman Bey", "Fen İşleri Müdürü", "Temizlik İşleri",
       "ithal müdür", "akraba kontenjanı", "selfie fotoları", "hizmet lazım",

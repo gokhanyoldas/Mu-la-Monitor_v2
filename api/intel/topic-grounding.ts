@@ -240,11 +240,20 @@ function cleanStr(raw: unknown, maxLen: number, fallback = ""): string {
   return trimmed ? trimmed.slice(0, maxLen) : fallback;
 }
 
-function buildPromptForTopic(topic: TopicGroundingKey): string {
+export function getDynamicQueryYears(now: Date = new Date()): {
+  currentYear: number;
+  nextYear: number;
+} {
+  const currentYear = now.getFullYear();
+  return { currentYear, nextYear: currentYear + 1 };
+}
+
+export function buildPromptForTopic(topic: TopicGroundingKey, now: Date = new Date()): string {
+  const { currentYear, nextYear } = getDynamicQueryYears(now);
   switch (topic) {
     case "environment_dams":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı
+"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı ${currentYear}
 
 GÖREV:
 - Yalnızca arama sonuçlarında doğrudan yer alan doğrulanmış haber veya resmi kurumlardan (Anter Haber, AA, MUSKİ, DSİ, DHA, İHA, Muğla yerel basını) Muğla barajlarının güncel doluluk yüzdelerini çıkar.
@@ -339,10 +348,10 @@ GÖREV:
 
     case "tourism_occupancy":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu 2026
+"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu ${currentYear}
 
 GÖREV:
-- Muğla geneli ve Bodrum, Marmaris, Fethiye, Datça ilçeleri için doğrulanmış güncel otel doluluk oranlarını, yıllık/dönemlik turist sayısını ve Dalaman / Milas-Bodrum Havalimanı yolcu istatistiklerini (TÜRSAB, BODER, GETOB, DHMİ, Kültür ve Turizm Bakanlığı, AA, yerel basın) çıkar.
+- Muğla geneli ve Bodrum, Marmaris, Fethiye, Datça ilçeleri için ${currentYear} yılına ait doğrulanmış güncel otel doluluk oranlarını, yıllık/dönemlik turist sayısını ve Dalaman / Milas-Bodrum Havalimanı yolcu istatistiklerini (TÜRSAB, BODER, GETOB, DHMİ, Kültür ve Turizm Bakanlığı, AA, yerel basın) çıkar.
 - Tahmini veya uydurma yüzde/rakam yazma; haberde doğrudan yer almıyorsa null bırak. Kaynak URL'si olmayan kaydı ekleme.
 - SADECE aşağıdaki JSON yapısını döndür:
 {
@@ -374,21 +383,21 @@ GÖREV:
 
     case "economy_budget":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale 2026 OR 2027
+"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale ${currentYear} OR ${nextYear}
 
 GÖREV:
-- Muğla Büyükşehir Belediyesi, MUSKİ ve ilçe belediyelerinin (Bodrum, Marmaris, Fethiye, Milas, Menteşe vb.) resmi meclis onaylı 2026 veya 2027 bütçe rakamlarını (milyar TL cinsinden, varsa birleşik toplam ve yıllık artış yüzdesi dahil), güncel ihale/yatırım duyurularını ve varsa güncel TÜİK Muğla işsizlik oranını çıkar.
+- Muğla Büyükşehir Belediyesi, MUSKİ ve ilçe belediyelerinin (Bodrum, Marmaris, Fethiye, Milas, Menteşe vb.) resmi meclis onaylı ${currentYear} veya ${nextYear} bütçe rakamlarını (milyar TL cinsinden, varsa birleşik toplam ve yıllık artış yüzdesi dahil), güncel ihale/yatırım duyurularını ve varsa güncel TÜİK Muğla işsizlik oranını çıkar.
 - Tahmini veya uydurma rakam yazma; yalnızca arama sonuçlarında doğrudan yer alan resmi rakamları ve gerçek kaynak URL'lerini döndür.
 - SADECE aşağıdaki JSON yapısını döndür:
 {
-  "budgetYear": 2026,
+  "budgetYear": ${currentYear},
   "combinedTotalBillionTry": 44.8,
   "budgetYoyChangePct": 30.35,
   "municipalBudgets": [
     {
       "institution": "Muğla Büyükşehir Belediyesi | MUSKİ | Bodrum Belediyesi | Marmaris Belediyesi | Fethiye Belediyesi",
       "amountBillionTry": 24.3,
-      "year": 2026,
+      "year": ${currentYear},
       "yoyChangePct": 30.35,
       "investmentBillionTry": 9.8,
       "sourceName": "Muğla Büyükşehir | MUSKİ | AA | Yerel Basın",
@@ -417,20 +426,21 @@ GÖREV:
 
     case "protocol_activity":
       return `Google Arama aracını kullanarak şu sorguyu tara:
-("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat
+("Muğla Valisi" OR "Seddar Yavuz" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama OR kararname ${currentYear} OR ${nextYear} son 24 saat
 
 GÖREV:
-- Muğla il protokolündeki yöneticiler (Vali, Büyükşehir Belediye Başkanı, 13 İlçe Kaymakamı, 13 İlçe Belediye Başkanı, Rektör, Cumhuriyet Başsavcısı, İl Emniyet Müdürü, İl Jandarma Komutanı vb.) hakkında son 24-48 saatte yayınlanan doğrulanmış resmi ziyaret, açıklama veya görev değişikliği haberlerini çıkar.
+- Muğla il protokolündeki yöneticiler (Vali Seddar Yavuz, Büyükşehir Belediye Başkanı Ahmet Aras, 13 İlçe Kaymakamı, 13 İlçe Belediye Başkanı, Rektör, Cumhuriyet Başsavcısı, İl Emniyet Müdürü, İl Jandarma Komutanı vb.) hakkında son 24-48 saatte yayınlanan doğrulanmış resmi ziyaret, açıklama veya görev değişikliği/atama kararname haberlerini çıkar.
+- Yeni bir atama veya görev değişikliği (Vali, Kaymakam, Belediye Başkanı vb.) varsa category alanını "gorev_degisikligi" yap ve actorName alanına yeni atanan kişinin tam adını, actorTitle alanına ise makamı eksiksiz yaz.
 - Asla uydurma kayıt üretme; yalnızca gerçek kaynak URL'si bulunan haberleri döndür (en fazla 8 kayıt).
 - SADECE aşağıdaki JSON yapısını döndür:
 {
   "activities": [
     {
-      "actorName": "Kişinin tam adı (örn. İdris Akbıyık, Ahmet Aras)",
+      "actorName": "Kişinin tam adı (örn. Seddar Yavuz, Ahmet Aras)",
       "actorTitle": "Görevi (örn. Muğla Valisi, Muğla Büyükşehir Belediye Başkanı, Bodrum Kaymakamı)",
       "category": "ziyaret | aciklama | gorev_degisikligi",
       "summary": "Kısa ve tek cümlelik özet",
-      "sourceName": "Muğla Valiliği | MBB | AA | Yerel Basın",
+      "sourceName": "Muğla Valiliği | Resmî Gazete | MBB | AA | Yerel Basın",
       "sourceUrl": "https://...",
       "publishedDate": "YYYY-MM-DD"
     }
@@ -832,8 +842,9 @@ async function runTopicGroundingCall(
           if (!institution || !Number.isFinite(amountBn) || amountBn <= 0 || amountBn > 500 || !url) {
             return null;
           }
+          const maxAllowedYear = new Date().getFullYear() + 5;
           const rawYear = entry?.year !== null && entry?.year !== undefined ? Number(entry.year) : NaN;
-          const year = Number.isFinite(rawYear) && rawYear >= 2020 && rawYear <= 2035 ? Math.round(rawYear) : null;
+          const year = Number.isFinite(rawYear) && rawYear >= 2020 && rawYear <= maxAllowedYear ? Math.round(rawYear) : null;
           const rawYoy =
             entry?.yoyChangePct !== null && entry?.yoyChangePct !== undefined
               ? Number(entry.yoyChangePct)
@@ -876,10 +887,11 @@ async function runTopicGroundingCall(
           ? Math.round(rawCombined * 100) / 100
           : null;
 
+      const maxBudgetYear = new Date().getFullYear() + 5;
       const rawBudgetYear =
         parsed.budgetYear !== null && parsed.budgetYear !== undefined ? Number(parsed.budgetYear) : NaN;
       const budgetYear =
-        Number.isFinite(rawBudgetYear) && rawBudgetYear >= 2020 && rawBudgetYear <= 2035
+        Number.isFinite(rawBudgetYear) && rawBudgetYear >= 2020 && rawBudgetYear <= maxBudgetYear
           ? Math.round(rawBudgetYear)
           : null;
 

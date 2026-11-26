@@ -11,6 +11,11 @@ import {
   useProtocolActivityIntelligence,
   getProtocolMemberKey,
 } from "@/services/topicGroundingService";
+import {
+  useMonitorStore,
+  selectProtocolOverride,
+  resolveProtocolMembers,
+} from "@/store/useMonitorStore";
 
 export const ProtocolSection = () => {
   const { isAuthenticated } = useAuth();
@@ -23,7 +28,13 @@ export const ProtocolSection = () => {
   const [fullData, setFullData] = useState<ProtocolMember[]>(PROTOCOL_DATA);
   const [isLoading, setIsLoading] = useState(false);
 
-  const protocolIntel = useProtocolActivityIntelligence(fullData);
+  const protocolOverride = useMonitorStore(selectProtocolOverride);
+  const resolvedMembers = useMemo(
+    () => resolveProtocolMembers(fullData, protocolOverride.roleOverrides),
+    [fullData, protocolOverride.roleOverrides]
+  );
+
+  const protocolIntel = useProtocolActivityIntelligence(resolvedMembers);
 
   const fetchProtocol = useCallback(async () => {
     setIsLoading(true);
@@ -72,13 +83,13 @@ export const ProtocolSection = () => {
 
   const grouped = useMemo(() => {
     const map = new Map<string, ProtocolMember[]>();
-    for (const m of fullData) {
+    for (const m of resolvedMembers) {
       const key = m.kategori || "ÜST DÜZEY YÖNETİCİLER";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(m);
     }
     return map;
-  }, [fullData]);
+  }, [resolvedMembers]);
 
   const filtered = useMemo(() => {
     const trLower = (s: string) => s.toLocaleLowerCase("tr-TR");

@@ -189,9 +189,10 @@ ${String(text).slice(0, 6000)}
     }
 
     try {
+      const currentYear = new Date().getFullYear();
       const searchTerms = [districtName, ...aliases.slice(0, 4), ...lexiconTerms.slice(0, 4)].join(" ");
-      const prompt = `Google Search aracını kullanarak Muğla ${districtName} ilçesi hakkında güncel sosyal medya, şikayet ve yerel gündem içeriklerini tara.
-Özellikle şu kaynak türlerini araştır: site:x.com OR site:instagram.com OR site:facebook.com OR site:sikayetvar.com OR site:eksisozluk.com ${searchTerms} Muğla belediye altyapı su elektrik yol turizm.
+      const prompt = `Google Search aracını kullanarak Muğla ${districtName} ilçesi hakkında ${currentYear} güncel sosyal medya, şikayet ve yerel gündem içeriklerini tara.
+Özellikle şu kaynak türlerini araştır: site:x.com OR site:instagram.com OR site:facebook.com OR site:sikayetvar.com OR site:eksisozluk.com ${searchTerms} Muğla belediye altyapı su elektrik yol turizm ${currentYear}.
 
 Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında döndür (en az 3, en fazla 6 güncel madde; yalnızca SADECE JSON döndür):
 {

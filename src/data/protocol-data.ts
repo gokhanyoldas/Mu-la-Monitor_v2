@@ -1,6 +1,6 @@
 // Top priority protocol members (verified official list)
 // Official source: https://www.mugla.gov.tr/il-protokol-listesi
-// Last verified: 2026-11 (Muğla Valiliği, HSK Kararnameleri ve Mülki İdare Atamaları ile tam doğrulandı)
+// Last verified: 25 Kasım 2026 (2026/398 sayılı Kararname — Muğla Valisi Seddar Yavuz, HSK ve Mülki İdare Atamaları)
 
 export interface ProtocolMember {
   sira: string;
@@ -15,7 +15,7 @@ export const PROTOCOL_DATA: ProtocolMember[] = [
   {
     "sira": "",
     "unvan": "VALİ",
-    "isim": "Dr. İdris AKBIYIK",
+    "isim": "Seddar YAVUZ",
     "telefon": "214 1001 - 214 2101",
     "faks": "214 3188",
     "kategori": ""

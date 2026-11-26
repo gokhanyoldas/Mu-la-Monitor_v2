@@ -5,8 +5,10 @@ import { useState } from "react";
 import { TrendingUp, Building2, Home, ChevronDown, Loader2 } from "lucide-react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useTranslation } from "@/hooks/useTranslation";
-import { useEconomyIntelligence } from "@/services/topicGroundingService";
+import { useEconomyIntelligence, VERIFIED_BUDGET_SEED } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
+import { useMonitorStore, selectEconomyOverride } from "@/store/useMonitorStore";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 const gdpDataTr = [
   { name: "Oca", value: 82 }, { name: "Şub", value: 85 }, { name: "Mar", value: 88 },
@@ -34,6 +36,12 @@ export const EconomySection = () => {
 export const EconomyOverviewPanel = () => {
   const { lang, t, translate } = useTranslation();
   const isEn = lang === "en";
+  const storeEconomy = useMonitorStore(selectEconomyOverride);
+  const queryEconomy = useEconomyIntelligence();
+  const activeEconomy =
+    storeEconomy?.hasVerifiedLiveData && !queryEconomy.hasVerifiedLiveData
+      ? storeEconomy
+      : queryEconomy;
   const {
     unemploymentRate,
     unemploymentPeriod,
@@ -47,8 +55,9 @@ export const EconomyOverviewPanel = () => {
     hasVerifiedBudgetUpdate,
     hasVerifiedLiveData,
     latestSourceSummary,
-    isLoading,
-  } = useEconomyIntelligence();
+    latestMeasuredAt,
+  } = activeEconomy;
+  const isLoading = queryEconomy.isLoading;
 
   const ecoBadge =
     hasVerifiedBudgetUpdate || budgetItems.length > 0
@@ -59,21 +68,28 @@ export const EconomyOverviewPanel = () => {
       ? unemploymentPeriod
       : hasVerifiedLiveData
       ? "GÜNCEL"
-      : "ÖLÇÜM BEKLENİYOR";
+      : `${VERIFIED_BUDGET_SEED.year} BÜTÇE`;
 
   const verifiedBudgetDisplayBn =
     combinedTotalBillionTry !== null
       ? combinedTotalBillionTry
       : municipalBudgets.length > 0
       ? municipalBudgets[0].amountBillionTry
-      : null;
+      : VERIFIED_BUDGET_SEED.combinedBillionTry;
+  const effectiveBudgetYear = budgetYear ?? VERIFIED_BUDGET_SEED.year;
+  const effectiveBudgetYoy =
+    hasVerifiedBudgetUpdate && budgetYoyChangePct !== null
+      ? budgetYoyChangePct
+      : !hasVerifiedBudgetUpdate
+      ? VERIFIED_BUDGET_SEED.yoyChangePct
+      : undefined;
 
   return (
     <DashboardPanel
       title="Ekonomi & İstihdam"
       icon={<TrendingUp size={14} />}
       badge={ecoBadge}
-      badgeVariant={hasVerifiedLiveData ? "active" : "warning"}
+      badgeVariant={hasVerifiedLiveData ? "active" : "info"}
       count={
         budgetItems.length > 0
           ? budgetItems.length
@@ -82,7 +98,7 @@ export const EconomyOverviewPanel = () => {
           : undefined
       }
     >
-      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "pending"} className="mb-2" />
+      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedLiveData && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
@@ -109,23 +125,17 @@ export const EconomyOverviewPanel = () => {
         />
         <StatCard
           label="Bütçe / İhale"
-          value={
-            verifiedBudgetDisplayBn !== null
-              ? verifiedBudgetDisplayBn.toFixed(1)
-              : budgetItems.length > 0
-              ? String(budgetItems.length)
-              : "—"
-          }
-          unit={verifiedBudgetDisplayBn !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
-          change={verifiedBudgetDisplayBn !== null && budgetYoyChangePct !== null ? budgetYoyChangePct : undefined}
+          value={verifiedBudgetDisplayBn.toFixed(1)}
+          unit={isEn ? "B ₺" : "Milyar ₺"}
+          change={effectiveBudgetYoy}
           info={
-            verifiedBudgetDisplayBn !== null
+            hasVerifiedBudgetUpdate
               ? isEn
-                ? `Verified ${budgetYear ?? 2026} municipal budget total (${latestSourceSummary}).`
-                : `Doğrulanmış ${budgetYear ?? 2026} belediye bütçe toplamı (${latestSourceSummary}).`
+                ? `Verified ${effectiveBudgetYear} municipal budget total (${latestSourceSummary}).`
+                : `Doğrulanmış ${effectiveBudgetYear} belediye bütçe toplamı (${latestSourceSummary}).`
               : isEn
-              ? "Verified municipal budget, tender, and investment notices."
-              : "Doğrulanmış belediye bütçe, ihale ve yatırım gelişmeleri."
+              ? `Approved council budget: MBB ${VERIFIED_BUDGET_SEED.mbbBillionTry}B + MUSKİ ${VERIFIED_BUDGET_SEED.muskiBillionTry}B = ${VERIFIED_BUDGET_SEED.combinedBillionTry}B ₺ (+${VERIFIED_BUDGET_SEED.yoyChangePct}%).`
+              : VERIFIED_BUDGET_SEED.sourceLabel
           }
         />
       </div>
@@ -207,7 +217,8 @@ export const EconomyOverviewPanel = () => {
       </div>
 
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-2" data-testid="economy-source-note">
-        {translate(latestSourceSummary)}
+        {translate(hasVerifiedLiveData ? latestSourceSummary : VERIFIED_BUDGET_SEED.sourceLabel)}
+        {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>
   );

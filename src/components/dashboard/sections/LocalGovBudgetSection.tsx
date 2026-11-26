@@ -9,9 +9,12 @@ import {
   useEconomyIntelligence,
   canonicalizeBudgetInstitution,
   formatShortTurkishDate,
+  VERIFIED_BUDGET_SEED,
   type MunicipalBudgetUpdate,
 } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
+import { useMonitorStore, selectEconomyOverride } from "@/store/useMonitorStore";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 type BudgetItem = {
   category: string;
@@ -36,15 +39,21 @@ const fallbackMunicipalities: Municipality[] = [
     { category: "Kültür & Sanat", amount: 252, percentage: 6 },
     { category: "Diğer", amount: 252, percentage: 6 },
   ]},
-  { name: "Büyükşehir Belediyesi", totalBudget: 8200, items: [
-    { category: "Altyapı & Yol", amount: 2624, percentage: 32 },
-    { category: "Su & Kanalizasyon", amount: 1476, percentage: 18 },
-    { category: "Ulaşım", amount: 1230, percentage: 15 },
-    { category: "Çevre & Park", amount: 820, percentage: 10 },
-    { category: "Sosyal Hizmetler", amount: 738, percentage: 9 },
-    { category: "Kültür & Turizm", amount: 574, percentage: 7 },
-    { category: "Personel", amount: 492, percentage: 6 },
-    { category: "Diğer", amount: 246, percentage: 3 },
+  { name: "Büyükşehir Belediyesi", totalBudget: 24300, items: [
+    { category: "Altyapı & Yol", amount: 7290, percentage: 30 },
+    { category: "Ulaşım & Toplu Taşıma", amount: 3645, percentage: 15 },
+    { category: "Su & Altyapı Destek", amount: 3402, percentage: 14 },
+    { category: "Çevre & Park", amount: 2673, percentage: 11 },
+    { category: "Sosyal Hizmetler", amount: 2430, percentage: 10 },
+    { category: "Kültür & Turizm", amount: 1944, percentage: 8 },
+    { category: "Personel & İşletme", amount: 1799, percentage: 7 },
+    { category: "MUTTAŞ Sermaye Artışı (1.116.639.124 ₺)", amount: 1117, percentage: 5 },
+  ]},
+  { name: "MUSKİ", totalBudget: 20500, items: [
+    { category: "Su & Kanalizasyon", amount: 9020, percentage: 44 },
+    { category: "Altyapı & İsale", amount: 6560, percentage: 32 },
+    { category: "Arıtma & Çevre", amount: 3280, percentage: 16 },
+    { category: "İşletme & Enerji", amount: 1640, percentage: 8 },
   ]},
   { name: "Bodrum Belediyesi", totalBudget: 2800, items: [
     { category: "Altyapı", amount: 840, percentage: 30 },
@@ -159,15 +168,21 @@ export const LocalGovBudgetSection = () => {
   const { data: budgetData, isLoading: cacheLoading } = useLiveData<any>("budget", {
     refetchInterval: 24 * 60 * 60 * 1000,
   });
+  const storeEconomy = useMonitorStore(selectEconomyOverride);
+  const queryEconomy = useEconomyIntelligence();
+  const useStoreSnapshot = Boolean(
+    storeEconomy?.hasVerifiedBudgetUpdate && !queryEconomy.hasVerifiedBudgetUpdate
+  );
   const {
     municipalBudgets,
-    combinedTotalBillionTry,
-    budgetYear,
-    budgetYoyChangePct,
-    budgetSourceSummary,
+    combinedTotalBillionTry: liveCombinedTotal,
+    budgetYear: liveBudgetYear,
+    budgetYoyChangePct: liveYoyPct,
+    budgetSourceSummary: liveBudgetSourceSummary,
     hasVerifiedBudgetUpdate,
-    isLoading: intelLoading,
-  } = useEconomyIntelligence();
+    latestMeasuredAt,
+  } = useStoreSnapshot && storeEconomy ? storeEconomy : queryEconomy;
+  const intelLoading = queryEconomy.isLoading;
   const hub = useOptionalUnifiedIntelligence();
 
   const isLoading = cacheLoading || intelLoading;
@@ -248,9 +263,17 @@ export const LocalGovBudgetSection = () => {
   }, [budgetData?.municipalities, municipalBudgets]);
 
   const totalAllBudgets = municipalities.reduce((a, m) => a + m.totalBudget, 0);
+  const combinedTotalBillionTry =
+    liveCombinedTotal !== null ? liveCombinedTotal : VERIFIED_BUDGET_SEED.combinedBillionTry;
+  const budgetYear = liveBudgetYear ?? VERIFIED_BUDGET_SEED.year;
+  const budgetYoyChangePct =
+    liveYoyPct !== null ? liveYoyPct : VERIFIED_BUDGET_SEED.yoyChangePct;
+  const budgetSourceSummary = hasVerifiedBudgetUpdate
+    ? liveBudgetSourceSummary
+    : VERIFIED_BUDGET_SEED.sourceLabel;
   const panelBadge = hasVerifiedBudgetUpdate
-    ? `${budgetYear ?? 2026} GÜNCEL`
-    : "2024 RESMİ";
+    ? `${budgetYear} GÜNCEL`
+    : `${VERIFIED_BUDGET_SEED.year} RESMİ`;
 
   return (
     <div className="space-y-3">
@@ -267,35 +290,27 @@ export const LocalGovBudgetSection = () => {
             label="Toplam Bütçe"
             value={`${(totalAllBudgets / 1000).toFixed(1)}`}
             unit={isEn ? "B ₺" : "Milyar ₺"}
-            change={hasVerifiedBudgetUpdate && budgetYoyChangePct !== null ? budgetYoyChangePct : undefined}
+            change={budgetYoyChangePct}
             variant="primary"
             info={
               hasVerifiedBudgetUpdate
                 ? isEn
-                  ? `Updated with verified ${budgetYear ?? 2026} council budget approvals (${budgetSourceSummary}).`
-                  : `Doğrulanmış ${budgetYear ?? 2026} meclis bütçe kararlarıyla güncellendi (${budgetSourceSummary}).`
+                  ? `Updated with verified ${budgetYear} council budget approvals (${budgetSourceSummary}).`
+                  : `Doğrulanmış ${budgetYear} meclis bütçe kararlarıyla güncellendi (${budgetSourceSummary}).`
                 : isEn
-                ? "Approved 2024 budgets across Governorate, Metropolitan, and District Municipalities"
-                : "Muğla Valiliği + Büyükşehir ve İlçe Meclisleri onaylı 2024 bütçe toplamı"
+                ? `Approved council budgets (${VERIFIED_BUDGET_SEED.mbbBillionTry}B MBB + ${VERIFIED_BUDGET_SEED.muskiBillionTry}B MUSKİ = ${VERIFIED_BUDGET_SEED.combinedBillionTry}B ₺, +${VERIFIED_BUDGET_SEED.yoyChangePct}%).`
+                : VERIFIED_BUDGET_SEED.sourceLabel
             }
           />
           <StatCard
-            label={combinedTotalBillionTry !== null ? "Büyükşehir + MUSKİ" : "İzlenen Kurum"}
-            value={
-              combinedTotalBillionTry !== null
-                ? combinedTotalBillionTry.toFixed(1)
-                : String(municipalities.length)
-            }
-            unit={combinedTotalBillionTry !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
+            label="Büyükşehir + MUSKİ"
+            value={combinedTotalBillionTry.toFixed(1)}
+            unit={isEn ? "B ₺" : "Milyar ₺"}
             variant="accent"
             info={
-              combinedTotalBillionTry !== null
-                ? isEn
-                  ? `Combined Metropolitan Municipality + MUSKİ approved budget (${budgetYear ?? 2026}).`
-                  : `Muğla Büyükşehir Belediyesi + MUSKİ onaylı birleşik bütçe toplamı (${budgetYear ?? 2026}).`
-                : isEn
-                ? "Number of monitored local public institutions"
-                : "Resmi bütçe kararı izlenen yerel idare sayısı"
+              isEn
+                ? `Combined Metropolitan Municipality + MUSKİ approved budget (${budgetYear}), incl. MUTTAŞ ${VERIFIED_BUDGET_SEED.muttasCapitalIncreaseBillionTry}B ₺ capital increase.`
+                : `Muğla Büyükşehir Belediyesi (${VERIFIED_BUDGET_SEED.mbbBillionTry} Milyar ₺) + MUSKİ (${VERIFIED_BUDGET_SEED.muskiBillionTry} Milyar ₺) birleşik bütçe toplamı (${budgetYear}); MUTTAŞ sermaye artışı ${VERIFIED_BUDGET_SEED.muttasCapitalIncreaseBillionTry} Milyar ₺ dahil.`
             }
           />
         </div>
@@ -449,6 +464,7 @@ export const LocalGovBudgetSection = () => {
             : budgetData?.source
             ? `${isEn ? "Source" : "Kaynak"}: ${translate(String(budgetData.source))}`
             : translate(budgetSourceSummary)}
+          {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
         </p>
       </DashboardPanel>
     </div>

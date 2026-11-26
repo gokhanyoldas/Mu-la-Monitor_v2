@@ -18,52 +18,81 @@ export type SectorTopicKey =
   | "economy_budget"
   | "protocol_activity";
 
+export function getDynamicQueryYears(now: Date = new Date()): {
+  currentYear: number;
+  nextYear: number;
+} {
+  const currentYear = now.getFullYear();
+  return { currentYear, nextYear: currentYear + 1 };
+}
+
+export function buildTopicGroundingQueries(
+  now: Date = new Date()
+): Record<SectorTopicKey, { label: string; tab: string; query: string }> {
+  const { currentYear, nextYear } = getDynamicQueryYears(now);
+  return {
+    environment_dams: {
+      label: "Çevre / Barajlar",
+      tab: "Çevre",
+      query: `"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı ${currentYear}`,
+    },
+    transport_infra: {
+      label: "Ulaşım / Altyapı",
+      tab: "Ulaşım",
+      query:
+        '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
+    },
+    energy_outages: {
+      label: "Enerji / ADM Elektrik",
+      tab: "Enerji",
+      query: '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
+    },
+    security_quakes: {
+      label: "Güvenlik / AFAD, Asayiş & Yangın",
+      tab: "Güvenlik",
+      query:
+        '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)',
+    },
+    tourism_occupancy: {
+      label: "Turizm / Doluluk & Yolcu",
+      tab: "Turizm",
+      query: `"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu ${currentYear}`,
+    },
+    economy_budget: {
+      label: "Ekonomi / Bütçe & İhale",
+      tab: "Ekonomi",
+      query: `"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale ${currentYear} OR ${nextYear}`,
+    },
+    protocol_activity: {
+      label: "Muğla Protokol / Son 24s",
+      tab: "Protokol",
+      query: `("Muğla Valisi" OR "Seddar Yavuz" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama OR kararname ${currentYear} OR ${nextYear} son 24 saat`,
+    },
+  };
+}
+
 export const TOPIC_GROUNDING_QUERIES: Record<
   SectorTopicKey,
   { label: string; tab: string; query: string }
-> = {
-  environment_dams: {
-    label: "Çevre / Barajlar",
-    tab: "Çevre",
-    query:
-      '"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı',
-  },
-  transport_infra: {
-    label: "Ulaşım / Altyapı",
-    tab: "Ulaşım",
-    query:
-      '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
-  },
-  energy_outages: {
-    label: "Enerji / ADM Elektrik",
-    tab: "Enerji",
-    query: '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
-  },
-  security_quakes: {
-    label: "Güvenlik / AFAD, Asayiş & Yangın",
-    tab: "Güvenlik",
-    query:
-      '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)',
-  },
-  tourism_occupancy: {
-    label: "Turizm / Doluluk & Yolcu",
-    tab: "Turizm",
-    query:
-      '"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu 2026',
-  },
-  economy_budget: {
-    label: "Ekonomi / Bütçe & İhale",
-    tab: "Ekonomi",
-    query:
-      '"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale 2026 OR 2027',
-  },
-  protocol_activity: {
-    label: "Muğla Protokol / Son 24s",
-    tab: "Protokol",
-    query:
-      '("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat',
-  },
-};
+> = buildTopicGroundingQueries();
+
+/**
+ * 26 Kasım 2026 Meclis Kararı doğrulanmış temel bütçe referansı.
+ * Canlı topic-grounding veya Supabase verisi geldiğinde her zaman bu tohumun üzerine yazar.
+ */
+export const VERIFIED_BUDGET_SEED = {
+  year: 2026,
+  decisionDateIso: "2026-11-26T12:00:00Z",
+  mbbBillionTry: 24.3,
+  muskiBillionTry: 20.5,
+  combinedBillionTry: 44.8,
+  yoyChangePct: 30.35,
+  muttasCapitalIncreaseTry: 1_116_639_124,
+  muttasCapitalIncreaseBillionTry: 1.12,
+  sourceLabel:
+    "26 Kasım 2026 Meclis Kararı (Muğla BB 24.3 Milyar ₺ + MUSKİ 20.5 Milyar ₺ = 44.8 Milyar ₺, +%30.35)",
+  sourceUrl: "https://www.mugla.bel.tr/",
+} as const;
 
 export interface VerifiedDamDefinition {
   id: string;
@@ -1443,10 +1472,11 @@ export function mergeEconomyIntelligence(params: {
       ? Math.round((mbbBudget.amountBillionTry + muskiBudget.amountBillionTry) * 100) / 100
       : null;
 
+  const maxAllowedYear = new Date().getFullYear() + 5;
   const budgetYear =
     typeof groundedEconomy?.budgetYear === "number" &&
     groundedEconomy.budgetYear >= 2020 &&
-    groundedEconomy.budgetYear <= 2035
+    groundedEconomy.budgetYear <= maxAllowedYear
       ? groundedEconomy.budgetYear
       : municipalBudgets.find((b) => typeof b.year === "number" && b.year !== null)?.year ?? null;
 
@@ -1851,6 +1881,14 @@ export function useTransportTopicGrounding() {
     retry: false,
   });
 
+  useEffect(() => {
+    const incidents = data?.transportIncidents ?? [];
+    if (incidents.length === 0) return;
+    useMonitorStore
+      .getState()
+      .setTransportOverride(incidents, data?.fetchedAt ?? new Date().toISOString());
+  }, [data?.transportIncidents, data?.fetchedAt]);
+
   return {
     incidents: data?.transportIncidents ?? [],
     fetchedAt: data?.fetchedAt ?? null,
@@ -1885,6 +1923,13 @@ export function useEnergyIntelligence(arbitratedAlertsCount = 0, arbitratedDistr
     [energyCache, topicData?.energyOutages, arbitratedAlertsCount, arbitratedDistricts]
   );
 
+  useEffect(() => {
+    if (!snapshot.hasVerifiedLiveData) return;
+    useMonitorStore
+      .getState()
+      .setEnergyOverride(snapshot, topicData?.fetchedAt ?? snapshot.latestMeasuredAt);
+  }, [snapshot, topicData?.fetchedAt]);
+
   return {
     ...snapshot,
     isLoading: cacheLoading || topicLoading,
@@ -1917,20 +1962,26 @@ export function useSecurityIntelligence() {
   );
 
   useEffect(() => {
-    if (snapshot.quakes.length === 0) return;
-    useMonitorStore.getState().setEarthquakes(
-      snapshot.quakes.map((q) => ({
-        id: q.id,
-        magnitude: q.magnitude,
-        location: q.location,
-        depthKm: q.depthKm,
-        occurredAt: q.occurredAt,
-        url: q.sourceUrl,
-        sourceName: q.sourceName,
-      })),
-      topicData?.fetchedAt ?? snapshot.latestMeasuredAt ?? new Date().toISOString()
-    );
-  }, [snapshot.quakes, snapshot.latestMeasuredAt, topicData?.fetchedAt]);
+    if (snapshot.quakes.length > 0) {
+      useMonitorStore.getState().setEarthquakes(
+        snapshot.quakes.map((q) => ({
+          id: q.id,
+          magnitude: q.magnitude,
+          location: q.location,
+          depthKm: q.depthKm,
+          occurredAt: q.occurredAt,
+          url: q.sourceUrl,
+          sourceName: q.sourceName,
+        })),
+        topicData?.fetchedAt ?? snapshot.latestMeasuredAt ?? new Date().toISOString()
+      );
+    }
+    if (snapshot.hasVerifiedLiveData) {
+      useMonitorStore
+        .getState()
+        .setSecurityOverride(snapshot, topicData?.fetchedAt ?? snapshot.latestMeasuredAt);
+    }
+  }, [snapshot, topicData?.fetchedAt]);
 
   return {
     ...snapshot,
@@ -1963,6 +2014,13 @@ export function useTourismIntelligence() {
     [tourismCache, topicData?.tourismMetrics]
   );
 
+  useEffect(() => {
+    if (!snapshot.hasVerifiedLiveData) return;
+    useMonitorStore
+      .getState()
+      .setTourismOverride(snapshot, topicData?.fetchedAt ?? snapshot.latestMeasuredAt);
+  }, [snapshot, topicData?.fetchedAt]);
+
   return {
     ...snapshot,
     isLoading: cacheLoading || topicLoading,
@@ -1994,6 +2052,13 @@ export function useEconomyIntelligence() {
     [economyCache, topicData?.economyUpdates]
   );
 
+  useEffect(() => {
+    if (!snapshot.hasVerifiedLiveData) return;
+    useMonitorStore
+      .getState()
+      .setEconomyOverride(snapshot, topicData?.fetchedAt ?? snapshot.latestMeasuredAt);
+  }, [snapshot, topicData?.fetchedAt]);
+
   return {
     ...snapshot,
     isLoading: cacheLoading || topicLoading,
@@ -2016,6 +2081,16 @@ export function useProtocolActivityIntelligence(members: ProtocolMemberLike[]) {
     () => matchProtocolActivitiesToMembers(members, topicData?.protocolActivities ?? []),
     [members, topicData?.protocolActivities]
   );
+
+  useEffect(() => {
+    if (snapshot.activities.length === 0) return;
+    useMonitorStore
+      .getState()
+      .setProtocolActivitiesOverride(
+        snapshot.activities,
+        topicData?.fetchedAt ?? snapshot.latestMeasuredAt
+      );
+  }, [snapshot.activities, snapshot.latestMeasuredAt, topicData?.fetchedAt]);
 
   return {
     ...snapshot,

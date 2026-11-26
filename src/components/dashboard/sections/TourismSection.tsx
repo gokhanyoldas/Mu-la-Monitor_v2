@@ -8,6 +8,8 @@ import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceCo
 import { useTranslation } from "@/hooks/useTranslation";
 import { useTourismIntelligence, formatShortTurkishDate } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
+import { useMonitorStore, selectTourismOverride } from "@/store/useMonitorStore";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 const touristDataTr = [
   { name: "Oca", value: 45 }, { name: "Şub", value: 52 }, { name: "Mar", value: 78 },
@@ -26,6 +28,12 @@ const touristDataEn = [
 export const TourismMovementPanel = () => {
   const { lang, t, translate } = useTranslation();
   const isEn = lang === "en";
+  const storeTourism = useMonitorStore(selectTourismOverride);
+  const queryTourism = useTourismIntelligence();
+  const activeTourism =
+    storeTourism?.hasVerifiedLiveData && !queryTourism.hasVerifiedLiveData
+      ? storeTourism
+      : queryTourism;
   const {
     annualTourists,
     airportPassengers,
@@ -33,8 +41,9 @@ export const TourismMovementPanel = () => {
     headlines,
     hasVerifiedLiveData,
     movementSourceSummary,
-    isLoading,
-  } = useTourismIntelligence();
+    latestMeasuredAt,
+  } = activeTourism;
+  const isLoading = queryTourism.isLoading;
   const hub = useOptionalUnifiedIntelligence();
   const tourismRisks = (hub?.arbitratedEvents ?? [])
     .map((e) => e.tourismRiskAlert)
@@ -48,7 +57,7 @@ export const TourismMovementPanel = () => {
       badgeVariant={hasVerifiedLiveData ? "active" : "warning"}
       count={headlines.length > 0 ? headlines.length : undefined}
     >
-      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "pending"} className="mb-2" />
+      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedLiveData && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
@@ -112,6 +121,7 @@ export const TourismMovementPanel = () => {
       <MiniChart data={isEn ? touristDataEn : touristDataTr} color="hsl(200, 80%, 50%)" height={70} showAxis />
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-1" data-testid="tourism-movement-source-note">
         {translate(movementSourceSummary)}
+        {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>
   );
@@ -120,14 +130,21 @@ export const TourismMovementPanel = () => {
 export const AccommodationPanel = () => {
   const { lang, translate } = useTranslation();
   const isEn = lang === "en";
+  const storeTourism = useMonitorStore(selectTourismOverride);
+  const queryTourism = useTourismIntelligence();
+  const activeTourism =
+    storeTourism?.hasVerifiedOccupancy && !queryTourism.hasVerifiedOccupancy
+      ? storeTourism
+      : queryTourism;
   const {
     hotelOccupancyPct,
     totalBedsK,
     districtRates,
     hasVerifiedOccupancy,
     occupancySourceSummary,
-    isLoading,
-  } = useTourismIntelligence();
+    latestMeasuredAt,
+  } = activeTourism;
+  const isLoading = queryTourism.isLoading;
   const hub = useOptionalUnifiedIntelligence();
   const tourismRisks = (hub?.arbitratedEvents ?? [])
     .map((e) => e.tourismRiskAlert)
@@ -140,7 +157,7 @@ export const AccommodationPanel = () => {
       badge={tourismRisks.length > 0 ? "ŞANTİYE RİSKİ" : hasVerifiedOccupancy ? "GÜNCEL" : "ÖLÇÜM BEKLENİYOR"}
       badgeVariant={tourismRisks.length > 0 ? "warning" : hasVerifiedOccupancy ? "active" : "warning"}
     >
-      <DataOriginBadge origin={hasVerifiedOccupancy ? "live" : "pending"} className="mb-2" />
+      <DataOriginBadge origin={hasVerifiedOccupancy ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedOccupancy && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
@@ -180,6 +197,7 @@ export const AccommodationPanel = () => {
       )}
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-1" data-testid="tourism-occupancy-source-note">
         {translate(occupancySourceSummary)}
+        {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>
   );

@@ -82,9 +82,10 @@ describe("Sprint 2 — Tekilleştirme ve Sekme Mimarisi", () => {
     expect(screen.getByRole("button", { name: "Diyagram" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Muğla Protokol" })).toBeTruthy();
 
-    // Sade Modda erişilebilir kurum ağı navigasyonu görünür.
+    // Sade Modda erişilebilir sade sekme adları görünür.
     fireEvent.click(screen.getByTestId("view-mode-toggle"));
-    expect(screen.getByRole("button", { name: "Kurum İletişim Ağı" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Olay Doğrulama" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "İl Yöneticileri" })).toBeTruthy();
   });
 
   it("InvestigationHub tek merkezde haber doğrulama ve 13 ilçe bağlantı haritası geçişi sunar", async () => {

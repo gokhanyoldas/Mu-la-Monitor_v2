@@ -61,19 +61,19 @@ export const LivingLexiconDrawer: React.FC = () => {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <DialogTitle className="flex items-center gap-2 text-sm sm:text-base font-bold text-primary">
               <BookOpen className="w-4 h-4 text-primary" />
-              <span>Canlı Söz Dağarcığı Havuzu (Append-Only Living Lexicon)</span>
+              <span>Takip Edilen Kavramlar ve Bölge Sözlüğü</span>
             </DialogTitle>
             <div className="flex items-center gap-1.5 text-[10px]">
               <span className="px-2 py-0.5 rounded bg-primary/15 text-primary border border-primary/30 font-bold">
                 TOPLAM: {lexicon.length} TERİM
               </span>
               <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
-                +{newlyLearnedCount} YENİ ÖĞRENİLEN
+                +{newlyLearnedCount} YENİ EKLENEN
               </span>
             </div>
           </div>
           <DialogDescription className="text-[11px] font-sans text-muted-foreground">
-            Kümülatif büyüyen saha sözlüğü: Eski kelimeler asla silinmez. Analiz edilen her sosyal paylaşım, görsel ve Google Search taraması yeni mevki, protokol aktörü ve saha jargonu ekler.
+            Muğla geneli ilçe, mevki, kurum ve gündem kavramları otomatik olarak güncellenir; mevcut terimler korunur.
           </DialogDescription>
         </DialogHeader>
 
@@ -209,10 +209,10 @@ export const LivingLexiconDrawer: React.FC = () => {
         <div className="pt-2 border-t border-border/50 flex items-center justify-between text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
             <Layers className="w-3 h-3 text-primary" />
-            4 Katmanlı Append-Only Mimari (Çekirdek + Mikro-Coğrafya + Protokol İma + Saha Jargonu)
+            Bölge, Mevki, Kurum ve Gündem Kavramları
           </span>
           <span className="flex items-center gap-1 text-emerald-400">
-            <CheckCircle2 className="w-3 h-3" /> Silme Koruması Aktif
+            <CheckCircle2 className="w-3 h-3" /> Kayıt Koruması Aktif
           </span>
         </div>
       </DialogContent>

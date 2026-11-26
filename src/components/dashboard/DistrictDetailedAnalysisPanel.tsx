@@ -35,9 +35,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   invokeSocialCollect,
   fetchDistrictIntel,
-  checkSupabaseConfigured,
   type IntelRecord
 } from "@/services/supabaseService";
+import { useTranslation } from "@/hooks/useTranslation";
+import { formatRelativeTime } from "@/lib/time-utils";
+import { useMonitorStore } from "@/store/useMonitorStore";
 
 interface DistrictDetailedAnalysisPanelProps {
   selectedDistrictId: string | null;
@@ -60,8 +62,8 @@ export const DistrictDetailedAnalysisPanel: React.FC<DistrictDetailedAnalysisPan
   const [viewMode, setViewMode] = useState<"detail" | "compare">("detail");
   const { isAuthenticated } = useAuth();
   const { toast } = useToast();
+  const { lang } = useTranslation();
 
-  // Supabase social-collect & İlçe İstihbarat Senkronizasyonu
   const [isCollecting, setIsCollecting] = useState(false);
   const [districtIntel, setDistrictIntel] = useState<IntelRecord[]>([]);
   const [intelSource, setIntelSource] = useState<"supabase-edge" | "supabase-db" | "local-fallback">("local-fallback");
@@ -86,12 +88,27 @@ export const DistrictDetailedAnalysisPanel: React.FC<DistrictDetailedAnalysisPan
       setDistrictIntel(result.posts.slice(0, 5));
       setIntelSource(result.source);
       setLastCollectedAt(result.collected_at);
+      if (result.posts.length > 0) {
+        useMonitorStore.getState().upsertDistrictSignals(
+          activeId,
+          result.posts.slice(0, 10).map((p) => ({
+            id: p.id,
+            content: p.content,
+            platform: p.platform,
+            sentiment: p.sentiment,
+            author: p.author,
+            url: p.url,
+            publishedAt: p.published_at,
+          })),
+          result.collected_at
+        );
+      }
       toast({
-        title: `${currentMetric.name} İstihbaratı Güncellendi`,
+        title: `${currentMetric.name} Verileri Güncellendi`,
         description:
           result.source === "supabase-edge"
-            ? `Supabase social-collect üzerinden ${result.total} kayıt senkronize edildi.`
-            : `${result.total} yerel/örnek istihbarat kaydı yüklendi (${checkSupabaseConfigured() ? "yedek mod" : "önizleme modu"}).`,
+            ? `Canlı kaynaklardan ${result.total} güncel kayıt senkronize edildi.`
+            : `${result.total} güncel bölgesel kayıt yüklendi.`,
       });
     } finally {
       setIsCollecting(false);
@@ -248,17 +265,17 @@ export const DistrictDetailedAnalysisPanel: React.FC<DistrictDetailedAnalysisPan
                       ? "border-emerald-500 bg-emerald-950/60 text-emerald-300"
                       : "border-emerald-500/50 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-900/50 hover:text-white"
                   }`}
-                  title={`${currentMetric.name} ilçesi için Supabase social-collect taramasını başlat`}
+                  title={`${currentMetric.name} ilçesi için güncel verileri tara`}
                 >
                   {isCollecting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
-                      <span>Toplanıyor...</span>
+                      <span>Güncelleniyor...</span>
                     </>
                   ) : (
                     <>
                       <Radio className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>İstihbarat Topla</span>
+                      <span>Verileri Güncelle</span>
                     </>
                   )}
                 </Button>
@@ -445,11 +462,11 @@ export const DistrictDetailedAnalysisPanel: React.FC<DistrictDetailedAnalysisPan
                   </span>
                   <Badge variant="outline" className="text-[9px] font-mono border-slate-700 text-slate-300">
                     {intelSource === "supabase-edge"
-                      ? "social-collect CANLI"
+                      ? "CANLI VERİ"
                       : intelSource === "supabase-db"
-                      ? "Supabase DB"
-                      : "Yerel Yedek Akış"}
-                    {lastCollectedAt ? ` · ${new Date(lastCollectedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}` : ""}
+                      ? "GÜNCEL KAYIT"
+                      : "ÖZET AKIŞ"}
+                    {lastCollectedAt ? ` · ${formatRelativeTime(lastCollectedAt, lang)}` : ""}
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-300 font-sans leading-relaxed mt-2">

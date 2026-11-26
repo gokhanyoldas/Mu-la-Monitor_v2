@@ -15,6 +15,9 @@ import {
   writeLocalTopicCache,
   mergeDamIntelligence,
   mergeSecurityIntelligence,
+  mergeEconomyIntelligence,
+  mergeTourismIntelligence,
+  mergeEnergyIntelligence,
   type SectorTopicKey,
   type TopicGroundingPayload,
 } from "@/services/topicGroundingService";
@@ -176,6 +179,25 @@ export function useSupabaseRealtimeSync(enabled = true) {
                     updatedAt: topicPayload.fetchedAt || row.fetched_at || new Date().toISOString(),
                   });
                 }
+                if (topicKey === "transport_infra" && Array.isArray(topicPayload.transportIncidents)) {
+                  useMonitorStore
+                    .getState()
+                    .setTransportOverride(
+                      topicPayload.transportIncidents,
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
+                }
+                if (topicKey === "energy_outages" && Array.isArray(topicPayload.energyOutages)) {
+                  const energy = mergeEnergyIntelligence({
+                    groundedOutages: topicPayload.energyOutages,
+                  });
+                  useMonitorStore
+                    .getState()
+                    .setEnergyOverride(
+                      energy,
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
+                }
                 if (topicKey === "security_quakes" && Array.isArray(topicPayload.securityEvents)) {
                   const sec = mergeSecurityIntelligence({
                     groundedEvents: topicPayload.securityEvents,
@@ -194,6 +216,42 @@ export function useSupabaseRealtimeSync(enabled = true) {
                       topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
                     );
                   }
+                  useMonitorStore
+                    .getState()
+                    .setSecurityOverride(
+                      sec,
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
+                }
+                if (topicKey === "tourism_occupancy" && topicPayload.tourismMetrics) {
+                  const tour = mergeTourismIntelligence({
+                    groundedTourism: topicPayload.tourismMetrics,
+                  });
+                  useMonitorStore
+                    .getState()
+                    .setTourismOverride(
+                      tour,
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
+                }
+                if (topicKey === "economy_budget" && topicPayload.economyUpdates) {
+                  const eco = mergeEconomyIntelligence({
+                    groundedEconomy: topicPayload.economyUpdates,
+                  });
+                  useMonitorStore
+                    .getState()
+                    .setEconomyOverride(
+                      eco,
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
+                }
+                if (topicKey === "protocol_activity" && Array.isArray(topicPayload.protocolActivities)) {
+                  useMonitorStore
+                    .getState()
+                    .setProtocolActivitiesOverride(
+                      topicPayload.protocolActivities,
+                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+                    );
                 }
               }
             } else {
@@ -217,6 +275,9 @@ export function useSupabaseRealtimeSync(enabled = true) {
                     row.fetched_at || new Date().toISOString()
                   );
                 }
+                useMonitorStore
+                  .getState()
+                  .setSecurityOverride(sec, row.fetched_at || new Date().toISOString());
               } else if (row.data_type === "dams") {
                 const merged = mergeDamIntelligence({ cacheData: row.data });
                 useMonitorStore.getState().setDamsSnapshot({
@@ -228,6 +289,21 @@ export function useSupabaseRealtimeSync(enabled = true) {
                   latestMeasuredAt: merged.latestMeasuredAt,
                   updatedAt: row.fetched_at || new Date().toISOString(),
                 });
+              } else if (row.data_type === "economy") {
+                const eco = mergeEconomyIntelligence({ economyCache: row.data });
+                useMonitorStore
+                  .getState()
+                  .setEconomyOverride(eco, row.fetched_at || new Date().toISOString());
+              } else if (row.data_type === "tourism") {
+                const tour = mergeTourismIntelligence({ tourismCache: row.data });
+                useMonitorStore
+                  .getState()
+                  .setTourismOverride(tour, row.fetched_at || new Date().toISOString());
+              } else if (row.data_type === "energy") {
+                const energy = mergeEnergyIntelligence({ energyCache: row.data });
+                useMonitorStore
+                  .getState()
+                  .setEnergyOverride(energy, row.fetched_at || new Date().toISOString());
               }
             }
             useMonitorStore.getState().touchLastSynced(row.fetched_at || new Date().toISOString());
@@ -243,6 +319,31 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 })
               );
             }
+          }
+        )
+        // 5. Protokol değişiklikleri (public.protocol_changes) -> Aktif protokol listesi canlı güncellenir
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "protocol_changes",
+          },
+          (payload) => {
+            const row = payload.new as
+              | { title?: string; unvan?: string; new_name?: string; isim?: string; created_at?: string }
+              | undefined;
+            const titleMatch = row?.title || row?.unvan || "";
+            const newName = row?.new_name || row?.isim || "";
+            if (titleMatch && newName) {
+              useMonitorStore.getState().upsertProtocolRoleOverride({
+                titleMatch,
+                newName,
+                sourceName: "Resmî Protokol Kaydı",
+                updatedAt: row?.created_at || new Date().toISOString(),
+              });
+            }
+            queryClient.invalidateQueries({ queryKey: ["protocol-members"] });
           }
         )
         .subscribe();

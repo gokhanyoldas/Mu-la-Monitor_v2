@@ -11,11 +11,17 @@ import {
   useEconomyIntelligence,
   canonicalizeBudgetInstitution,
   formatShortTurkishDate,
+  VERIFIED_BUDGET_SEED,
   type SecurityTopicEvent,
 } from "@/services/topicGroundingService";
 import { formatQuakeLocation } from "@/hooks/useAISummary";
 import { formatRelativeTime } from "@/lib/time-utils";
-import { useMonitorStore, selectEarthquakes } from "@/store/useMonitorStore";
+import {
+  useMonitorStore,
+  selectEarthquakes,
+  selectSecurityOverride,
+  selectEconomyOverride,
+} from "@/store/useMonitorStore";
 import { DataOriginBadge } from "../DataOriginBadge";
 
 const radarPoints = [
@@ -177,6 +183,12 @@ export const SecurityOverviewPanel = () => {
   const { lang, translate } = useTranslation();
   const isEn = lang === "en";
   const storeQuakes = useMonitorStore(selectEarthquakes);
+  const storeSecurity = useMonitorStore(selectSecurityOverride);
+  const querySecurity = useSecurityIntelligence();
+  const activeSecurity =
+    storeSecurity?.hasVerifiedLiveData && !querySecurity.hasVerifiedLiveData
+      ? storeSecurity
+      : querySecurity;
   const {
     quakes: queryQuakes,
     latestQuake: queryLatestQuake,
@@ -184,8 +196,8 @@ export const SecurityOverviewPanel = () => {
     publicOrderCount,
     hasVerifiedLiveData: queryHasLive,
     latestSourceSummary,
-    isLoading,
-  } = useSecurityIntelligence();
+  } = activeSecurity;
+  const isLoading = querySecurity.isLoading;
 
   const quakes =
     storeQuakes.items.length > 0
@@ -210,7 +222,7 @@ export const SecurityOverviewPanel = () => {
       badgeVariant={hasVerifiedLiveData ? "live" : "warning"}
       count={publicOrderEvents.length > 0 ? publicOrderEvents.length : undefined}
     >
-      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "pending"} className="mb-2" />
+      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedLiveData && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
@@ -417,16 +429,22 @@ export const EmergencyPanel = () => {
 export const LocalGovQuickPanel = () => {
   const { lang, translate } = useTranslation();
   const isEn = lang === "en";
+  const storeEconomy = useMonitorStore(selectEconomyOverride);
+  const queryEconomy = useEconomyIntelligence();
+  const activeEconomy =
+    storeEconomy?.hasVerifiedBudgetUpdate && !queryEconomy.hasVerifiedBudgetUpdate
+      ? storeEconomy
+      : queryEconomy;
   const {
     municipalBudgets,
-    combinedTotalBillionTry,
-    budgetYear,
-    budgetYoyChangePct,
-    budgetSourceSummary,
+    combinedTotalBillionTry: liveCombined,
+    budgetYear: liveYear,
+    budgetYoyChangePct: liveYoy,
+    budgetSourceSummary: liveSummary,
     hasVerifiedBudgetUpdate,
-    budgetItems,
-    isLoading,
-  } = useEconomyIntelligence();
+    latestMeasuredAt,
+  } = activeEconomy;
+  const isLoading = queryEconomy.isLoading;
 
   const mbbBudget =
     municipalBudgets.find(
@@ -436,10 +454,21 @@ export const LocalGovQuickPanel = () => {
     municipalBudgets.find((b) => canonicalizeBudgetInstitution(b.institution) === "MUSKİ") ?? null;
 
   const primaryBudgetBn =
-    combinedTotalBillionTry ?? mbbBudget?.amountBillionTry ?? municipalBudgets[0]?.amountBillionTry ?? null;
-  const secondaryLabel = muskiBudget ? "MUSKİ Bütçesi" : "Yatırım";
+    liveCombined ??
+    mbbBudget?.amountBillionTry ??
+    municipalBudgets[0]?.amountBillionTry ??
+    VERIFIED_BUDGET_SEED.combinedBillionTry;
+  const secondaryLabel = "MUSKİ Bütçesi";
   const secondaryValueBn =
-    muskiBudget?.amountBillionTry ?? mbbBudget?.investmentBillionTry ?? null;
+    muskiBudget?.amountBillionTry ?? VERIFIED_BUDGET_SEED.muskiBillionTry;
+  const effectiveYear = liveYear ?? VERIFIED_BUDGET_SEED.year;
+  const effectiveYoy =
+    hasVerifiedBudgetUpdate && liveYoy !== null
+      ? liveYoy
+      : VERIFIED_BUDGET_SEED.yoyChangePct;
+  const effectiveSource = hasVerifiedBudgetUpdate
+    ? liveSummary
+    : VERIFIED_BUDGET_SEED.sourceLabel;
 
   const statusRows = hasVerifiedBudgetUpdate
     ? municipalBudgets.slice(0, 5).map((b) => ({
@@ -447,35 +476,47 @@ export const LocalGovQuickPanel = () => {
         value: `${b.amountBillionTry.toFixed(1)} ${isEn ? "B ₺" : "Milyar ₺"}`,
         status: "ok" as const,
       }))
-    : budgetItems.slice(0, 4).map((it) => ({
-        label: translate(it.institution),
-        value: it.amountLabel ? translate(it.amountLabel) : isEn ? "Notice" : "Duyuru",
-        status: "info" as const,
-      }));
+    : [
+        {
+          label: translate("Büyükşehir Belediyesi"),
+          value: `${VERIFIED_BUDGET_SEED.mbbBillionTry.toFixed(1)} ${isEn ? "B ₺" : "Milyar ₺"}`,
+          status: "ok" as const,
+        },
+        {
+          label: "MUSKİ",
+          value: `${VERIFIED_BUDGET_SEED.muskiBillionTry.toFixed(1)} ${isEn ? "B ₺" : "Milyar ₺"}`,
+          status: "ok" as const,
+        },
+        {
+          label: translate("MUTTAŞ Sermaye Artışı"),
+          value: `${VERIFIED_BUDGET_SEED.muttasCapitalIncreaseBillionTry.toFixed(2)} ${isEn ? "B ₺" : "Milyar ₺"}`,
+          status: "info" as const,
+        },
+      ];
 
   return (
     <DashboardPanel
       title="Yerel Yönetim Bütçeleri"
       icon={<Landmark size={14} />}
-      badge={hasVerifiedBudgetUpdate ? `${budgetYear ?? 2026} GÜNCEL` : "ÖLÇÜM BEKLENİYOR"}
-      badgeVariant={hasVerifiedBudgetUpdate ? "live" : "warning"}
+      badge={hasVerifiedBudgetUpdate ? `${effectiveYear} GÜNCEL` : `${effectiveYear} RESMİ`}
+      badgeVariant={hasVerifiedBudgetUpdate ? "live" : "info"}
     >
-      <DataOriginBadge origin={hasVerifiedBudgetUpdate ? "live" : "pending"} className="mb-2" />
+      <DataOriginBadge origin={hasVerifiedBudgetUpdate ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedBudgetUpdate && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
       <div className="grid grid-cols-2 gap-2 mb-3">
         <StatCard
-          label={combinedTotalBillionTry !== null ? "Toplam Bütçe" : "Belediye Bütçesi"}
-          value={primaryBudgetBn !== null ? primaryBudgetBn.toFixed(1) : "—"}
-          unit={primaryBudgetBn !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
-          change={hasVerifiedBudgetUpdate && budgetYoyChangePct !== null ? budgetYoyChangePct : undefined}
+          label="Toplam Bütçe"
+          value={primaryBudgetBn.toFixed(1)}
+          unit={isEn ? "B ₺" : "Milyar ₺"}
+          change={effectiveYoy}
           variant="primary"
         />
         <StatCard
           label={secondaryLabel}
-          value={secondaryValueBn !== null ? secondaryValueBn.toFixed(1) : "—"}
-          unit={secondaryValueBn !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
+          value={secondaryValueBn.toFixed(1)}
+          unit={isEn ? "B ₺" : "Milyar ₺"}
           variant="accent"
         />
       </div>
@@ -484,7 +525,8 @@ export const LocalGovQuickPanel = () => {
         className="text-[8px] font-mono text-muted-foreground/75 mt-2"
         data-testid="localgov-quick-source-note"
       >
-        {translate(budgetSourceSummary)}
+        {translate(effectiveSource)}
+        {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>
   );

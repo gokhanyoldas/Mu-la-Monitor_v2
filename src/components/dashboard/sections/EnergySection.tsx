@@ -9,6 +9,8 @@ import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceCo
 import { useTranslation } from "@/hooks/useTranslation";
 import { useEnergyIntelligence } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
+import { useMonitorStore, selectEnergyOverride } from "@/store/useMonitorStore";
+import { formatRelativeTime } from "@/lib/time-utils";
 
 const energyDataTr = [
   { name: "Oca", value: 320 }, { name: "Şub", value: 310 }, { name: "Mar", value: 340 },
@@ -34,14 +36,21 @@ export const EnergyConsumptionPanel = () => {
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
   const alertDistricts = energyAlerts.map((a) => a.districtName);
 
+  const storeEnergy = useMonitorStore(selectEnergyOverride);
+  const queryEnergy = useEnergyIntelligence(outageBonus, alertDistricts);
+  const activeEnergy =
+    storeEnergy?.hasVerifiedLiveData && !queryEnergy.hasVerifiedLiveData
+      ? storeEnergy
+      : queryEnergy;
   const {
     dailyConsumptionGwh,
     activeOutageCount,
     outages,
     hasVerifiedLiveData,
     latestSourceSummary,
-    isLoading,
-  } = useEnergyIntelligence(outageBonus, alertDistricts);
+    latestMeasuredAt,
+  } = activeEnergy;
+  const isLoading = queryEnergy.isLoading;
 
   return (
     <DashboardPanel
@@ -50,7 +59,7 @@ export const EnergyConsumptionPanel = () => {
       badge={hasVerifiedLiveData ? "GÜNCEL" : "ÖLÇÜM BEKLENİYOR"}
       badgeVariant={hasVerifiedLiveData ? "live" : "warning"}
     >
-      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "pending"} className="mb-2" />
+      <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedLiveData && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
@@ -104,6 +113,7 @@ export const EnergyConsumptionPanel = () => {
       <MiniChart data={isEn ? energyDataEn : energyDataTr} color="hsl(38, 92%, 50%)" height={50} showAxis />
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-2" data-testid="energy-source-note">
         {translate(latestSourceSummary)}
+        {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>
   );

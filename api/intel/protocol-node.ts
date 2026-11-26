@@ -33,8 +33,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return sendJson(res, 200, { ok: false, fallback: true, reason: "GEMINI_API_KEY tanımlı değil." });
 
   try {
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "mugla-monitor" } } });
-    const prompt = `Muğla protokol ve kriz ağı düğümünü analiz et. Tam olarak 3 kısa Türkçe madde üret ve yalnızca JSON döndür: {"bullets":["..."]}.\nDüğüm: ${JSON.stringify(node).slice(0, 4000)}\nBağlantılar: ${JSON.stringify(connections).slice(0, 12000)}`;
+    const currentYear = new Date().getFullYear();
+    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+    const prompt = `Muğla protokol ve kriz ağı düğümünü ${currentYear} güncel kurumsal yapısı çerçevesinde analiz et. Tam olarak 3 kısa Türkçe madde üret ve yalnızca JSON döndür: {"bullets":["..."]}.\nDüğüm: ${JSON.stringify(node).slice(0, 4000)}\nBağlantılar: ${JSON.stringify(connections).slice(0, 12000)}`;
     const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents: prompt, config: { responseMimeType: "application/json" } });
     const parsed = extractJson(response.text ?? "");
     const bullets = Array.isArray(parsed?.bullets) ? parsed!.bullets.map(String).filter((item) => item.trim()).slice(0, 3) : [];

@@ -154,22 +154,28 @@ export function resolveAgentEnv(env = process.env, options = {}) {
   };
 }
 
-export const SECTOR_TOPIC_QUERIES = {
-  environment_dams:
-    '"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı',
-  transport_infra:
-    '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
-  energy_outages:
-    '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
-  security_quakes:
-    '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)',
-  tourism_occupancy:
-    '"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu 2026',
-  economy_budget:
-    '"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale 2026 OR 2027',
-  protocol_activity:
-    '("Muğla Valisi" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "İdris Akbıyık" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama son 24 saat',
-};
+export function getDynamicQueryYears(now = new Date()) {
+  const currentYear = now.getFullYear();
+  return { currentYear, nextYear: currentYear + 1 };
+}
+
+export function buildSectorTopicQueries(now = new Date()) {
+  const { currentYear, nextYear } = getDynamicQueryYears(now);
+  return {
+    environment_dams: `"Mumcular Barajı" OR "Geyik Barajı" OR "Akgedik Barajı" OR "Atatürk Barajı" Muğla doluluk oranı ${currentYear}`,
+    transport_infra:
+      '"Muğla" OR "Bodrum" OR "Marmaris" yol çalışması OR isale hattı patladı OR trafik',
+    energy_outages:
+      '"ADM Elektrik" Muğla planlı kesinti OR arıza OR elektrik kesintisi',
+    security_quakes:
+      '("AFAD" OR "Kandilli") Muğla deprem OR ("Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" asayiş OR "trafik kazası" OR "Sahil Güvenlik" OR yangın)',
+    tourism_occupancy: `"Muğla" OR "Bodrum" OR "Marmaris" OR "Fethiye" otel doluluk oranı OR turist sayısı OR Dalaman Havalimanı yolcu ${currentYear}`,
+    economy_budget: `"Muğla Büyükşehir Belediyesi" OR "MUSKİ" OR "Bodrum Belediyesi" OR "Marmaris Belediyesi" bütçe milyar TL OR ihale ${currentYear} OR ${nextYear}`,
+    protocol_activity: `("Muğla Valisi" OR "Seddar Yavuz" OR "Muğla Büyükşehir Belediye Başkanı" OR "Ahmet Aras" OR "Muğla Kaymakam" OR "Muğla Başsavcı") ziyaret OR açıklama OR atama OR kararname ${currentYear} OR ${nextYear} son 24 saat`,
+  };
+}
+
+export const SECTOR_TOPIC_QUERIES = buildSectorTopicQueries();
 
 // 6 saatlik 4 turda (günde 4 çağrı = ayda 120 çağrı = %8 kota) 7 sektörün tamamını kapsayan rotasyon
 export const GROUP_TOPIC_ASSIGNMENTS = {
@@ -669,10 +675,11 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
             : b?.investmentBillionTry !== null && b?.investmentBillionTry !== undefined
             ? Number(b.investmentBillionTry)
             : NaN;
+        const maxAllowedYear = new Date().getFullYear() + 5;
         return {
           institution,
           amountBillionTry: Math.round(amountBn * 100) / 100,
-          year: Number.isFinite(yrRaw) && yrRaw >= 2020 && yrRaw <= 2035 ? Math.round(yrRaw) : null,
+          year: Number.isFinite(yrRaw) && yrRaw >= 2020 && yrRaw <= maxAllowedYear ? Math.round(yrRaw) : null,
           yoyChangePct:
             Number.isFinite(yoyRaw) && yoyRaw > -100 && yoyRaw < 500
               ? Math.round(yoyRaw * 100) / 100
@@ -700,10 +707,11 @@ export function normalizeAgentFindings(rawJson, group, groundingChunks = [], opt
       rawCombined < 500
         ? Math.round(rawCombined * 100) / 100
         : null;
+    const maxBudgetYear = new Date().getFullYear() + 5;
     const rawBudgetYear =
       rawEco.budget_year !== null && rawEco.budget_year !== undefined ? Number(rawEco.budget_year) : NaN;
     const budgetYear =
-      Number.isFinite(rawBudgetYear) && rawBudgetYear >= 2020 && rawBudgetYear <= 2035
+      Number.isFinite(rawBudgetYear) && rawBudgetYear >= 2020 && rawBudgetYear <= maxBudgetYear
         ? Math.round(rawBudgetYear)
         : null;
     const rawBudgetYoy =
@@ -1142,15 +1150,17 @@ export function buildSupabasePayloads({
   return { keywordRows, postRows, alertRows, cacheRows };
 }
 
-export function buildGroundingPrompt(group) {
+export function buildGroundingPrompt(group, now = new Date()) {
+  const { currentYear, nextYear } = getDynamicQueryYears(now);
+  const dynamicQueries = buildSectorTopicQueries(now);
   const districtList = group.districts.join(", ");
   const assignedTopics = selectTopicsForGroup(group);
   const topicLines = assignedTopics.map(
-    (topicKey) => `- [${topicKey}] sorgusu: ${SECTOR_TOPIC_QUERIES[topicKey]}`
+    (topicKey) => `- [${topicKey}] sorgusu: ${dynamicQueries[topicKey]}`
   );
 
   return [
-    `Sen Muğla Monitör v2 için çalışan 7/24 otonom saha istihbarat ajanısın.`,
+    `Sen Muğla Monitör v2 için çalışan 7/24 otonom saha istihbarat ajanısın. Aktif tarama dönemi: ${currentYear}/${nextYear}.`,
     `Görev: Google Arama (Search Grounding) kullanarak hem şu ilçelerdeki (${districtList}) güncel gelişmeleri hem de bu 6 saatlik dilime atanan sektörel topic-grounding konularını tara:`,
     ...topicLines,
     `KESİN DOĞRULAMA KURALLARI:`,
@@ -1269,14 +1279,14 @@ export function buildGroundingPrompt(group) {
           : null,
         economy_updates: assignedTopics.includes("economy_budget")
           ? {
-              budget_year: 2026,
+              budget_year: currentYear,
               combined_total_billion_try: null,
               budget_yoy_change_pct: null,
               municipal_budgets: [
                 {
                   institution: "Muğla Büyükşehir Belediyesi | MUSKİ | Bodrum Belediyesi | Marmaris Belediyesi",
                   amount_billion_try: 24.3,
-                  year: 2026,
+                  year: currentYear,
                   yoy_change_pct: 30.35,
                   investment_billion_try: null,
                   source_name: "Muğla Büyükşehir | MUSKİ | Yerel Basın",

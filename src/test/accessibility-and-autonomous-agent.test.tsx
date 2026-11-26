@@ -106,7 +106,7 @@ describe("3. Ajan — Erişilebilirlik, Dil Seçici (TR/EN), Sade Vatandaş Modu
     expect(screen.getByTestId("panel-content")).toBeTruthy();
 
     // TR teknik terimler sadeleşir
-    expect(screen.getByTestId("tab-diagram").textContent).toBe("Doğrulama Merkezi");
+    expect(screen.getByTestId("tab-diagram").textContent).toBe("Olay Doğrulama");
     expect(screen.getByTestId("tab-network").textContent).toBe("Kurum İletişim Ağı");
     expect(screen.getByTestId("pulse-label").textContent).toBe("Şehir Özeti");
     const simplifiedTr = screen.getByTestId("jargon-sample").textContent || "";
@@ -118,11 +118,11 @@ describe("3. Ajan — Erişilebilirlik, Dil Seçici (TR/EN), Sade Vatandaş Modu
 
     // EN dilinde de Sade Mod terimleri sadeleştirir
     fireEvent.click(screen.getByTestId("lang-en"));
-    expect(screen.getByTestId("tab-diagram").textContent).toBe("Verification Center");
+    expect(screen.getByTestId("tab-diagram").textContent).toBe("Event Verification");
     expect(screen.getByTestId("tab-network").textContent).toBe("Public Institution Network");
     expect(screen.getByTestId("pulse-label").textContent).toBe("City Summary");
     expect(simplifyCitizenText("OSINT Grounding Telemetry AQI", "en")).toBe(
-      "Public News Web Check Live Readings Air Score"
+      "Public News Web Check Live Readings Air Quality"
     );
   });
 

@@ -17,7 +17,12 @@ import {
 } from "@/data/districtSocialBaselines";
 import { extractLexiconMatches } from "@/services/livingLexiconService";
 import { formatRelativeTime } from "@/lib/time-utils";
-import { useMonitorStore } from "@/store/useMonitorStore";
+import {
+  useMonitorStore,
+  selectProtocolOverride,
+  selectDistrictOverrides,
+  resolveProtocolMembers,
+} from "@/store/useMonitorStore";
 import { toast } from "sonner";
 
 interface PostItem {
@@ -51,6 +56,8 @@ const DistrictPage = () => {
     getProtocolLinksForActor,
   } = useUnifiedIntelligence();
 
+  const protocolOverride = useMonitorStore(selectProtocolOverride);
+  const districtOverrides = useMonitorStore(selectDistrictOverrides);
   const [dbPosts, setDbPosts] = useState<PostItem[]>([]);
   const [groundedPosts, setGroundedPosts] = useState<DistrictFeedItem[]>([]);
   const [groundingSources, setGroundingSources] = useState<Array<{ uri: string; title: string }>>([]);
@@ -138,6 +145,18 @@ const DistrictPage = () => {
       if (res.usedLiveSearch && res.posts.length > 0) {
         setGroundedPosts(res.posts);
         setGroundingSources(res.groundingSources);
+        useMonitorStore.getState().upsertDistrictSignals(
+          district.slug,
+          res.posts.map((p) => ({
+            id: p.id,
+            content: p.content,
+            platform: p.platform,
+            sentiment: p.sentiment,
+            author: p.author,
+            url: p.url,
+            publishedAt: p.published_at,
+          }))
+        );
         toast.success(`${district.name} için ${res.posts.length} güncel haber eklendi.`);
       } else {
         toast.info(`${district.name} için güncel yerel kayıtlar gösteriliyor.`);
@@ -147,9 +166,21 @@ const DistrictPage = () => {
     }
   };
 
-  // Merge: Ingested field posts -> Search Grounding -> Supabase DB -> Curated 13-District Baseline
+  // Merge: Store Live District Signals -> Ingested field posts -> Search Grounding -> Supabase DB -> Curated 13-District Baseline
   const posts = useMemo<PostItem[]>(() => {
     if (!district) return [];
+    const storeDistrictSignals: PostItem[] = (
+      districtOverrides[district.slug]?.signals ?? []
+    ).map((s) => ({
+      id: s.id,
+      content: s.content,
+      platform: s.platform,
+      sentiment: s.sentiment,
+      published_at: s.publishedAt,
+      url: s.url,
+      author: s.author,
+      sourceKind: "search-grounding" as const,
+    }));
     const matchingIngested = ingestedDistrictPosts
       .filter((p) => p.districtSlug === district.slug)
       .map((p) => ({
@@ -157,7 +188,13 @@ const DistrictPage = () => {
         sourceKind: "field-ingested" as const,
       }));
     const baseline = getDistrictBaselineFeed(district.slug);
-    const combined = [...matchingIngested, ...groundedPosts, ...dbPosts, ...baseline];
+    const combined = [
+      ...storeDistrictSignals,
+      ...matchingIngested,
+      ...groundedPosts,
+      ...dbPosts,
+      ...baseline,
+    ];
 
     const seen = new Set<string>();
     const deduped: PostItem[] = [];
@@ -175,7 +212,7 @@ const DistrictPage = () => {
       });
     }
     return deduped;
-  }, [district, ingestedDistrictPosts, groundedPosts, dbPosts, lexicon]);
+  }, [district, districtOverrides, ingestedDistrictPosts, groundedPosts, dbPosts, lexicon]);
 
   const stats = useMemo(() => {
     const positive = posts.filter((p) => p.sentiment === "positive").length;
@@ -290,7 +327,11 @@ const DistrictPage = () => {
           {/* Protokol — Kaymakam & Belediye Başkanı (valilik listesi + Aktif Saha Gündemi bağlantısı) */}
           {(() => {
             const lookupName = district.name === "Kavaklidere" ? "Kavaklıdere" : district.name === "Muğla Merkez" ? "Menteşe" : district.name;
-            const officials = PROTOCOL_DATA.filter(m =>
+            const liveProtocolList = resolveProtocolMembers(
+              PROTOCOL_DATA,
+              protocolOverride.roleOverrides
+            );
+            const officials = liveProtocolList.filter(m =>
               m.unvan.toLocaleLowerCase("tr-TR") === `${lookupName} kaymakamı`.toLocaleLowerCase("tr-TR") ||
               m.unvan.toLocaleLowerCase("tr-TR") === `${lookupName} belediye başkanı`.toLocaleLowerCase("tr-TR") ||
               m.unvan.toLocaleLowerCase("tr-TR").includes(`${lookupName} kaymakamı`.toLocaleLowerCase("tr-TR"))

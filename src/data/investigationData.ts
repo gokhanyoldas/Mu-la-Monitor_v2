@@ -140,7 +140,7 @@ export const INVESTIGATION_NODES: InvestigationNode[] = [
     date: "Bugün 11:45",
     credibilityScore: 98,
     claimSummary: "İhale usulsüzlüğü iddiaları tamamen asılsızdır; tüm altyapı sözleşmeleri EKAP üzerinden açıktır. Arızaya 24 saat içinde müdahale edilmiş, su verilmeye başlanmıştır.",
-    involvedActors: ["Muğla Valisi Dr. İdris Akbıyık", "MUSKİ", "Kamu İhale Kurumu"],
+    involvedActors: ["Muğla Valisi Seddar Yavuz", "MUSKİ", "Kamu İhale Kurumu"],
     tags: ["resmi_yalanlama", "basin_bulteni", "ekap"],
     x: 180,
     y: -130,
