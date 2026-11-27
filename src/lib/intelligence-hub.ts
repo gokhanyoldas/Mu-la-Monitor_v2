@@ -7,6 +7,10 @@ export type DataCategory =
   | "transport" | "social" | "security" | "energy"
   | "demographics" | "health" | "agriculture" | "culture";
 
+// Veri kökeni sözleşmesi: hiçbir türetilmiş çıktı, gerçek kaynağı olmadan
+// "canlı istihbarat" gibi sunulmaz. Boşluklar açıkça "unavailable" işaretlenir.
+export type DataProvenance = "live" | "cache" | "reference" | "unavailable";
+
 export interface IntelligenceData {
   category: DataCategory;
   timestamp: number;
@@ -36,11 +40,11 @@ export type SensitivityMode = "sensitive" | "balanced" | "high";
 export interface FireProtocolStatus {
   isActive: boolean;
   isTriggered: boolean;
-  riskScore: number;
-  riskLevel: "Düşük" | "Orta" | "Yüksek" | "Kritik";
-  temperature: number;
-  humidity: number;
-  windSpeed: number;
+  riskScore: number | null;
+  riskLevel: "Düşük" | "Orta" | "Yüksek" | "Kritik" | null;
+  temperature: number | null;
+  humidity: number | null;
+  windSpeed: number | null;
   thresholds: {
     tempThreshold: number;
     humidityThreshold: number;
@@ -48,20 +52,22 @@ export interface FireProtocolStatus {
   };
   actionsTaken: string[];
   lastEvaluatedAt: number;
+  provenance: DataProvenance;
 }
 
 export interface IntegratedMobilityData {
   timestamp: number;
+  provenance: DataProvenance;
   corridors: Array<{
     id: string;
     corridor: string;
     trafficDensity: number;
-    hotelOccupancy: number;
+    hotelOccupancy: number | null;
     pressureScore: number;
     status: "normal" | "dense" | "critical";
     recommendation: string;
   }>;
-  averagePressure: number;
+  averagePressure: number | null;
   activeHotspotsCount: number;
   smartRoutingDirective: string;
 }
@@ -69,6 +75,7 @@ export interface IntegratedMobilityData {
 export interface DailyEconomicSummary {
   date: string;
   generatedAt: number;
+  provenance: DataProvenance;
   summary: string;
   macroIndicators: Array<{ name: string; value: string; change?: string; note: string }>;
   localIndicators: Array<{ name: string; value: string; note: string }>;
@@ -83,27 +90,28 @@ export interface PresidentialBriefing {
   targetOffice: string;
   executiveSummary: string;
   urgencyLevel: "Normal" | "Dikkat" | "Teyakkuz" | "Kritik";
+  provenance: DataProvenance;
   weatherAndFire: {
-    temp: number;
-    humidity: number;
-    wind: number;
-    fireRiskScore: number;
-    fireRiskLevel: string;
+    temp: number | null;
+    humidity: number | null;
+    wind: number | null;
+    fireRiskScore: number | null;
+    fireRiskLevel: string | null;
   };
   waterAndDams: {
-    avgOccupancy: number;
+    avgOccupancy: number | null;
     damCount: number;
     outlook: string;
   };
   transportAndMobility: {
-    congestionAvg: number;
+    congestionAvg: number | null;
     activeCorridorsCount: number;
     chokePoints: string[];
   };
   economyAndTourism: {
     usdTry: string;
     eurTry: string;
-    hotelOccupancy: number;
+    hotelOccupancy: number | null;
     annualTourismEst: string;
   };
   socialPulse: {
@@ -119,13 +127,14 @@ export interface MLModelSnapshot {
   lastTrainedAt: number;
   sensitivity: SensitivityMode;
   categoriesTrained: number;
-  convergenceRate: number;
   sampleSize: number;
-  baselines: Record<string, { mean: number; stdDev: number; threshold: number }>;
+  provenance: DataProvenance;
+  baselines: Record<string, { mean: number | null; stdDev: number | null; threshold: number }>;
 }
 
 export interface RealtimeSocialStatus {
   isConnected: boolean;
+  provenance: DataProvenance;
   activeKeywords: string[];
   pollIntervalSec: number;
   recentPostCount: number;
@@ -408,7 +417,7 @@ class IntelligenceHub {
       });
 
       if (error) {
-        console.warn(`Data fetch notice for ${category}: using fallback baseline (${error.message || "fallback"})`);
+        console.warn(`Data fetch notice for ${category}: ${error.message || "fetch failed"}`);
         const cached = this.dataCache.get(category);
         if (cached?.data) {
           this.notifySubscribers(category, cached.data, false);
@@ -416,27 +425,15 @@ class IntelligenceHub {
         }
 
         if (category === "transport") {
-          const fallbackTransport = {
-            hotspots: [
-              { district: "Bodrum", congestion: 68, speed: 38, freeFlow: 70 },
-              { district: "Marmaris", congestion: 54, speed: 42, freeFlow: 65 },
-              { district: "Fethiye", congestion: 48, speed: 45, freeFlow: 70 },
-              { district: "Menteşe", congestion: 42, speed: 50, freeFlow: 70 },
-              { district: "Milas", congestion: 52, speed: 48, freeFlow: 75 },
-            ],
-            averageCongestion: 52,
-            activeCorridors: 4,
-            status: "nominal",
+          // Uydurma baz değer üretme: canlı veri ve önbellek yoksa açıkça "unavailable" bildir.
+          const unavailableTransport = {
+            hotspots: [],
+            averageCongestion: null,
+            activeCorridors: null,
+            status: "unavailable",
+            provenance: "unavailable" as const,
           };
-          const intelligenceData: IntelligenceData = {
-            category: "transport",
-            timestamp: Date.now(),
-            data: fallbackTransport,
-            isLive: false,
-            source: "verified_baseline",
-          };
-          this.cacheData(intelligenceData);
-          this.notifySubscribers(category, fallbackTransport, false);
+          this.notifySubscribers(category, unavailableTransport, false);
         }
         return;
       }
@@ -721,20 +718,23 @@ class IntelligenceHub {
   ): Promise<RealtimeSocialStatus> {
     this.isSocialRealtimeActive = active;
 
-    // Dinamik dikkat çeken konuları ve etiketleri gerçek postlardan çıkar
+    // Dinamik dikkat çeken konuları ve etiketleri gerçek postlardan çıkar.
+    // Veri yoksa sıfır değerlerle dönülür; uydurma gönderi/his dağılımı üretilmez.
     let dynamicKeywords: string[] = [];
-    let postCount = 84;
-    let sentimentDistribution = { positive: 48, neutral: 24, negative: 12 };
+    let postCount = 0;
+    let sentimentDistribution = { positive: 0, neutral: 0, negative: 0 };
+    let hasLiveData = false;
 
     try {
-      const { data, count } = await supabase
+      const { data } = await supabase
         .from("social_posts")
-        .select("content, keywords_matched, sentiment, region, title")
+        .select("content, keywords_matched, sentiment, region")
         .order("published_at", { ascending: false })
         .limit(100);
 
       if (data && data.length > 0) {
-        postCount = count || data.length;
+        hasLiveData = true;
+        postCount = data.length;
         const pos = data.filter((p: any) => p.sentiment === "positive").length;
         const neg = data.filter((p: any) => p.sentiment === "negative").length;
         const neu = data.filter((p: any) => p.sentiment === "neutral").length;
@@ -744,7 +744,7 @@ class IntelligenceHub {
         const freqMap: Record<string, number> = {};
         for (const p of data) {
           // 1. Hashtagler
-          const text = `${p.title || ""} ${p.content || ""}`;
+          const text = `${p.content || ""}`;
           const tags = text.match(/#[a-zA-Z0-9çğıöşüÇĞİÖŞÜ_]+/g) || [];
           tags.forEach(t => {
             const clean = t.trim();
@@ -788,11 +788,14 @@ class IntelligenceHub {
       console.debug("Failed to extract dynamic attention keywords:", e);
     }
 
-    if (dynamicKeywords.length === 0) {
-      dynamicKeywords = ["#Muğla", "#Bodrum", "#Marmaris", "#Fethiye", "#Trafik", "#Turizm"];
-    }
+    const hasCustom = Boolean(customKeywords && customKeywords.length > 0);
+    const keywords = hasCustom ? customKeywords! : dynamicKeywords;
 
-    const keywords = customKeywords && customKeywords.length > 0 ? customKeywords : dynamicKeywords;
+    const provenance: DataProvenance = hasCustom
+      ? "reference"
+      : hasLiveData
+      ? "live"
+      : "unavailable";
 
     if (active) {
       if (!this.socialRealtimeUnsubscribe) {
@@ -821,6 +824,7 @@ class IntelligenceHub {
 
     const status: RealtimeSocialStatus = {
       isConnected: active,
+      provenance,
       activeKeywords: keywords,
       pollIntervalSec: active ? 30 : 300,
       recentPostCount: postCount,
@@ -840,13 +844,42 @@ class IntelligenceHub {
   // 2. İklim Uyarılarına Göre Yangın Önleme Protokolü Otomasyonu
   public async automateFirePreventionProtocol(): Promise<FireProtocolStatus> {
     this.fireProtocolAutomationActive = true;
-    const weather = this.getData("weather") || { temperature: 19, humidity: 62, windspeed: 18, wind_speed: 18 };
-    const temp = Number(weather.temperature ?? 19);
-    const humidity = Number(weather.humidity ?? 62);
-    const wind = Number(weather.windspeed ?? weather.wind_speed ?? 18);
 
-    // Yangın Tehlike İndeksi (FHI Formülü)
-    // Sıcaklık ve rüzgar riski artırır, nem riski düşürür
+    const thresholds = {
+      tempThreshold: 32,
+      humidityThreshold: 25,
+      windThreshold: 30,
+    };
+
+    const weather = this.getData("weather");
+    const temp = weather?.temperature != null ? Number(weather.temperature) : null;
+    const humidity = weather?.humidity != null ? Number(weather.humidity) : null;
+    const windRaw = weather?.windspeed ?? weather?.wind_speed;
+    const wind = windRaw != null ? Number(windRaw) : null;
+
+    const hasWeather =
+      temp != null && Number.isFinite(temp) &&
+      humidity != null && Number.isFinite(humidity) &&
+      wind != null && Number.isFinite(wind);
+
+    if (!hasWeather) {
+      // Canlı meteoroloji verisi yok: risk hesaplanamaz, saha aksiyonu iddia edilmez.
+      return {
+        isActive: true,
+        isTriggered: false,
+        riskScore: null,
+        riskLevel: null,
+        temperature: temp,
+        humidity,
+        windSpeed: wind,
+        thresholds,
+        actionsTaken: [],
+        lastEvaluatedAt: Date.now(),
+        provenance: "unavailable",
+      };
+    }
+
+    // Yangın Tehlike İndeksi (FHI) — gerçek sıcaklık/nem/rüzgar verisinden hesaplanır.
     const rawScore = (temp * 1.5) + (wind * 1.1) + ((100 - humidity) * 0.75);
     const riskScore = Math.min(100, Math.max(8, Math.round(rawScore / 2.2)));
 
@@ -855,44 +888,45 @@ class IntelligenceHub {
     else if (riskScore >= 52) riskLevel = "Yüksek";
     else if (riskScore >= 32) riskLevel = "Orta";
 
-    const actionsTaken: string[] = [
-      "AKOM Kriz Merkezi ve 13 İlçe İtfaiye Grup Amirlikleri erken uyarı hattına bağlandı",
-      "Muğla Orman Bölge Müdürlüğü kritik orman hatlarında (Marmaris, Milas, Köyceğiz) devriye sıklığı %40 artırıldı",
-      "Meteoroloji rüzgar fırtına eşiği (>30 km/h) & nem (<%30) otomatik tetikleyici kuralı aktifleştirildi",
-      "İHA ve yangın gözetleme kuleleri ile anlık duman teyit protokolü devreye alındı",
-    ];
+    const isTriggered =
+      riskLevel === "Yüksek" || riskLevel === "Kritik" ||
+      temp > thresholds.tempThreshold ||
+      humidity < thresholds.humidityThreshold ||
+      wind > thresholds.windThreshold;
 
-    if (riskLevel === "Yüksek" || riskLevel === "Kritik" || temp > 28) {
-      actionsTaken.push("Bölgesel acil su ikmal noktaları ve arazöz bekleme istasyonları teyakkuza geçirildi");
+    // Yalnızca sistemin gerçekten yaptığı işler listelenir; saha operasyonu iddia edilmez.
+    const actionsTaken: string[] = [
+      "Gerçek zamanlı hava verisiyle yangın risk indeksi (FHI) hesaplandı",
+    ];
+    if (isTriggered) {
+      actionsTaken.push("Risk eşiği aşıldığı için kritik istihbarat kaydı oluşturuldu");
     }
 
     const protocolStatus: FireProtocolStatus = {
       isActive: true,
-      isTriggered: true,
+      isTriggered,
       riskScore,
       riskLevel,
       temperature: temp,
       humidity,
       windSpeed: wind,
-      thresholds: {
-        tempThreshold: 32,
-        humidityThreshold: 25,
-        windThreshold: 30,
-      },
+      thresholds,
       actionsTaken,
       lastEvaluatedAt: Date.now(),
+      provenance: "live",
     };
 
-    // Hub anomali kaydı oluştur
-    this.addAnomalyAlert({
-      id: `fire_proto_${Date.now()}`,
-      severity: riskLevel === "Kritik" ? "critical" : riskLevel === "Yüksek" ? "warning" : "info",
-      category: "weather",
-      title: "Yangın Önleme Protokolü Devrede (Otomatik)",
-      description: `Muğla geneli yangın risk skoru %${riskScore} (${riskLevel}). Sıcaklık: ${temp}°C, Nem: %${humidity}, Rüzgar: ${wind} km/h. AKOM ve OGM saha tedbirleri aktifleştirildi.`,
-      timestamp: Date.now(),
-      metadata: protocolStatus,
-    });
+    if (isTriggered) {
+      this.addAnomalyAlert({
+        id: `fire_proto_${Date.now()}`,
+        severity: riskLevel === "Kritik" ? "critical" : "warning",
+        category: "weather",
+        title: "Yangın Risk Eşiği Aşıldı (Otomatik Değerlendirme)",
+        description: `Muğla geneli hesaplanan yangın risk skoru %${riskScore} (${riskLevel}). Sıcaklık: ${temp}°C, Nem: %${humidity}, Rüzgar: ${wind} km/h.`,
+        timestamp: Date.now(),
+        metadata: protocolStatus,
+      });
+    }
 
     try {
       localStorage.setItem("ih_fire_protocol", JSON.stringify(protocolStatus));
@@ -908,47 +942,45 @@ class IntelligenceHub {
     const traffic = this.getData("transport");
     const tourism = this.getData("tourism");
 
-    const hotelOcc = Number(tourism?.hotel_occupancy ?? 38);
+    const hotspots: any[] = Array.isArray(traffic?.hotspots) ? traffic.hotspots : [];
+    const hotelOcc = tourism?.hotel_occupancy != null ? Number(tourism.hotel_occupancy) : null;
+    const hasHotel = hotelOcc != null && Number.isFinite(hotelOcc);
 
-    // Muğla 4 ana turizm koridorunun entegre baskı analizi
-    const corridors = [
-      {
-        id: "bodrum_corridor",
-        corridor: "Bodrum Yarımada Koridoru (D-330 Torba - Turgutreis)",
-        trafficDensity: 74,
-        hotelOccupancy: Math.min(95, hotelOcc + 28),
-        pressureScore: Math.round(74 * 0.6 + (hotelOcc + 28) * 0.4),
-        status: "critical" as const,
-        recommendation: "Torba kavşağında akıllı sinyalizasyon devresi aktif; Milas-Bodrum transit akışına yeşil dalga verildi.",
-      },
-      {
-        id: "marmaris_corridor",
-        corridor: "Marmaris - Datça Sahil Koridoru (Sakar Rampası - Merkez)",
-        trafficDensity: 66,
-        hotelOccupancy: Math.min(92, hotelOcc + 20),
-        pressureScore: Math.round(66 * 0.6 + (hotelOcc + 20) * 0.4),
-        status: "dense" as const,
-        recommendation: "Gökova kavşağında ağır vasıta yönlendirmesi devrede; sahil bandı alternatif çevre yoluna yönlendiriliyor.",
-      },
-      {
-        id: "fethiye_corridor",
-        corridor: "Fethiye - Ölüdeniz - Göcek Turizm Ringi",
-        trafficDensity: 58,
-        hotelOccupancy: Math.min(90, hotelOcc + 22),
-        pressureScore: Math.round(58 * 0.6 + (hotelOcc + 22) * 0.4),
-        status: "dense" as const,
-        recommendation: "Ölüdeniz iniş aksında ring servis seferleri 10 dakikaya indirildi; Ovacık otopark transferi açıldı.",
-      },
-      {
-        id: "dalaman_corridor",
-        corridor: "Dalaman Havalimanı - Ortaca - Köyceğiz Transfer Hattı",
-        trafficDensity: 42,
-        hotelOccupancy: Math.min(85, hotelOcc + 12),
-        pressureScore: Math.round(42 * 0.6 + (hotelOcc + 12) * 0.4),
-        status: "normal" as const,
-        recommendation: "Uçak iniş saatleri MUTTAŞ otobüs kalkışlarıyla tam senkronize edildi; transfer koridoru akıcı.",
-      },
-    ];
+    if (hotspots.length === 0) {
+      // Canlı trafik verisi yoksa kurgusal koridor yoğunluğu üretme.
+      return {
+        timestamp: Date.now(),
+        provenance: "unavailable",
+        corridors: [],
+        averagePressure: null,
+        activeHotspotsCount: 0,
+        smartRoutingDirective:
+          "Canlı trafik yoğunluk verisi bulunamadı; entegre mobilite indeksi bu döngüde üretilemedi.",
+      };
+    }
+
+    const corridors = hotspots.map((h) => {
+      const density = Number(h.congestion) || 0;
+      const occupancy = hasHotel ? Math.min(95, Math.round(hotelOcc)) : null;
+      const pressureScore =
+        occupancy == null ? Math.round(density) : Math.round(density * 0.6 + occupancy * 0.4);
+      const status: "normal" | "dense" | "critical" =
+        pressureScore >= 75 ? "critical" : pressureScore >= 55 ? "dense" : "normal";
+      return {
+        id: `corridor_${String(h.district ?? "bilinmeyen").toLocaleLowerCase("tr-TR")}`,
+        corridor: String(h.district ?? "Bilinmeyen İlçe"),
+        trafficDensity: density,
+        hotelOccupancy: occupancy,
+        pressureScore,
+        status,
+        recommendation:
+          status === "critical"
+            ? "Öncelikli trafik yönetimi değerlendirmesi gerekli (canlı yoğunluk verisi)."
+            : status === "dense"
+            ? "Yoğunluk izlenmeli (canlı yoğunluk verisi)."
+            : "Olağan akış.",
+      };
+    });
 
     const averagePressure = Math.round(
       corridors.reduce((acc, c) => acc + c.pressureScore, 0) / corridors.length
@@ -956,10 +988,13 @@ class IntelligenceHub {
 
     const mobilityData: IntegratedMobilityData = {
       timestamp: Date.now(),
+      provenance: hasHotel ? "live" : "reference",
       corridors,
       averagePressure,
       activeHotspotsCount: corridors.filter(c => c.status !== "normal").length,
-      smartRoutingDirective: "D-330 Bodrum ve Marmaris giriş akslarında dinamik LED uyarı panoları ve akıllı trafik yönetim merkezine (AYKOME) direkt sinyalizasyon optimizasyonu gönderildi.",
+      smartRoutingDirective: hasHotel
+        ? "Canlı trafik yoğunluğu ve otel doluluk verisi entegre edildi; en yüksek baskı skorlu ilçeler önceliklendirildi."
+        : "Canlı trafik yoğunluğu kullanıldı; otel doluluk verisi bulunamadığı için baskı skoru yalnızca trafiğe dayalı hesaplandı.",
     };
 
     try {
@@ -974,14 +1009,22 @@ class IntelligenceHub {
   // 4. Ekonomik Göstergeler İçin Günlük Özet Rapor
   public async generateDailyEconomicSummary(): Promise<DailyEconomicSummary> {
     const eco = this.getData("economy");
-    const re = this.getData("real_estate");
+    const re = this.getData("real_estate" as DataCategory);
 
-    const usdTry = eco?.usd_try ? Number(eco.usd_try).toFixed(2) : "38.20";
-    const eurTry = eco?.eur_try ? Number(eco.eur_try).toFixed(2) : "41.50";
-    const inflation = eco?.inflation_cpi ? `%${eco.inflation_cpi}` : "%44.11";
-    const tourismRev = eco?.tourism_revenue_usd_m ? `$${(eco.tourism_revenue_usd_m / 1000).toFixed(1)} Milyar` : "$4.8 Milyar";
+    const num = (v: any): number | null => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
 
-    const avgPriceM2 = re?.avg_price_per_m2_try?.bodrum ? "95.000 ₺" : "42.500 ₺";
+    const usdTry = num(eco?.usd_try);
+    const eurTry = num(eco?.eur_try);
+    const inflation = num(eco?.inflation_cpi);
+    const tourismRev = num(eco?.tourism_revenue_usd_m);
+    const bodrumM2 = num(re?.avg_price_per_m2_try?.bodrum);
+
+    const hasEco = usdTry != null || eurTry != null || inflation != null || tourismRev != null;
+    const hasRe = bodrumM2 != null;
 
     const todayStr = new Date().toLocaleDateString("tr-TR", {
       day: "numeric",
@@ -992,41 +1035,28 @@ class IntelligenceHub {
     const summary: DailyEconomicSummary = {
       date: todayStr,
       generatedAt: Date.now(),
-      summary: "Muğla ekonomisi turizm döviz girdisi ve gayrimenkul değerlenmesiyle pozitif seyrini sürdürmektedir. Kış-bahar geçişinde istihdam dengesi ve enerji maliyetleri yakından izlenmektedir.",
+      provenance: hasEco || hasRe ? "live" : "unavailable",
+      summary:
+        "Özet yalnızca mevcut canlı/doğrulanmış göstergelerden derlenmiştir. Kaynağı bulunmayan kalemler '—' olarak işaretlenir; türetilmiş değişim oranı üretilmez.",
       macroIndicators: [
-        { name: "USD / TRY", value: `${usdTry} ₺`, change: "+0.15%", note: "ECB / Frankfurter Canlı Kur" },
-        { name: "EUR / TRY", value: `${eurTry} ₺`, change: "+0.22%", note: "Avrupa Merkez Bankası Referans" },
-        { name: "TÜFE Enflasyon", value: inflation, change: "-0.8%", note: "TÜİK Yıllık Resmi Oran" },
-        { name: "Mevduat / Faiz", value: "%45.0", note: "TCMB Politika Göstergesi" },
+        { name: "USD / TRY", value: usdTry == null ? "—" : `${usdTry.toFixed(2)} ₺`, note: "ECB / Frankfurter Canlı Kur" },
+        { name: "EUR / TRY", value: eurTry == null ? "—" : `${eurTry.toFixed(2)} ₺`, note: "Avrupa Merkez Bankası Referans" },
+        { name: "TÜFE Enflasyon", value: inflation == null ? "—" : `%${inflation}`, note: "TÜİK Yıllık Resmi Oran" },
       ],
       localIndicators: [
-        { name: "Turizm Geliri", value: tourismRev, note: "Kültür-Turizm Bk. Muğla Yıllık Katkı" },
-        { name: "Ort. Konut m²", value: avgPriceM2, note: "REIDIN 13 İlçe Ağırlıklı Ortalaması" },
-        { name: "Yeni Şirket Kuruluşu", value: "342 adet/ay", note: "TOBB & Ticaret Odaları Kaydı" },
-        { name: "İşsizlik Oranı", value: "%10.8", note: "TÜİK Bölgesel İşgücü Göstergesi" },
-      ],
-      sectorNotes: [
         {
-          title: "Turizm & Konaklama",
-          detail: "Erken rezervasyon oranları Avrupa ve İngiltere pazarında %12 artış gösteriyor. Döviz getirisi stabil.",
-          status: "positive",
+          name: "Turizm Geliri",
+          value: tourismRev == null ? "—" : `$${(tourismRev / 1000).toFixed(1)} Milyar`,
+          note: "Kültür-Turizm Bk. Muğla Yıllık Katkı",
         },
         {
-          title: "Gayrimenkul & İnşaat",
-          detail: "Bodrum ve Marmaris'te lüks segment talebi güçlü; kırsal ilçelerde arsa yatırımları hızlanıyor.",
-          status: "positive",
-        },
-        {
-          title: "Tarım & Narenciye",
-          detail: "Fethiye ve Ortaca narenciye ihracatında nakliye ve mazot maliyet baskısı sürüyor.",
-          status: "warning",
+          name: "Bodrum Ort. Konut m²",
+          value: bodrumM2 == null ? "—" : `${bodrumM2.toLocaleString("tr-TR")} ₺`,
+          note: "REIDIN-GYODER 2024",
         },
       ],
-      recommendations: [
-        "12 aya yayılan gastronomi, agro-turizm ve kültür rotası teşvik paketi önceliklendirilmeli",
-        "Yerel zeytinyağı, çam balı ve narenciye üreticilerine lojistik ve belediye satış noktası desteği verilmeli",
-        "Belediye çatı GES ve güneş enerjisi yatırımlarında harç muafiyeti korunmalı",
-      ],
+      sectorNotes: [],
+      recommendations: [],
     };
 
     try {
@@ -1040,38 +1070,92 @@ class IntelligenceHub {
 
   // 4B. Başkanlık Sabah Brifingi ve İcra Raporu
   public async generatePresidentialBriefing(): Promise<PresidentialBriefing> {
-    const weather = this.getData("weather") || { temperature: 19, humidity: 62, windspeed: 18 };
-    const dams = this.getData("dams");
+    const weather = this.getData("weather");
+    const dams = this.getData("dams" as DataCategory);
     const tourism = this.getData("tourism");
     const eco = this.getData("economy");
+    const transport = this.getData("transport");
     const socialStatus = await this.setRealtimeSocialTracking(true);
 
-    const temp = Number(weather.temperature ?? 19);
-    const humidity = Number(weather.humidity ?? 62);
-    const wind = Number(weather.windspeed ?? weather.wind_speed ?? 18);
-    const rawScore = (temp * 1.5) + (wind * 1.1) + ((100 - humidity) * 0.75);
-    const fireRiskScore = Math.min(100, Math.max(8, Math.round(rawScore / 2.2)));
-    const fireRiskLevel = fireRiskScore >= 75 ? "Kritik" : fireRiskScore >= 52 ? "Yüksek" : fireRiskScore >= 32 ? "Orta" : "Düşük";
+    const num = (v: any): number | null => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
 
-    const damList = Array.isArray(dams) ? dams : dams?.dams || [];
-    const avgDam = damList.length > 0
-      ? Math.round(damList.reduce((acc: number, d: any) => acc + (d.rate ?? d.occupancy_rate ?? 35), 0) / damList.length)
-      : 34;
+    // ── Hava & Yangın ──
+    const temp = num(weather?.temperature);
+    const humidity = num(weather?.humidity);
+    const wind = num(weather?.windspeed ?? weather?.wind_speed);
+    let fireRiskScore: number | null = null;
+    let fireRiskLevel: string | null = null;
+    if (temp != null && humidity != null && wind != null) {
+      const rawScore = (temp * 1.5) + (wind * 1.1) + ((100 - humidity) * 0.75);
+      fireRiskScore = Math.min(100, Math.max(8, Math.round(rawScore / 2.2)));
+      fireRiskLevel =
+        fireRiskScore >= 75 ? "Kritik" : fireRiskScore >= 52 ? "Yüksek" : fireRiskScore >= 32 ? "Orta" : "Düşük";
+    }
 
-    const usdTry = eco?.usd_try ? Number(eco.usd_try).toFixed(2) : "38.20";
-    const eurTry = eco?.eur_try ? Number(eco.eur_try).toFixed(2) : "41.50";
+    // ── Barajlar ──
+    const damList: any[] = Array.isArray(dams) ? dams : Array.isArray(dams?.dams) ? dams.dams : [];
+    const damRatings = damList
+      .map((d: any) => num(d?.rate ?? d?.occupancy_rate))
+      .filter((n): n is number => n != null);
+    const avgDam =
+      damRatings.length > 0
+        ? Math.round(damRatings.reduce((a, b) => a + b, 0) / damRatings.length)
+        : null;
+
+    // ── Ulaşım ──
+    const hotspots: any[] = Array.isArray(transport?.hotspots) ? transport.hotspots : [];
+    const congestions = hotspots
+      .map((h: any) => num(h?.congestion))
+      .filter((n): n is number => n != null);
+    const congestionAvg =
+      congestions.length > 0 ? Math.round(congestions.reduce((a, b) => a + b, 0) / congestions.length) : null;
+    const chokePoints = [...hotspots]
+      .filter((h: any) => num(h?.congestion) != null)
+      .sort((a: any, b: any) => num(b.congestion) - num(a.congestion))
+      .slice(0, 3)
+      .map((h: any) => String(h.district ?? "Bilinmeyen"));
+
+    // ── Ekonomi & Turizm ──
+    const usdTry = num(eco?.usd_try);
+    const eurTry = num(eco?.eur_try);
+    const tourismRev = num(eco?.tourism_revenue_usd_m);
+    const hotelOcc = num(tourism?.hotel_occupancy);
 
     const now = new Date();
     const dateStr = now.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" });
     const timeStr = now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+
+    const urgencyLevel: PresidentialBriefing["urgencyLevel"] =
+      fireRiskScore == null ? "Normal" : fireRiskScore >= 75 ? "Kritik" : fireRiskScore >= 52 ? "Teyakkuz" : fireRiskScore >= 32 ? "Dikkat" : "Normal";
+
+    const hasLive =
+      temp != null || humidity != null || congestionAvg != null || usdTry != null || hotelOcc != null || socialStatus.provenance === "live";
+
+    const actionDirectives: string[] = [];
+    if (fireRiskScore != null && fireRiskScore >= 52) {
+      actionDirectives.push(
+        `Hesaplanan yangın risk skoru %${fireRiskScore} (${fireRiskLevel}); orman arayüzü devriye ve erken uyarı planlaması gözden geçirilmeli.`
+      );
+    }
+    if (congestionAvg != null && congestionAvg >= 55) {
+      actionDirectives.push(
+        `Ortalama trafik yoğunluğu %${congestionAvg}; en yoğun akslar (${chokePoints.join(", ") || "—"}) için sinyalizasyon optimizasyonu değerlendirilmeli.`
+      );
+    }
 
     const briefing: PresidentialBriefing = {
       id: `briefing_${Date.now()}`,
       date: dateStr,
       time: timeStr,
       targetOffice: "T.C. Muğla Büyükşehir Belediye Başkanlığı & İl Koordinasyon Kurulu",
-      executiveSummary: "Muğla geneli kamu hizmetleri ve kentsel göstergeler olağan akışında devam etmektedir. D-330 Bodrum-Milas arterinde sabah pik saat yoğunluğu ve sahil bandında mevsimsel yangın gözetleme devriyeleri aktiftir.",
-      urgencyLevel: fireRiskScore >= 52 ? "Dikkat" : "Normal",
+      executiveSummary:
+        "Brifing yalnızca canlı veri kaynaklarından derlenmiştir. Veri bulunmayan başlıklar '—' olarak işaretlenir; kurgusal değer üretilmez.",
+      urgencyLevel,
+      provenance: hasLive ? "live" : "unavailable",
       weatherAndFire: {
         temp,
         humidity,
@@ -1081,30 +1165,31 @@ class IntelligenceHub {
       },
       waterAndDams: {
         avgOccupancy: avgDam,
-        damCount: 8,
-        outlook: "8 resmi baraj devrede; Mumcular ve Geyik barajlarında kış-bahar doluluk dengesi stabil.",
+        damCount: damList.length,
+        outlook:
+          damList.length > 0
+            ? `${damList.length} baraj kaydı canlı veriden okundu.`
+            : "Canlı baraj verisi bulunamadı.",
       },
       transportAndMobility: {
-        congestionAvg: 58,
-        activeCorridorsCount: 4,
-        chokePoints: ["Bodrum Torba Kavşağı", "Marmaris Sakar Rampası", "Fethiye Ölüdeniz Yolu"],
+        congestionAvg,
+        activeCorridorsCount: hotspots.length,
+        chokePoints,
       },
       economyAndTourism: {
-        usdTry,
-        eurTry,
-        hotelOccupancy: Number(tourism?.hotel_occupancy ?? 38),
-        annualTourismEst: "$4.8 Milyar / 3.85M Turist",
+        usdTry: usdTry == null ? "—" : usdTry.toFixed(2),
+        eurTry: eurTry == null ? "—" : eurTry.toFixed(2),
+        hotelOccupancy: hotelOcc,
+        annualTourismEst: tourismRev == null ? "—" : `$${(tourismRev / 1000).toFixed(1)} Milyar`,
       },
       socialPulse: {
         topIssues: socialStatus.activeKeywords.slice(0, 5),
-        sentimentSummary: `%${socialStatus.sentimentDistribution.positive} Pozitif / %${socialStatus.sentimentDistribution.negative} Negatif`,
+        sentimentSummary:
+          socialStatus.provenance === "unavailable"
+            ? "Veri bekleniyor"
+            : `Son ${socialStatus.recentPostCount} gönderide ${socialStatus.sentimentDistribution.positive} pozitif / ${socialStatus.sentimentDistribution.negative} negatif`,
       },
-      actionDirectives: [
-        "AKOM ve 13 ilçe itfaiye amirlikleri yangın erken uyarı hattında teyakkuzda tutulmaktadır.",
-        "MUTTAŞ ve AYKOME koordinasyonuyla Bodrum ve Sakar rampasında akıllı trafik sinyalizasyonu devrededir.",
-        "MUSKİ içme suyu havzaları ve 8 barajda 24 saatlik hidrolojik debi takibi sürdürülmektedir.",
-        "Günün icra özeti ve sahadaki kritik aksaklıklar ilgili daire başkanlıklarına dağıtılmıştır.",
-      ],
+      actionDirectives,
       generatedAt: Date.now(),
     };
 
@@ -1117,7 +1202,7 @@ class IntelligenceHub {
     return briefing;
   }
 
-  // 5. Anomali Eşiklerini Ayarlama ve Makine Öğrenmesi Modeli Eğitimi
+  // 5. Anomali Eşiklerini Ayarlama ve Gerçek Veri Bazlı Eşik Kalibrasyonu
   public async retrainModelBaselines(
     sensitivity?: SensitivityMode
   ): Promise<MLModelSnapshot> {
@@ -1128,25 +1213,73 @@ class IntelligenceHub {
     const currentMode = this.getSensitivity();
     const modeMultiplier = currentMode === "sensitive" ? 0.85 : currentMode === "balanced" ? 1.0 : 1.25;
 
-    // 8 temel kentsel kategori için EWMA (Üstel Hareketli Ortalama) ve Z-score dinamik kalibrasyonu
-    const baselines: Record<string, { mean: number; stdDev: number; threshold: number }> = {
-      weather_temperature: { mean: 22.4, stdDev: 5.8, threshold: Math.round(38 * modeMultiplier) },
-      weather_humidity: { mean: 58.2, stdDev: 14.2, threshold: Math.round(18 / modeMultiplier) },
-      traffic_congestion: { mean: 0.44, stdDev: 0.16, threshold: Number((0.78 * modeMultiplier).toFixed(2)) },
-      air_quality_aqi: { mean: 46.5, stdDev: 18.0, threshold: Math.round(125 * modeMultiplier) },
-      dam_occupancy: { mean: 34.2, stdDev: 8.5, threshold: Math.round(20 / modeMultiplier) },
-      social_crisis_mentions: { mean: 2.1, stdDev: 1.4, threshold: Math.round(10 * modeMultiplier) },
-      energy_grid_load: { mean: 0.68, stdDev: 0.12, threshold: Number((0.92 * modeMultiplier).toFixed(2)) },
-      economic_fx_volatility: { mean: 0.08, stdDev: 0.03, threshold: Number((0.15 * modeMultiplier).toFixed(2)) },
+    // Deterministik politika eşikleri (analyzeForAnomalies ile aynı kaynak).
+    // "Öğrenilmiş model" iddiası yoktur; bunlar politika eşikleridir.
+    const policyThresholds: Record<string, number> = {
+      weather_temperature: Math.round(38 * modeMultiplier),
+      weather_humidity: Math.round(18 / modeMultiplier),
+      traffic_congestion: Number((0.78 * modeMultiplier).toFixed(2)),
+      air_quality_aqi: Math.round(125 * modeMultiplier),
+      dam_occupancy: Math.round(20 / modeMultiplier),
+      social_crisis_mentions: Math.round(10 * modeMultiplier),
+      energy_grid_load: Number((0.92 * modeMultiplier).toFixed(2)),
+      economic_fx_volatility: Number((0.15 * modeMultiplier).toFixed(2)),
     };
 
+    // Gözlem olmadıkça mean/stdDev null bırakılır (uydurma istatistik üretilmez).
+    const baselines: Record<string, { mean: number | null; stdDev: number | null; threshold: number }> = {};
+    for (const [key, threshold] of Object.entries(policyThresholds)) {
+      baselines[key] = { mean: null, stdDev: null, threshold };
+    }
+
+    // Gerçek gözlem: son 30 günlük sosyal rollup'tan günlük negatif hacmin p95 değeri.
+    let sampleSize = 0;
+    let socialObserved = false;
+    try {
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const { data } = await (supabase as any)
+        .from("social_posts_daily_rollup")
+        .select("day, sentiment, post_count")
+        .gte("day", since);
+
+      if (Array.isArray(data) && data.length > 0) {
+        const dailyTotals: Record<string, number> = {};
+        const dailyNegative: Record<string, number> = {};
+        for (const row of data as any[]) {
+          const day = String(row.day);
+          const c = Number(row.post_count) || 0;
+          dailyTotals[day] = (dailyTotals[day] || 0) + c;
+          if (row.sentiment === "negative") {
+            dailyNegative[day] = (dailyNegative[day] || 0) + c;
+          }
+        }
+        const days = Object.keys(dailyTotals);
+        sampleSize = days.length;
+        if (sampleSize > 0) {
+          const totals = days.map((d) => dailyTotals[d]);
+          const mean = totals.reduce((a, b) => a + b, 0) / totals.length;
+          const variance = totals.reduce((a, b) => a + (b - mean) ** 2, 0) / totals.length;
+          const negSorted = days.map((d) => dailyNegative[d] || 0).sort((a, b) => a - b);
+          const p95 = negSorted[Math.min(negSorted.length - 1, Math.max(0, Math.ceil(0.95 * negSorted.length) - 1))];
+          baselines.social_crisis_mentions = {
+            mean: Number(mean.toFixed(1)),
+            stdDev: Number(Math.sqrt(variance).toFixed(1)),
+            threshold: p95,
+          };
+          socialObserved = true;
+        }
+      }
+    } catch (e) {
+      console.debug("Rollup baseline query failed:", e);
+    }
+
     const snapshot: MLModelSnapshot = {
-      version: "v2.5-EWMA-Dynamic",
+      version: "policy-thresholds+p95",
       lastTrainedAt: Date.now(),
       sensitivity: currentMode,
-      categoriesTrained: 8,
-      convergenceRate: 98.4,
-      sampleSize: 520,
+      categoriesTrained: Object.keys(baselines).length,
+      sampleSize,
+      provenance: socialObserved ? "live" : "reference",
       baselines,
     };
 
@@ -1156,16 +1289,18 @@ class IntelligenceHub {
       console.debug("Failed to store ML model snapshot:", e);
     }
 
-    // Eğitilen modeli onaylayan bilgi alarmı üret
-    this.addAnomalyAlert({
-      id: `ml_retrain_${Date.now()}`,
-      severity: "info",
-      category: "environment",
-      title: "ML Anomali Modeli Yeniden Eğitildi",
-      description: `8 şehir kategorisi dinamik EWMA matrisine kalibre edildi. Hassasiyet: ${currentMode.toUpperCase()} (Örneklem: 520 veri noktası, Yakınsama: %98.4).`,
-      timestamp: Date.now(),
-      metadata: snapshot,
-    });
+    // Yalnızca gerçek gözlemle kalibre edildiğinde bilgilendirme kaydı üret.
+    if (socialObserved) {
+      this.addAnomalyAlert({
+        id: `ml_retrain_${Date.now()}`,
+        severity: "info",
+        category: "environment",
+        title: "Anomali Eşikleri Gerçek Veriyle Kalibre Edildi",
+        description: `Sosyal kriz eşiği son 30 günün p95 değeri (${baselines.social_crisis_mentions.threshold}) ile güncellendi. Referans: ${sampleSize} günlük gözlem. Hassasiyet: ${currentMode.toUpperCase()}.`,
+        timestamp: Date.now(),
+        metadata: snapshot,
+      });
+    }
 
     return snapshot;
   }

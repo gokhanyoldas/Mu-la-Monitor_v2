@@ -23,14 +23,12 @@ Muğla'nın 13 ilçesi için gerçek zamanlı kentsel izleme, çevre/afet sensö
 
 ---
 
-## Dağıtım (Vercel ve GitHub Pages)
+## Dağıtım (Vercel)
 
-`vite.config.ts` içindeki `resolveViteBase` fonksiyonu hedefe göre `base` yolunu otomatik belirler:
+`vite.config.ts` içindeki `resolveViteBase` fonksiyonu `base` yolunu otomatik belirler:
 
 - **Vercel & Yerel Geliştirme:** Varsayılan `base: "/"` kullanılır. `vercel.json`, `/assets/*`, `/images/*`, `favicon.ico` ve uzantılı statik dosyaların SPA fallback ile `index.html` dönmesini engelleyecek şekilde yapılandırılmıştır.
-- **GitHub Pages:** `DEPLOY_TARGET=gh-pages` (veya `GITHUB_PAGES=true`) ayarlandığında `base: "/Mu-la-Monitor_v2/"` üretilir.
-  - **Önemli GitHub Ayarı:** GitHub Pages yayınının çalışması için repository ayarlarından **Settings → Pages → Build and deployment → Source: GitHub Actions** seçili olmalıdır.
-  - `.github/workflows/deploy-pages.yml` workflow'unda `VITE_SUPABASE_URL` ve `VITE_SUPABASE_ANON_KEY` GitHub Actions Secrets olarak tanımlanmalıdır.
+- Birincil üretim dağıtımı Vercel üzerinden yapılır; `VITE_SUPABASE_URL` ve `VITE_SUPABASE_ANON_KEY` Vercel ortam değişkenleri olarak tanımlanmalıdır.
 
 ---
 
@@ -61,8 +59,6 @@ npm run lint
 npm test
 npm run build
 node scripts/verify-build-assets.mjs --base=/
-DEPLOY_TARGET=gh-pages npm run build
-node scripts/verify-build-assets.mjs --base=/Mu-la-Monitor_v2/
 ```
 
 Production veya Vercel Preview smoke testi için:

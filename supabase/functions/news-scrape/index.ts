@@ -1,11 +1,19 @@
 // news-scrape — Muğla yerel haber kaynakları + belediye duyuruları + RSS.
-// User-agent rotasyonu, timeout koruması ve NLP zenginleştirme ile
-// social_posts tablosuna yazar (content_hash unique — otomatik dedupe).
+// User-agent rotasyonu, üstel geri çekilmeli yeniden deneme, zaman aşımı,
+// sınırlı eşzamanlılık ve kaynak-bazlı devre kesici ile social_posts
+// tablosuna yazar (content_hash unique — otomatik dedupe).
+//
+// Toplu çalıştırma (batching): ?batch=A|B|C|D parametresi kaynakları 4 gruba
+// bölerek her çağrının duvar-saati süresini kısaltır ve zaman aşımını önler.
+// Parametre verilmezse tüm kaynaklar (geriye dönük uyumlu) işlenir.
 
 import { handleCorsPreflight } from "../_shared/cors.ts";
 import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 import { analyzeText } from "../_shared/nlp.ts";
+import { canonicalizeUrl } from "../_shared/url.ts";
+import { fetchWithRetry, mapWithConcurrency } from "../_shared/fetch.ts";
+import { loadOpenCircuitNames, recordSourceHealth } from "../_shared/source-health.ts";
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
@@ -15,6 +23,9 @@ const USER_AGENTS = [
 ];
 let uaIdx = 0;
 const nextUA = () => USER_AGENTS[uaIdx++ % USER_AGENTS.length];
+
+// Eşzamanlı kaynak çekimi üst sınırı (zaman aşımı bütçesini korur)
+const FETCH_CONCURRENCY = 4;
 
 interface FeedSource { name: string; url: string; type: "rss" | "html"; platform: "news" | "emergency"; }
 
@@ -77,6 +88,15 @@ const SOURCES: FeedSource[] = [
   { name: "Kavaklıdere", type: "rss", platform: "news", url: GN("Kavakl%C4%B1dere") },
 ];
 
+// Toplu çalıştırma grupları — kaynaklar sırayla (round-robin) 4 gruba dağıtılır
+const BATCH_IDS = ["A", "B", "C", "D"] as const;
+type BatchId = typeof BATCH_IDS[number];
+
+function sourcesForBatch(batch: BatchId | null): FeedSource[] {
+  if (!batch) return SOURCES;
+  return SOURCES.filter((_, i) => BATCH_IDS[i % BATCH_IDS.length] === batch);
+}
+
 function parseRssItems(xml: string, limit = 20): { title: string; link: string; pubDate: string; description: string }[] {
   // Atom feed'leri (USGS vb.) <entry> kullanır — ikisini de destekle
   const atom = xml.match(/<entry>([\s\S]*?)<\/entry>/g);
@@ -112,6 +132,8 @@ function parseHtmlTitles(html: string, limit = 15): { title: string; link: strin
   return out;
 }
 
+interface SourceStat { fetched: number; inserted: number; duplicates: number; status: "ok" | "error" | "skipped"; }
+
 Deno.serve(async (req) => {
   const preflight = handleCorsPreflight(req, false);
   if (preflight) return preflight;
@@ -129,32 +151,95 @@ Deno.serve(async (req) => {
       { status: 500, headers: { "Content-Type": "application/json" } });
   }
 
-  const stats: Record<string, { fetched: number; inserted: number }> = {};
+  // ── Batch çözümü (?batch=A|B|C|D; yoksa tümü) ──
+  const reqUrl = new URL(req.url);
+  const rawBatch = (reqUrl.searchParams.get("batch") ?? "").trim().toUpperCase();
+  const batch: BatchId | null = (BATCH_IDS as readonly string[]).includes(rawBatch)
+    ? (rawBatch as BatchId)
+    : null;
+  const sources = sourcesForBatch(batch);
 
-  for (const src of SOURCES) {
-    stats[src.name] = { fetched: 0, inserted: 0 };
-    try {
-      const resp = await fetch(src.url, {
-        headers: { "User-Agent": nextUA(), Accept: src.type === "rss" ? "application/rss+xml,application/xml,text/xml" : "text/html" },
-        signal: AbortSignal.timeout(12000),
+  // ── Devre kesici: açık penceredeki kaynakları atla ──
+  const openCircuits = await loadOpenCircuitNames(sb, sources.map(s => s.name));
+
+  const stats: Record<string, SourceStat> = {};
+  // Çalışma boyunca görülen kanonik URL'ler (kaynaklar arası tekrar önleme)
+  const seenCanonical = new Set<string>();
+
+  await mapWithConcurrency(sources, FETCH_CONCURRENCY, async (src) => {
+    stats[src.name] = { fetched: 0, inserted: 0, duplicates: 0, status: "ok" };
+
+    if (openCircuits.has(src.name)) {
+      stats[src.name].status = "skipped";
+      return;
+    }
+
+    const outcome = await fetchWithRetry(src.url, {
+      headers: {
+        "User-Agent": nextUA(),
+        Accept: src.type === "rss"
+          ? "application/rss+xml,application/xml,text/xml"
+          : "text/html,application/xhtml+xml",
+      },
+      timeoutMs: 12000,
+      retries: 1,
+    });
+
+    if (!outcome.ok) {
+      stats[src.name].status = "error";
+      await recordSourceHealth(sb, {
+        name: src.name,
+        url: src.url,
+        ok: false,
+        httpStatus: outcome.status,
+        error: outcome.error ?? "fetch failed",
+        latencyMs: outcome.latencyMs,
       });
-      if (!resp.ok) continue;
-      const body = await resp.text();
+      return;
+    }
 
+    try {
       const items = src.type === "rss"
-        ? parseRssItems(body).map(i => ({ ...i, text: `${i.title} ${i.description}` }))
-        : parseHtmlTitles(body).map(i => ({ ...i, pubDate: new Date().toISOString(), text: i.title }));
+        ? parseRssItems(outcome.body).map(i => ({ ...i, text: `${i.title} ${i.description}` }))
+        : parseHtmlTitles(outcome.body).map(i => ({ ...i, pubDate: new Date().toISOString(), text: i.title }));
 
       stats[src.name].fetched = items.length;
 
-      for (const item of items) {
-        const nlp = analyzeText(item.text);
+      // URL'leri çöz + kanonikleştir (sendikasyon/parametre tekrarlarını yakala)
+      const enriched = items.map(item => {
         const url = item.link.startsWith("http") ? item.link : new URL(item.link, src.url).href;
+        return { item, url, canonical: canonicalizeUrl(url) };
+      });
+
+      // Aynı kanonik URL daha önce kaydedilmiş mi? (tek toplu sorgu)
+      const canonicalList = enriched
+        .map(e => e.canonical)
+        .filter((c): c is string => !!c);
+      const existing = new Set<string>();
+      if (canonicalList.length > 0) {
+        const { data } = await sb
+          .from("social_posts")
+          .select("url_canonical")
+          .in("url_canonical", canonicalList);
+        for (const row of data ?? []) {
+          if (row.url_canonical) existing.add(row.url_canonical as string);
+        }
+      }
+
+      for (const { item, url, canonical } of enriched) {
+        if (canonical && (seenCanonical.has(canonical) || existing.has(canonical))) {
+          stats[src.name].duplicates++;
+          continue;
+        }
+        if (canonical) seenCanonical.add(canonical);
+
+        const nlp = analyzeText(item.text);
         const { error } = await sb.from("social_posts").upsert({
           platform: src.platform === "emergency" ? "emergency_feed" : "news",
           content: item.text.slice(0, 2000),
           author: src.name,
           url,
+          url_canonical: canonical,
           published_at: new Date(item.pubDate).toISOString(),
           keywords_matched: nlp.entities.map(e => e.name),
           region: nlp.district,
@@ -184,11 +269,41 @@ Deno.serve(async (req) => {
           }
         }
       }
-    } catch (err) {
-      console.warn(`[news-scrape] ${src.name} başarısız:`, err);
-    }
-  }
 
-  return new Response(JSON.stringify({ ok: true, stats }),
+      await recordSourceHealth(sb, {
+        name: src.name,
+        url: src.url,
+        ok: true,
+        httpStatus: outcome.status,
+        latencyMs: outcome.latencyMs,
+      });
+    } catch (err) {
+      console.warn(`[news-scrape] ${src.name} işlenemedi:`, err);
+      stats[src.name].status = "error";
+      await recordSourceHealth(sb, {
+        name: src.name,
+        url: src.url,
+        ok: false,
+        httpStatus: outcome.status,
+        error: err instanceof Error ? err.message : String(err),
+        latencyMs: outcome.latencyMs,
+      });
+    }
+  });
+
+  const summary = Object.values(stats).reduce(
+    (acc, s) => {
+      acc.sources++;
+      acc.fetched += s.fetched;
+      acc.inserted += s.inserted;
+      acc.duplicates += s.duplicates;
+      if (s.status === "error") acc.errors++;
+      if (s.status === "skipped") acc.skipped++;
+      return acc;
+    },
+    { sources: 0, fetched: 0, inserted: 0, duplicates: 0, errors: 0, skipped: 0 },
+  );
+
+  return new Response(JSON.stringify({ ok: true, batch: batch ?? "ALL", summary, stats }),
     { headers: { "Content-Type": "application/json" } });
 });

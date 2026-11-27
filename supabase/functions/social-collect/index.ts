@@ -5,6 +5,7 @@
 
 import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
 import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
+import { canonicalizeUrl, dedupeByCanonical } from "../_shared/url.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface CollectedPost {
@@ -447,7 +448,7 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
     return { sentiment: "neutral", confidence: 0.55 };
   }
 
-  const postsToInsert = posts.map(p => {
+  const prepared = posts.map(p => {
     const { sentiment, confidence } = analyzeSentiment(p.content);
     return {
       platform: p.platform,
@@ -456,6 +457,7 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
       content: p.content,
       author: p.author,
       url: p.url,
+      url_canonical: canonicalizeUrl(p.url),
       published_at: p.published_at,
       keywords_matched: p.keywords_matched,
       region: p.region || null,
@@ -466,6 +468,9 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
       analyzed_at: new Date().toISOString(),
     };
   });
+
+  // Aynı kanonik URL'yi batch içinde bir kez gönder (sendikasyon tekrarı önleme)
+  const postsToInsert = dedupeByCanonical(prepared, p => p.url);
 
   if (postsToInsert.length > 0) {
     const { error } = await supabase
