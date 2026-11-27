@@ -6,6 +6,7 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { GroundTruthTrafficPatch } from "@/services/fieldArbitrationEngine";
+import { DEFAULT_TRAFFIC_HOTSPOTS } from "@/data/officialReferenceData";
 
 type DistrictZone = {
   name: string;
@@ -17,21 +18,15 @@ type DistrictZone = {
   confidence?: number;
 };
 
-const fallbackZones: DistrictZone[] = [
-  { name: "Bodrum", lat: 37.04, lng: 27.43, density: 78 },
-  { name: "Fethiye", lat: 36.65, lng: 29.12, density: 62 },
-  { name: "Marmaris", lat: 36.85, lng: 28.27, density: 71 },
-  { name: "Milas", lat: 37.32, lng: 27.78, density: 45 },
-  { name: "Muğla Merkez", lat: 37.22, lng: 28.36, density: 55 },
-  { name: "Datça", lat: 36.73, lng: 27.69, density: 25 },
-  { name: "Dalaman", lat: 36.77, lng: 28.80, density: 52 },
-  { name: "Ortaca", lat: 36.84, lng: 28.76, density: 38 },
-  { name: "Köyceğiz", lat: 36.97, lng: 28.68, density: 22 },
-  { name: "Yatağan", lat: 37.34, lng: 28.13, density: 35 },
-  { name: "Ula", lat: 37.10, lng: 28.41, density: 30 },
-  { name: "Kavaklıdere", lat: 37.44, lng: 28.38, density: 15 },
-  { name: "Seydikemer", lat: 36.65, lng: 29.35, density: 28 },
-];
+const fallbackZones: DistrictZone[] = DEFAULT_TRAFFIC_HOTSPOTS.map((h) => ({
+  name: h.name,
+  lat: h.lat,
+  lng: h.lon,
+  density: h.density,
+  speed: h.currentSpeed,
+  freeFlow: h.freeFlowSpeed,
+  confidence: h.confidence,
+}));
 
 const getDensityColor = (density: number) => {
   if (density >= 70) return "hsl(var(--destructive))";
@@ -116,12 +111,12 @@ export const TrafficDensityMap = () => {
           lat: Number(z.lat ?? 0),
           lng: Number(z.lng ?? z.lon ?? 0),
           density: Math.min(100, Math.max(0, Math.round(Number(z.density ?? 0)))),
-          speed: z.speed != null ? Number(z.speed) : undefined,
-          freeFlow: z.freeFlow != null ? Number(z.freeFlow) : undefined,
+          speed: z.speed != null ? Number(z.speed) : z.currentSpeed != null ? Number(z.currentSpeed) : undefined,
+          freeFlow: z.freeFlow != null ? Number(z.freeFlow) : z.freeFlowSpeed != null ? Number(z.freeFlowSpeed) : undefined,
           confidence: z.confidence != null ? Number(z.confidence) : undefined,
         }))
       : fallbackZones;
-  const isLive = !!trafficData?.hotspots?.length || !!trafficData?.zones?.length;
+  const isLive = Boolean((trafficData?.hotspots?.length || trafficData?.zones?.length) && !trafficData?.isReference);
   const hub = useOptionalUnifiedIntelligence();
   const groundTruthPatches = hub?.groundTruthPatches ?? [];
   const selectedPatch = groundTruthPatches.find((p) => p.id === selectedPatchId) ?? null;
@@ -145,7 +140,12 @@ export const TrafficDensityMap = () => {
   );
 
   return (
-    <DashboardPanel title="Trafik Yoğunluk Haritası" icon={<Map size={14} />} badge="CANLI" badgeVariant="live">
+    <DashboardPanel
+      title="Trafik Yoğunluk Haritası"
+      icon={<Map size={14} />}
+      badge={isLive ? "CANLI" : "REFERANS VERİ"}
+      badgeVariant={isLive ? "live" : "info"}
+    >
       {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-3 gap-2 mb-3">
         <StatCard

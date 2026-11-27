@@ -7,8 +7,13 @@ import { useLiveData } from "@/hooks/useLiveData";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useEconomyIntelligence, VERIFIED_BUDGET_SEED } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
-import { useMonitorStore, selectEconomyOverride } from "@/store/useMonitorStore";
+import { useMonitorStore, selectEconomyOverride, selectMonitorTabs } from "@/store/useMonitorStore";
 import { formatRelativeTime } from "@/lib/time-utils";
+import {
+  OFFICIAL_ECONOMY_REFERENCE,
+  readMonitorTabMetricNumber,
+  readMonitorTabMetricString,
+} from "@/data/officialReferenceData";
 
 const gdpDataTr = [
   { name: "Oca", value: 82 }, { name: "Şub", value: 85 }, { name: "Mar", value: 88 },
@@ -37,6 +42,7 @@ export const EconomyOverviewPanel = () => {
   const { lang, t, translate } = useTranslation();
   const isEn = lang === "en";
   const storeEconomy = useMonitorStore(selectEconomyOverride);
+  const monitorTabs = useMonitorStore(selectMonitorTabs);
   const queryEconomy = useEconomyIntelligence();
   const activeEconomy =
     storeEconomy?.hasVerifiedLiveData && !queryEconomy.hasVerifiedLiveData
@@ -58,6 +64,33 @@ export const EconomyOverviewPanel = () => {
     latestMeasuredAt,
   } = activeEconomy;
   const isLoading = queryEconomy.isLoading;
+
+  const tabUnemployment = readMonitorTabMetricNumber(monitorTabs, "ekonomi", [
+    "unemploymentRate",
+    "unemployment_rate",
+    "issizlik",
+  ]);
+  const tabTourismRev = readMonitorTabMetricString(monitorTabs, "ekonomi", [
+    "tourismRevenueBn",
+    "tourism_revenue_bn",
+    "turizm_geliri",
+  ]);
+  const tabNewCompanies = readMonitorTabMetricNumber(monitorTabs, "ekonomi", [
+    "newCompanies",
+    "new_companies",
+    "yeni_sirket",
+  ]);
+
+  const resolvedUnemployment =
+    unemploymentRate ?? tabUnemployment ?? OFFICIAL_ECONOMY_REFERENCE.unemploymentRate;
+  const resolvedTourismRev =
+    tourismRevenueBn ?? tabTourismRev ?? OFFICIAL_ECONOMY_REFERENCE.tourismRevenueBn;
+  const resolvedNewCompanies =
+    newCompanies ?? tabNewCompanies ?? OFFICIAL_ECONOMY_REFERENCE.newCompanies;
+
+  const isUnemploymentRef = unemploymentRate === null && tabUnemployment === null;
+  const isTourismRevRef = tourismRevenueBn === null && tabTourismRev === null;
+  const isNewCompaniesRef = newCompanies === null && tabNewCompanies === null;
 
   const ecoBadge =
     hasVerifiedBudgetUpdate || budgetItems.length > 0
@@ -105,23 +138,47 @@ export const EconomyOverviewPanel = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
         <StatCard
           label="İşsizlik"
-          value={unemploymentRate !== null ? String(unemploymentRate) : "—"}
-          unit={unemploymentRate !== null ? "%" : undefined}
+          value={String(resolvedUnemployment)}
+          unit="%"
           variant="primary"
-          info={isEn ? "TurkStat regional labor force rate." : "TÜİK İşgücü İstatistikleri."}
+          info={
+            isUnemploymentRef
+              ? isEn
+                ? `Reference data · TurkStat 2024 labor force rate (${OFFICIAL_ECONOMY_REFERENCE.unemploymentPeriod}).`
+                : `REFERANS VERİ · ${OFFICIAL_ECONOMY_REFERENCE.unemploymentPeriod}.`
+              : isEn
+              ? "TurkStat regional labor force rate."
+              : "TÜİK İşgücü İstatistikleri."
+          }
         />
         <StatCard
           label="Turizm Geliri"
-          value={tourismRevenueBn ?? "—"}
-          unit={tourismRevenueBn !== null ? (isEn ? "B ₺" : "Milyar ₺") : undefined}
+          value={resolvedTourismRev}
+          unit={isEn ? "B ₺" : "Milyar ₺"}
           variant="primary"
-          info={isEn ? "Ministry of Culture & Tourism annual revenue × live FX rate." : "Kültür ve Turizm Bakanlığı yıllık verisi × güncel TCMB/ECB kuru."}
+          info={
+            isTourismRevRef
+              ? isEn
+                ? `Reference data · ${OFFICIAL_ECONOMY_REFERENCE.tourismRevenueSource}.`
+                : `REFERANS VERİ · ${OFFICIAL_ECONOMY_REFERENCE.tourismRevenueSource}.`
+              : isEn
+              ? "Ministry of Culture & Tourism annual revenue × live FX rate."
+              : "Kültür ve Turizm Bakanlığı yıllık verisi × güncel TCMB/ECB kuru."
+          }
         />
         <StatCard
           label="Yeni Şirket"
-          value={newCompanies !== null ? String(newCompanies) : "—"}
+          value={resolvedNewCompanies.toLocaleString("tr-TR")}
           variant="accent"
-          info={isEn ? "TOBB company formation statistics." : "TOBB şirket kuruluş istatistikleri."}
+          info={
+            isNewCompaniesRef
+              ? isEn
+                ? `Reference data · ${OFFICIAL_ECONOMY_REFERENCE.newCompaniesSource}.`
+                : `REFERANS VERİ · ${OFFICIAL_ECONOMY_REFERENCE.newCompaniesSource}.`
+              : isEn
+              ? "TOBB company formation statistics."
+              : "TOBB şirket kuruluş istatistikleri."
+          }
         />
         <StatCard
           label="Bütçe / İhale"

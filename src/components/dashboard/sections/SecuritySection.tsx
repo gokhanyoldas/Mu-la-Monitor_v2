@@ -626,7 +626,6 @@ export const SecuritySection = () => {
       </DashboardPanel>
 
       <EmergencyPanel />
-      <LocalGovQuickPanel />
 
       <DashboardPanel title="Haber Akışı" icon={<Newspaper size={14} />} badge="CANLI" badgeVariant="live">
         {newsLoading && <Loader2 size={12} className="animate-spin text-muted-foreground mb-2" />}

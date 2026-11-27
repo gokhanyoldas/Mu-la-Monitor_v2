@@ -8,8 +8,13 @@ import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceCo
 import { useTranslation } from "@/hooks/useTranslation";
 import { useTourismIntelligence, formatShortTurkishDate } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
-import { useMonitorStore, selectTourismOverride } from "@/store/useMonitorStore";
+import { useMonitorStore, selectTourismOverride, selectMonitorTabs } from "@/store/useMonitorStore";
 import { formatRelativeTime } from "@/lib/time-utils";
+import {
+  OFFICIAL_TOURISM_REFERENCE,
+  readMonitorTabMetricNumber,
+  readMonitorTabMetricString,
+} from "@/data/officialReferenceData";
 
 const touristDataTr = [
   { name: "Oca", value: 45 }, { name: "Şub", value: 52 }, { name: "Mar", value: 78 },
@@ -29,6 +34,7 @@ export const TourismMovementPanel = () => {
   const { lang, t, translate } = useTranslation();
   const isEn = lang === "en";
   const storeTourism = useMonitorStore(selectTourismOverride);
+  const monitorTabs = useMonitorStore(selectMonitorTabs);
   const queryTourism = useTourismIntelligence();
   const activeTourism =
     storeTourism?.hasVerifiedLiveData && !queryTourism.hasVerifiedLiveData
@@ -49,12 +55,35 @@ export const TourismMovementPanel = () => {
     .map((e) => e.tourismRiskAlert)
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
 
+  const tabAnnualTourists = readMonitorTabMetricString(monitorTabs, "turizm", [
+    "annualTourists",
+    "annual_tourists",
+    "turist",
+  ]);
+  const tabAirportPassengers = readMonitorTabMetricString(monitorTabs, "turizm", [
+    "airportPassengers",
+    "airport_passengers",
+    "havalimani_yolcu",
+  ]);
+  const tabCruiseShips = readMonitorTabMetricNumber(monitorTabs, "turizm", [
+    "cruiseShips",
+    "cruise_ships",
+    "kruvaziyer",
+  ]);
+
+  const resolvedAnnualTourists =
+    annualTourists ?? tabAnnualTourists ?? OFFICIAL_TOURISM_REFERENCE.annualTourists;
+  const resolvedAirportPassengers =
+    airportPassengers ?? tabAirportPassengers ?? OFFICIAL_TOURISM_REFERENCE.airportPassengers;
+  const resolvedCruiseShips =
+    cruiseShips ?? tabCruiseShips ?? OFFICIAL_TOURISM_REFERENCE.cruiseShips;
+
   return (
     <DashboardPanel
       title="Turizm"
       icon={<Plane size={14} />}
-      badge={hasVerifiedLiveData ? "GÜNCEL" : "ÖLÇÜM BEKLENİYOR"}
-      badgeVariant={hasVerifiedLiveData ? "active" : "warning"}
+      badge={hasVerifiedLiveData ? "GÜNCEL" : "REFERANS VERİ"}
+      badgeVariant={hasVerifiedLiveData ? "active" : "info"}
       count={headlines.length > 0 ? headlines.length : undefined}
     >
       <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
@@ -72,9 +101,17 @@ export const TourismMovementPanel = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
         <StatCard
           label="Yıllık Turist"
-          value={annualTourists ?? "—"}
+          value={resolvedAnnualTourists}
           variant="primary"
-          info={isEn ? "Verified tourism arrivals from Ministry of Culture & Tourism / regional reports." : "Kültür ve Turizm Bakanlığı / yerel sektör kaynakları."}
+          info={
+            annualTourists
+              ? isEn
+                ? "Verified tourism arrivals from Ministry of Culture & Tourism / regional reports."
+                : "Kültür ve Turizm Bakanlığı / yerel sektör kaynakları."
+              : isEn
+              ? `Reference data · ${OFFICIAL_TOURISM_REFERENCE.annualTouristsSource}.`
+              : `REFERANS VERİ · ${OFFICIAL_TOURISM_REFERENCE.annualTouristsSource}.`
+          }
         />
         <StatCard
           label="Ülke Sayısı"
@@ -84,14 +121,30 @@ export const TourismMovementPanel = () => {
         />
         <StatCard
           label="Havalimanı Yolcu"
-          value={airportPassengers ?? "—"}
-          info={isEn ? "DHMİ Dalaman + Milas-Bodrum annual passenger volume." : "DHMİ Dalaman + Milas-Bodrum yıllık yolcu sayısı."}
+          value={resolvedAirportPassengers}
+          info={
+            airportPassengers
+              ? isEn
+                ? "DHMİ Dalaman + Milas-Bodrum annual passenger volume."
+                : "DHMİ Dalaman + Milas-Bodrum yıllık yolcu sayısı."
+              : isEn
+              ? `Reference data · ${OFFICIAL_TOURISM_REFERENCE.airportPassengersSource}.`
+              : `REFERANS VERİ · ${OFFICIAL_TOURISM_REFERENCE.airportPassengersSource}.`
+          }
         />
         <StatCard
           label="Kruvaziyer"
-          value={cruiseShips !== null ? String(cruiseShips) : "—"}
-          unit={cruiseShips !== null ? (isEn ? "ships" : "gemi") : undefined}
-          info={isEn ? "Annual cruise ship arrivals." : "Kültür ve Turizm Bakanlığı kruvaziyer gemi sayısı."}
+          value={String(resolvedCruiseShips)}
+          unit={isEn ? "ships" : "gemi"}
+          info={
+            cruiseShips !== null
+              ? isEn
+                ? "Annual cruise ship arrivals."
+                : "Kültür ve Turizm Bakanlığı kruvaziyer gemi sayısı."
+              : isEn
+              ? `Reference data · ${OFFICIAL_TOURISM_REFERENCE.cruiseShipsSource}.`
+              : `REFERANS VERİ · ${OFFICIAL_TOURISM_REFERENCE.cruiseShipsSource}.`
+          }
         />
       </div>
       {headlines.length > 0 && (
@@ -120,7 +173,7 @@ export const TourismMovementPanel = () => {
       </span>
       <MiniChart data={isEn ? touristDataEn : touristDataTr} color="hsl(200, 80%, 50%)" height={70} showAxis />
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-1" data-testid="tourism-movement-source-note">
-        {translate(movementSourceSummary)}
+        {translate(hasVerifiedLiveData ? movementSourceSummary : OFFICIAL_TOURISM_REFERENCE.sourceSummary)}
         {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>
@@ -131,6 +184,7 @@ export const AccommodationPanel = () => {
   const { lang, translate } = useTranslation();
   const isEn = lang === "en";
   const storeTourism = useMonitorStore(selectTourismOverride);
+  const monitorTabs = useMonitorStore(selectMonitorTabs);
   const queryTourism = useTourismIntelligence();
   const activeTourism =
     storeTourism?.hasVerifiedOccupancy && !queryTourism.hasVerifiedOccupancy
@@ -150,27 +204,51 @@ export const AccommodationPanel = () => {
     .map((e) => e.tourismRiskAlert)
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
 
+  const tabOccupancy = readMonitorTabMetricNumber(monitorTabs, "turizm", [
+    "hotelOccupancyPct",
+    "hotel_occupancy",
+    "doluluk",
+  ]);
+  const tabTotalBeds = readMonitorTabMetricString(monitorTabs, "turizm", [
+    "totalBedsK",
+    "total_beds_k",
+    "toplam_yatak",
+  ]);
+
+  const resolvedOccupancy =
+    hotelOccupancyPct ?? tabOccupancy ?? OFFICIAL_TOURISM_REFERENCE.hotelOccupancyPct;
+  const resolvedTotalBeds =
+    totalBedsK ?? tabTotalBeds ?? OFFICIAL_TOURISM_REFERENCE.totalBedsK;
+
   return (
     <DashboardPanel
       title="Konaklama"
       icon={<Hotel size={14} />}
-      badge={tourismRisks.length > 0 ? "ŞANTİYE RİSKİ" : hasVerifiedOccupancy ? "GÜNCEL" : "ÖLÇÜM BEKLENİYOR"}
-      badgeVariant={tourismRisks.length > 0 ? "warning" : hasVerifiedOccupancy ? "active" : "warning"}
+      badge={tourismRisks.length > 0 ? "ŞANTİYE RİSKİ" : hasVerifiedOccupancy ? "GÜNCEL" : "REFERANS VERİ"}
+      badgeVariant={tourismRisks.length > 0 ? "warning" : hasVerifiedOccupancy ? "active" : "info"}
     >
       <DataOriginBadge origin={hasVerifiedOccupancy ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedOccupancy && (
         <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
       )}
-      {hasVerifiedOccupancy && hotelOccupancyPct !== null ? (
-        <div className="flex justify-around mb-3">
-          <Gauge value={hotelOccupancyPct} max={100} label="Otel Doluluk" variant="accent" />
+      <div className="flex items-center justify-around gap-3 mb-3">
+        <Gauge value={resolvedOccupancy} max={100} label="Otel Doluluk" variant="accent" />
+        <div className="min-w-[120px] flex-1 max-w-[180px]">
+          <StatCard
+            label="Toplam Yatak"
+            value={resolvedTotalBeds}
+            info={
+              totalBedsK
+                ? isEn
+                  ? "Ministry of Culture & Tourism registered bed capacity."
+                  : "Kültür ve Turizm Bakanlığı kayıtlı yatak kapasitesi."
+                : isEn
+                ? `Reference data · ${OFFICIAL_TOURISM_REFERENCE.totalBedsSource}.`
+                : `REFERANS VERİ · ${OFFICIAL_TOURISM_REFERENCE.totalBedsSource}.`
+            }
+          />
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Otel Doluluk" value="—" variant="accent" />
-          <StatCard label="Toplam Yatak" value={totalBedsK ?? "—"} />
-        </div>
-      )}
+      </div>
       {districtRates.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5 mb-2">
           {districtRates.map((r) => (
@@ -196,7 +274,7 @@ export const AccommodationPanel = () => {
         </div>
       )}
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-1" data-testid="tourism-occupancy-source-note">
-        {translate(occupancySourceSummary)}
+        {translate(hasVerifiedOccupancy ? occupancySourceSummary : OFFICIAL_TOURISM_REFERENCE.sourceSummary)}
         {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>

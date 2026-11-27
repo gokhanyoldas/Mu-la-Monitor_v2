@@ -10,6 +10,7 @@ import {
   markGeminiRateLimited,
   RATE_LIMIT_COOLDOWN_MS,
 } from "./api/intel/topic-grounding.ts";
+import { getFlightsPayload } from "./api/flights.ts";
 
 const PORT = Number(process.env.PORT || 3000);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-4-hydrogen";
@@ -58,6 +59,18 @@ async function startServer() {
   app.get("/api/health", (_req, res) => {
     const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
     res.json({ ok: true, geminiConfigured, model: GEMINI_MODEL });
+  });
+
+  // DLM & BJV ADS-B flight tracker proxy (transit-filtered, clean DHMİ reference fallback)
+  app.get("/api/flights", async (_req, res) => {
+    try {
+      const payload = await getFlightsPayload();
+      res.setHeader("Cache-Control", "public, max-age=60");
+      return res.json(payload);
+    } catch {
+      const { buildReferenceFlightsPayload } = await import("./api/flights.ts");
+      return res.json(buildReferenceFlightsPayload());
+    }
   });
 
   // Step 3: Multi-Issue Decomposition, Implicit Subtext & Multimodal Post Analysis

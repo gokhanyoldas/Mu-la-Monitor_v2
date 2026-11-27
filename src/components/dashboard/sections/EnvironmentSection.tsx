@@ -15,21 +15,17 @@ import {
   selectDams,
   selectActiveDistrict,
 } from "@/store/useMonitorStore";
-
-const defaultWeather = {
-  temperature: 14,
-  humidity: 68,
-  wind_speed: 22,
-  windspeed: 22,
-  uv_index: 3,
-  sea_temp: 16,
-  condition: "Açık",
-};
+import { DataOriginBadge } from "../DataOriginBadge";
+import {
+  DEFAULT_WEATHER_SNAPSHOT,
+  DEFAULT_AQI_SNAPSHOT,
+  OFFICIAL_DAM_REFERENCE_OCCUPANCY,
+  eaqiToTurkishLabel,
+} from "@/data/officialReferenceData";
 
 // Safe display value: returns String(v) if defined/non-null, else fallback
 const sv = (v: any, fallback: number | string) =>
   v !== undefined && v !== null ? String(v) : String(fallback);
-const defaultAirQuality = { aqi: 42, pm25: 15, pm10: 28, quality_label: "İyi" };
 
 export const EnvironmentSection = () => {
   return (
@@ -45,37 +41,43 @@ export const WeatherClimatePanel = () => {
   const { lang, t } = useTranslation();
   const isEn = lang === "en";
   const { data: weatherData } = useLiveData<any>("weather", { refetchInterval: 15 * 60 * 1000 });
-  const w = weatherData || defaultWeather;
+  const w = weatherData || DEFAULT_WEATHER_SNAPSHOT;
+  const isLiveWeather = Boolean(weatherData && !weatherData.isReference);
 
   return (
     <div className="relative">
-      <DashboardPanel title="Hava & İklim" icon={<Wind size={14} />} badge="CANLI" badgeVariant="live">
+      <DashboardPanel
+        title="Hava & İklim"
+        icon={<Wind size={14} />}
+        badge={isLiveWeather ? "CANLI" : "REFERANS VERİ"}
+        badgeVariant={isLiveWeather ? "live" : "info"}
+      >
         <div className="absolute top-2 right-12 opacity-75">
           <DataFreshnessIndicator category="weather" size="sm" />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
           <StatCard
             label="Sıcaklık"
-            value={sv(w.temperature, 14)}
+            value={sv(w.temperature, DEFAULT_WEATHER_SNAPSHOT.temperature)}
             unit="°C"
             variant="primary"
             info={isEn ? "Open-Meteo live weather station (Muğla center). Updated every 15 min." : "Open-Meteo güncel hava istasyonu (Muğla merkez). 15 dakikada bir güncellenir."}
           />
           <StatCard
             label="Nem"
-            value={sv(w.humidity, 68)}
+            value={sv(w.humidity, DEFAULT_WEATHER_SNAPSHOT.humidity)}
             unit="%"
             info={isEn ? "Open-Meteo relative humidity. Updated every 15 min." : "Open-Meteo bağıl nem. 15 dakikada bir güncellenir."}
           />
           <StatCard
             label="Rüzgar"
-            value={sv(w.windspeed ?? w.wind_speed, 22)}
+            value={sv(w.windspeed ?? w.wind_speed, DEFAULT_WEATHER_SNAPSHOT.windspeed)}
             unit={isEn ? "km/h" : "km/sa"}
             info={isEn ? "Open-Meteo 10m wind speed. Updated every 15 min." : "Open-Meteo 10m rüzgar hızı. 15 dakikada bir güncellenir."}
           />
           <StatCard
             label="UV İndeksi"
-            value={sv(w.uv_index, 0)}
+            value={sv(w.uv_index, DEFAULT_WEATHER_SNAPSHOT.uv_index)}
             variant="accent"
             info={isEn ? "Open-Meteo UV index (0-11+). Daily maximum." : "Open-Meteo UV indeksi (0-11+). Günlük maksimum."}
           />
@@ -83,14 +85,14 @@ export const WeatherClimatePanel = () => {
         <div className="grid grid-cols-2 gap-2 mb-3">
           <StatCard
             label="Deniz Suyu"
-            value={sv(w.sea_temp, 16)}
+            value={sv(w.sea_temp, DEFAULT_WEATHER_SNAPSHOT.sea_temp)}
             unit="°C"
             variant="accent"
             info={isEn ? "Open-Meteo sea surface temperature (Aegean). Daily update." : "Open-Meteo deniz yüzey sıcaklığı (Ege). Günlük güncellenir."}
           />
           <StatCard
             label="Durum"
-            value={t(w.condition || "Açık")}
+            value={t(w.condition || DEFAULT_WEATHER_SNAPSHOT.condition)}
             info={isEn ? "Live WMO weather condition." : "Open-Meteo WMO hava kodu çevirisi. Anlık durum."}
           />
         </div>
@@ -120,22 +122,24 @@ export const AirQualityPanel = () => {
   const { lang } = useTranslation();
   const isEn = lang === "en";
   const { data: airData } = useLiveData<any>("air_quality", { refetchInterval: 30 * 60 * 1000 });
-  const aq = airData || defaultAirQuality;
+  const aq = airData || DEFAULT_AQI_SNAPSHOT;
+  const aqiVal = Number(aq.aqi ?? DEFAULT_AQI_SNAPSHOT.aqi);
+  const resolvedLabel = aq.aqi_label ?? aq.quality_label ?? eaqiToTurkishLabel(aqiVal);
 
   return (
     <div className="relative">
       <DashboardPanel
         title="Hava Kalitesi"
-        badge={aq.aqi_label ?? aq.quality_label ?? "ORTA"}
-        badgeVariant={aq.aqi <= 50 ? "active" : aq.aqi <= 100 ? "warning" : "alert"}
+        badge={resolvedLabel}
+        badgeVariant={aqiVal <= 40 ? "active" : aqiVal <= 60 ? "warning" : "alert"}
       >
         <div className="absolute top-2 right-12 opacity-75">
           <DataFreshnessIndicator category="air_quality" size="sm" />
         </div>
         <div className="flex justify-around">
-          <Gauge value={aq.aqi} max={100} label="AQI" variant="primary" />
-          <Gauge value={aq.pm25} max={50} label="PM2.5" variant="primary" />
-          <Gauge value={aq.pm10} max={100} label="PM10" variant="primary" />
+          <Gauge value={aqiVal} max={100} label="AQI" variant="primary" />
+          <Gauge value={Number(aq.pm25 ?? DEFAULT_AQI_SNAPSHOT.pm25)} max={50} label="PM2.5" variant="primary" />
+          <Gauge value={Number(aq.pm10 ?? DEFAULT_AQI_SNAPSHOT.pm10)} max={100} label="PM10" variant="primary" />
         </div>
         <p className="tech-meta-only text-[8px] font-mono text-muted-foreground/75 mt-2 text-center">
           {isEn
@@ -176,23 +180,29 @@ export const WaterDamsPanel = () => {
       <DashboardPanel
         title="Su & Barajlar"
         icon={<Droplets size={14} />}
-        badge={hasVerifiedLiveData ? "GÜNCEL" : "ÖLÇÜM BEKLENİYOR"}
-        badgeVariant={hasVerifiedLiveData ? "active" : "warning"}
+        badge={hasVerifiedLiveData ? "GÜNCEL" : "REFERANS VERİ"}
+        badgeVariant={hasVerifiedLiveData ? "active" : "info"}
       >
+        <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
         {isLoading && !hasVerifiedLiveData && (
           <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />
         )}
         <div className="space-y-1.5 mb-3">
           {dams.map((dam) => {
-            const hasRate = dam.occupancyRate !== null;
-            const rate = dam.occupancyRate ?? 0;
+            const isDamLive = dam.occupancyRate !== null;
+            const refRate = OFFICIAL_DAM_REFERENCE_OCCUPANCY[dam.id] ?? null;
+            const effectiveRate = isDamLive ? dam.occupancyRate : refRate;
+            const hasRate = effectiveRate !== null;
+            const rate = effectiveRate ?? 0;
             const shortDate = formatShortTurkishDate(dam.measuredAt);
             const localizedCap = t(dam.capacityLabel);
             const isDistrictMatch =
               Boolean(activeDistrict) &&
               dam.district.toLocaleLowerCase("tr-TR").includes(activeDistrict!);
-            const rowTitle = hasRate
+            const rowTitle = isDamLive
               ? `${t(dam.name)}: %${dam.occupancyRate} · ${dam.sourceName || (isEn ? "Local Press/DSİ" : "Yerel Basın/DSİ")}${shortDate ? ` (${translate(shortDate)})` : ""}`
+              : hasRate
+              ? `${t(dam.name)} (${localizedCap}): %${effectiveRate} · ${isEn ? "DSİ / MUSKİ 2024 Reference Data" : "DSİ / MUSKİ 2024 Referans Verisi"}`
               : `${t(dam.name)} (${localizedCap}) · ${isEn ? "Awaiting official live measurement" : "Canlı resmi ölçüm bekleniyor"}`;
 
             return (
@@ -213,7 +223,7 @@ export const WaterDamsPanel = () => {
                     <div
                       className={`h-full rounded-full transition-all ${
                         rate >= 60 ? "bg-success" : rate >= 45 ? "bg-warning" : "bg-destructive"
-                      }`}
+                      } ${!isDamLive ? "opacity-75" : ""}`}
                       style={{ width: `${Math.min(100, Math.max(0, rate))}%` }}
                     />
                   )}
@@ -229,7 +239,7 @@ export const WaterDamsPanel = () => {
                       : "text-destructive"
                   }`}
                 >
-                  {hasRate ? `${dam.occupancyRate}%` : "—"}
+                  {hasRate ? `${effectiveRate}%` : "—"}
                 </span>
                 <span className="text-[9px] font-mono text-muted-foreground w-20 text-right shrink-0">
                   {localizedCap}
@@ -251,7 +261,11 @@ export const WaterDamsPanel = () => {
           </div>
         )}
         <p className="text-[8px] font-mono text-muted-foreground/75 mt-2" data-testid="dam-source-note">
-          {translate(latestSourceSummary)}
+          {hasVerifiedLiveData
+            ? translate(latestSourceSummary)
+            : isEn
+            ? "No live official measurement · Showing DSİ / MUSKİ 2024 reference levels (8 verified Muğla dams)"
+            : "Canlı resmi ölçüm yok · DSİ / MUSKİ 2024 referans doluluk verileri gösteriliyor (8 doğrulamalı Muğla barajı)"}
         </p>
       </DashboardPanel>
     </div>

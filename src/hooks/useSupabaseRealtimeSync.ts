@@ -196,7 +196,8 @@ export function useSupabaseRealtimeSync(enabled = true) {
           | "protocol_members"
           | "protocol_changes"
           | "ai_summaries"
-          | "live_data_cache",
+          | "live_data_cache"
+          | "social_posts",
         columns: string,
         orderCol: string,
         ascending: boolean,
@@ -241,12 +242,19 @@ export function useSupabaseRealtimeSync(enabled = true) {
           safeSelect("protocol_changes", "unvan, isim_new, scraped_at", "scraped_at", false, 20),
           safeSelect("ai_summaries", "type, date, summary, generated_at", "generated_at", false, 6),
           safeSelect("live_data_cache", "data_type, data, fetched_at", "fetched_at", false, 30),
+          safeSelect(
+            "social_posts",
+            "id, platform, content, sentiment, region, author, url, published_at, keywords_matched",
+            "published_at",
+            false,
+            120
+          ),
         ]);
 
         if (cancelled) return;
         const store = useMonitorStore.getState();
 
-        const [monitorRes, districtsRes, membersRes, changesRes, summariesRes, cacheRes] = results;
+        const [monitorRes, districtsRes, membersRes, changesRes, summariesRes, cacheRes, socialRes] = results;
 
         if (monitorRes.status === "fulfilled" && !monitorRes.value.error && Array.isArray(monitorRes.value.data)) {
           try {
@@ -375,6 +383,39 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 fetched_at?: string;
               }
             );
+          }
+        }
+
+        if (socialRes.status === "fulfilled" && !socialRes.value.error && Array.isArray(socialRes.value.data)) {
+          try {
+            const posts = socialRes.value.data
+              .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object" && r.content))
+              .map((r) => ({
+                id: String(r.id ?? `sp-${Math.random().toString(36).slice(2)}`),
+                platform: String(r.platform ?? "news"),
+                content: String(r.content ?? ""),
+                sentiment: String(r.sentiment ?? "neutral"),
+                districtName: typeof r.region === "string" ? r.region : undefined,
+                author: typeof r.author === "string" ? r.author : undefined,
+                url: typeof r.url === "string" ? r.url : undefined,
+                publishedAt:
+                  typeof r.published_at === "string" && r.published_at
+                    ? r.published_at
+                    : new Date().toISOString(),
+              }));
+            if (posts.length > 0) {
+              const posCount = posts.filter((p) => p.sentiment.toLowerCase() === "positive").length;
+              const negCount = posts.filter((p) => p.sentiment.toLowerCase() === "negative").length;
+              store.setSocialFeed({
+                items: posts,
+                totalMentions: Math.max(posts.length, store.socialFeed.totalMentions),
+                positiveRatio: Math.round((posCount / posts.length) * 100),
+                negativeRatio: Math.round((negCount / posts.length) * 100),
+                lastUpdatedAt: posts[0]?.publishedAt || new Date().toISOString(),
+              });
+            }
+          } catch (err) {
+            console.warn("[RealtimeSync] social_posts yüklenemedi:", err);
           }
         }
       })();

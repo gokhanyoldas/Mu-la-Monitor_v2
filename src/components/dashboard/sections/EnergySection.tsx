@@ -9,8 +9,12 @@ import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceCo
 import { useTranslation } from "@/hooks/useTranslation";
 import { useEnergyIntelligence } from "@/services/topicGroundingService";
 import { DataOriginBadge } from "../DataOriginBadge";
-import { useMonitorStore, selectEnergyOverride } from "@/store/useMonitorStore";
+import { useMonitorStore, selectEnergyOverride, selectMonitorTabs } from "@/store/useMonitorStore";
 import { formatRelativeTime } from "@/lib/time-utils";
+import {
+  OFFICIAL_ENERGY_REFERENCE,
+  readMonitorTabMetricNumber,
+} from "@/data/officialReferenceData";
 
 const energyDataTr = [
   { name: "Oca", value: 320 }, { name: "Şub", value: 310 }, { name: "Mar", value: 340 },
@@ -37,6 +41,7 @@ export const EnergyConsumptionPanel = () => {
   const alertDistricts = energyAlerts.map((a) => a.districtName);
 
   const storeEnergy = useMonitorStore(selectEnergyOverride);
+  const monitorTabs = useMonitorStore(selectMonitorTabs);
   const queryEnergy = useEnergyIntelligence(outageBonus, alertDistricts);
   const activeEnergy =
     storeEnergy?.hasVerifiedLiveData && !queryEnergy.hasVerifiedLiveData
@@ -52,12 +57,28 @@ export const EnergyConsumptionPanel = () => {
   } = activeEnergy;
   const isLoading = queryEnergy.isLoading;
 
+  const tabDailyConsumption = readMonitorTabMetricNumber(monitorTabs, "enerji", [
+    "dailyConsumptionGwh",
+    "daily_consumption_gwh",
+    "gunluk_tuketim",
+  ]);
+  const tabActiveOutageCount = readMonitorTabMetricNumber(monitorTabs, "enerji", [
+    "activeOutageCount",
+    "active_outage_count",
+    "aktif_kesinti",
+  ]);
+
+  const resolvedConsumptionGwh =
+    dailyConsumptionGwh ?? tabDailyConsumption ?? OFFICIAL_ENERGY_REFERENCE.dailyConsumptionGwh;
+  const resolvedOutageCount =
+    activeOutageCount ?? tabActiveOutageCount ?? OFFICIAL_ENERGY_REFERENCE.activeOutageCount;
+
   return (
     <DashboardPanel
       title="Enerji & Tüketim"
       icon={<Zap size={14} />}
-      badge={hasVerifiedLiveData ? "GÜNCEL" : "ÖLÇÜM BEKLENİYOR"}
-      badgeVariant={hasVerifiedLiveData ? "live" : "warning"}
+      badge={hasVerifiedLiveData ? "GÜNCEL" : "REFERANS VERİ"}
+      badgeVariant={hasVerifiedLiveData ? "live" : "info"}
     >
       <DataOriginBadge origin={hasVerifiedLiveData ? "live" : "reference"} className="mb-2" />
       {isLoading && !hasVerifiedLiveData && (
@@ -66,14 +87,32 @@ export const EnergyConsumptionPanel = () => {
       <div className="grid grid-cols-2 gap-2 mb-3">
         <StatCard
           label="Günlük Tüketim"
-          value={dailyConsumptionGwh !== null ? String(dailyConsumptionGwh) : "—"}
-          unit={dailyConsumptionGwh !== null ? "GWh" : undefined}
+          value={String(resolvedConsumptionGwh)}
+          unit="GWh"
           variant="warning"
+          info={
+            dailyConsumptionGwh !== null
+              ? isEn
+                ? "EPİAŞ / ADM Elektrik daily consumption estimate."
+                : "EPİAŞ / ADM Elektrik günlük tüketim ölçümü."
+              : isEn
+              ? `Reference data · ${OFFICIAL_ENERGY_REFERENCE.dailyConsumptionSource}.`
+              : `REFERANS VERİ · ${OFFICIAL_ENERGY_REFERENCE.dailyConsumptionSource}.`
+          }
         />
         <StatCard
           label="Aktif Kesinti"
-          value={activeOutageCount !== null ? String(activeOutageCount) : "—"}
-          variant={activeOutageCount && activeOutageCount > 0 ? "destructive" : "primary"}
+          value={String(resolvedOutageCount)}
+          variant={resolvedOutageCount > 0 ? "destructive" : "primary"}
+          info={
+            activeOutageCount !== null
+              ? isEn
+                ? "Active ADM Elektrik planned/fault outages."
+                : "ADM Elektrik aktif planlı/arıza kesinti sayısı."
+              : isEn
+              ? `Reference status · ${OFFICIAL_ENERGY_REFERENCE.activeOutageSource}.`
+              : `REFERANS VERİ · ${OFFICIAL_ENERGY_REFERENCE.activeOutageSource}.`
+          }
         />
       </div>
       {energyAlerts.length > 0 && (
@@ -112,7 +151,7 @@ export const EnergyConsumptionPanel = () => {
       </span>
       <MiniChart data={isEn ? energyDataEn : energyDataTr} color="hsl(38, 92%, 50%)" height={50} showAxis />
       <p className="text-[8px] font-mono text-muted-foreground/75 mt-2" data-testid="energy-source-note">
-        {translate(latestSourceSummary)}
+        {translate(hasVerifiedLiveData ? latestSourceSummary : OFFICIAL_ENERGY_REFERENCE.sourceSummary)}
         {latestMeasuredAt ? ` · ${formatRelativeTime(latestMeasuredAt, lang)}` : ""}
       </p>
     </DashboardPanel>

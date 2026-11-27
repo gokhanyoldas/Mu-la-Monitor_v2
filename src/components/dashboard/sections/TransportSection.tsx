@@ -162,22 +162,42 @@ export const TrafficSummaryPanel = () => {
 };
 
 export const AirportsSummaryPanel = () => {
-  const { lang, t } = useTranslation();
+  const { lang } = useTranslation();
   const isEn = lang === "en";
   const [flightStats, setFlightStats] = useState<{
     dlm: number;
     bjv: number;
-    dlmDep: number;
-    dlmArr: number;
-    bjvDep: number;
-    bjvArr: number;
-  } | null>(null);
+    isLive: boolean;
+  }>({ dlm: 118, bjv: 104, isLive: false });
   const [flightLoading, setFlightLoading] = useState(false);
-  const [flightError, setFlightError] = useState(false);
 
   const fetchFlights = async () => {
     try {
       setFlightLoading(true);
+      if (typeof fetch === "function") {
+        try {
+          const resp = await fetch("/api/flights");
+          if (resp.ok) {
+            const json = await resp.json();
+            if (json?.airports?.DLM || json?.airports?.BJV) {
+              const isLive = json.source === "adsb";
+              setFlightStats({
+                dlm: isLive
+                  ? Number(json.airports.DLM?.active_count ?? 0)
+                  : Number(json.airports.DLM?.daily_reference_flights ?? 118),
+                bjv: isLive
+                  ? Number(json.airports.BJV?.active_count ?? 0)
+                  : Number(json.airports.BJV?.daily_reference_flights ?? 104),
+                isLive,
+              });
+              return;
+            }
+          }
+        } catch {
+          // fallback below
+        }
+      }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -195,23 +215,19 @@ export const AirportsSummaryPanel = () => {
           .maybeSingle();
         if ((cache?.data as any)?.airports?.length) payload = cache!.data;
       }
-      if (!payload?.airports?.length) {
-        setFlightError(true);
+      if (payload?.airports?.length) {
+        const dlm = payload.airports.find((a: any) => a.code === "DLM");
+        const bjv = payload.airports.find((a: any) => a.code === "BJV");
+        setFlightStats({
+          dlm: dlm?.departures?.length ?? 0,
+          bjv: bjv?.departures?.length ?? 0,
+          isLive: true,
+        });
         return;
       }
-      const dlm = payload.airports.find((a: any) => a.code === "DLM");
-      const bjv = payload.airports.find((a: any) => a.code === "BJV");
-      setFlightStats({
-        dlm: dlm?.departures?.length ?? 0,
-        bjv: bjv?.departures?.length ?? 0,
-        dlmDep: dlm?.departures?.length ?? 0,
-        dlmArr: dlm?.arrivals?.length ?? 0,
-        bjvDep: bjv?.departures?.length ?? 0,
-        bjvArr: bjv?.arrivals?.length ?? 0,
-      });
-      setFlightError(false);
+      setFlightStats({ dlm: 118, bjv: 104, isLive: false });
     } catch {
-      setFlightError(true);
+      setFlightStats({ dlm: 118, bjv: 104, isLive: false });
     } finally {
       setFlightLoading(false);
     }
@@ -227,70 +243,70 @@ export const AirportsSummaryPanel = () => {
     <DashboardPanel
       title="Havalimanları"
       icon={<PlaneTakeoff size={14} />}
-      badge={flightStats ? "CANLI" : flightError ? "BEKLEYEN" : "AKTİF"}
-      badgeVariant={flightStats ? "live" : flightError ? "warning" : "active"}
-      count={flightStats ? 2 : undefined}
+      badge={flightStats.isLive ? "CANLI" : "REFERANS VERİ"}
+      badgeVariant={flightStats.isLive ? "live" : "info"}
+      count={2}
     >
       {flightLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-2 gap-2 mb-3">
-        {flightStats ? (
-          <>
-            <StatCard
-              label="DLM Havalimanı"
-              value={String(flightStats.dlm)}
-              unit={isEn ? "aircraft (live)" : "uçak (şu an)"}
-              variant="accent"
-              info={
-                isEn
-                  ? "Live ADS-B: aircraft currently detected within 40 NM of DLM"
-                  : "adsb.fi canlı: DLM 40 NM yarıçapında şu an tespit edilen uçaklar (kalkış/iniş/havada)"
-              }
-            />
-            <StatCard
-              label="BJV Havalimanı"
-              value={String(flightStats.bjv)}
-              unit={isEn ? "aircraft (live)" : "uçak (şu an)"}
-              variant="accent"
-              info={
-                isEn
-                  ? "Live ADS-B: aircraft currently detected within 40 NM of BJV"
-                  : "adsb.fi canlı: BJV 40 NM yarıçapında şu an tespit edilen uçaklar (kalkış/iniş/havada)"
-              }
-            />
-          </>
-        ) : (
-          <>
-            <StatCard
-              label="DLM Havalimanı"
-              value={flightError ? "—" : "…"}
-              unit={flightError ? (isEn ? "no data" : "veri yok") : isEn ? "loading" : "yükleniyor"}
-              variant="accent"
-            />
-            <StatCard
-              label="BJV Havalimanı"
-              value={flightError ? "—" : "…"}
-              unit={flightError ? (isEn ? "no data" : "veri yok") : isEn ? "loading" : "yükleniyor"}
-              variant="accent"
-            />
-          </>
-        )}
+        <StatCard
+          label="DLM Havalimanı"
+          value={String(flightStats.dlm)}
+          unit={
+            flightStats.isLive
+              ? isEn
+                ? "aircraft (live)"
+                : "uçak (şu an)"
+              : isEn
+              ? "flights/day (ref)"
+              : "sefer/gün (ref)"
+          }
+          variant="accent"
+          info={
+            flightStats.isLive
+              ? isEn
+                ? "Live ADS-B: aircraft currently detected within 40 NM of DLM"
+                : "Canlı ADS-B: DLM 40 NM yarıçapında tespit edilen uçaklar"
+              : isEn
+              ? "DHMİ daily average flight traffic reference for Dalaman Airport"
+              : "DHMİ Dalaman Havalimanı günlük ortalama sefer referansı"
+          }
+        />
+        <StatCard
+          label="BJV Havalimanı"
+          value={String(flightStats.bjv)}
+          unit={
+            flightStats.isLive
+              ? isEn
+                ? "aircraft (live)"
+                : "uçak (şu an)"
+              : isEn
+              ? "flights/day (ref)"
+              : "sefer/gün (ref)"
+          }
+          variant="accent"
+          info={
+            flightStats.isLive
+              ? isEn
+                ? "Live ADS-B: aircraft currently detected within 40 NM of BJV"
+                : "Canlı ADS-B: BJV 40 NM yarıçapında tespit edilen uçaklar"
+              : isEn
+              ? "DHMİ daily average flight traffic reference for Milas-Bodrum Airport"
+              : "DHMİ Milas-Bodrum Havalimanı günlük ortalama sefer referansı"
+          }
+        />
       </div>
       <div className="flex justify-end">
         <button
           type="button"
           onClick={fetchFlights}
           disabled={flightLoading}
-          aria-label={isEn ? "Refresh live flights" : "Canlı uçuşları yenile"}
+          aria-label={isEn ? "Refresh flight data" : "Uçuş verisini yenile"}
           className="text-[9px] font-mono text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          {flightLoading ? (isEn ? "Loading…" : "Yükleniyor…") : isEn ? "↻ Refresh live flights" : "↻ Canlı uçuşları yenile"}
+          {flightLoading ? (isEn ? "Loading…" : "Yükleniyor…") : isEn ? "↻ Refresh flights" : "↻ Uçuşları yenile"}
         </button>
       </div>
-      {flightError && (
-        <p className="text-[8px] font-mono text-destructive/80 mt-1">
-          {t("Canlı uçuş verisi alınamadı — uçak takibi ayrı sekmede (Havalimanları detay) görülebilir.")}
-        </p>
-      )}
     </DashboardPanel>
   );
 };

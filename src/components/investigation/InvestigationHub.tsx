@@ -1,52 +1,105 @@
 // src/components/investigation/InvestigationHub.tsx
-// Muğla İstihbarat, Çapraz Sorgu & Ağ Diyagramı Ana Merkezi
+// Muğla Haber Doğrulama & Canlı İlişki Diyagramı Merkezi
+// Yalnızca gerçek Supabase (`social_posts`, `protocol_members`, `alert_events`) ve
+// merkezi store verilerini kullanır; hiçbir sahte DEMO içerik barındırmaz.
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { InvestigationGraph } from "@/components/investigation/InvestigationGraph";
 import { InterrogationRoomConsole } from "@/components/investigation/InterrogationRoomConsole";
 import { MuglaNetworkDiagram } from "@/components/dashboard/MuglaNetworkDiagram";
-import {
-  INVESTIGATION_DOSSIERS,
-  INVESTIGATION_NODES,
-  INVESTIGATION_LINKS
-} from "@/data/investigationData";
-import {
-  Radio,
-  Network,
-  FileSearch,
-} from "lucide-react";
+import { Radio, Network, FileSearch } from "lucide-react";
 import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { useTranslation } from "@/hooks/useTranslation";
 import { PanelHelpTooltip } from "@/components/dashboard/PanelHelpTooltip";
-import { useMonitorStore, selectDiagramEvents } from "@/store/useMonitorStore";
+import {
+  useMonitorStore,
+  selectDiagramEvents,
+  selectSocialFeed,
+  selectProtocolMembers,
+} from "@/store/useMonitorStore";
 import { formatRelativeTime } from "@/lib/time-utils";
+import {
+  fetchLiveDiagramSources,
+  buildLiveDiagramGraph,
+  type LiveAlertRecord,
+} from "@/services/liveDiagramBuilder";
 
 export type InvestigationHubView = "verification" | "protocol_network";
 
-export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> = ({ initialView = "verification" }) => {
-  const { dynamicDossiers, activeDynamicDossierId, setActiveDynamicDossierId } = useUnifiedIntelligence();
+export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> = ({
+  initialView = "verification",
+}) => {
+  const { dynamicDossiers, activeDynamicDossierId, setActiveDynamicDossierId } =
+    useUnifiedIntelligence();
   const { lang, t, translate } = useTranslation();
   const isEn = lang === "en";
   const diagramEvents = useMonitorStore(selectDiagramEvents);
-  // Görünüm Modu: "investigation" (Sorgu Odası & Kulis Ağı) veya "topology" (13 İlçe Kentsel Altyapı Ağı)
-  const [viewMode, setViewMode] = useState<"investigation" | "topology">(initialView === "protocol_network" ? "topology" : "investigation");
-  
-  // Seçili Dosya ve Vurgulu Düğümler
-  const [selectedDossierId, setSelectedDossierId] = useState<string | null>("dosya-bodrum-su");
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [highlightedNodeIds, setHighlightedNodeIds] = useState<string[]>(() => {
-    return INVESTIGATION_DOSSIERS[0].nodeIds;
-  });
-  const [highlightedLinkIds, setHighlightedLinkIds] = useState<string[]>(() => {
-    return INVESTIGATION_DOSSIERS[0].linkIds;
-  });
+  const socialFeed = useMonitorStore(selectSocialFeed);
+  const storeProtocol = useMonitorStore(selectProtocolMembers);
 
-  const allDossiers = React.useMemo(
-    () => [...dynamicDossiers, ...INVESTIGATION_DOSSIERS],
-    [dynamicDossiers]
+  const [viewMode, setViewMode] = useState<"investigation" | "topology">(
+    initialView === "protocol_network" ? "topology" : "investigation"
   );
 
-  React.useEffect(() => {
+  const storeProtocolList = useMemo(
+    () => (Array.isArray(storeProtocol) ? storeProtocol : []),
+    [storeProtocol]
+  );
+  const storePostsList = useMemo(
+    () => (Array.isArray(socialFeed?.items) ? socialFeed.items : []),
+    [socialFeed?.items]
+  );
+
+  const [fetchedPosts, setFetchedPosts] = useState(storePostsList);
+  const [fetchedAlerts, setFetchedAlerts] = useState<LiveAlertRecord[]>([]);
+  const [fetchedProtocol, setFetchedProtocol] = useState(storeProtocolList);
+
+  useEffect(() => {
+    let active = true;
+    fetchLiveDiagramSources().then((res) => {
+      if (!active) return;
+      if (Array.isArray(res?.posts) && res.posts.length > 0) setFetchedPosts(res.posts);
+      if (Array.isArray(res?.alerts) && res.alerts.length > 0) setFetchedAlerts(res.alerts);
+      if (Array.isArray(res?.protocolMembers) && res.protocolMembers.length > 0) {
+        setFetchedProtocol(res.protocolMembers);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const mergedPosts = useMemo(
+    () => (fetchedPosts.length > 0 ? fetchedPosts : storePostsList),
+    [fetchedPosts, storePostsList]
+  );
+  const mergedProtocol = useMemo(
+    () => (fetchedProtocol.length > 0 ? fetchedProtocol : storeProtocolList),
+    [fetchedProtocol, storeProtocolList]
+  );
+
+  const liveDataset = useMemo(
+    () =>
+      buildLiveDiagramGraph({
+        posts: mergedPosts,
+        alerts: fetchedAlerts,
+        protocolMembers: mergedProtocol,
+        diagramEvents: Array.isArray(diagramEvents) ? diagramEvents : [],
+      }),
+    [mergedPosts, fetchedAlerts, mergedProtocol, diagramEvents]
+  );
+
+  const [selectedDossierId, setSelectedDossierId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<string[]>([]);
+  const [highlightedLinkIds, setHighlightedLinkIds] = useState<string[]>([]);
+
+  const allDossiers = useMemo(
+    () => [...dynamicDossiers, ...liveDataset.dossiers],
+    [dynamicDossiers, liveDataset.dossiers]
+  );
+
+  useEffect(() => {
     if (!activeDynamicDossierId) return;
     const found = dynamicDossiers.find((d) => d.id === activeDynamicDossierId);
     if (found) {
@@ -60,8 +113,8 @@ export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> 
   const handleHighlight = (nodeIds: string[], linkIds: string[], dossierId?: string) => {
     setHighlightedNodeIds(nodeIds);
     setHighlightedLinkIds(linkIds);
-    if (dossierId) {
-      setSelectedDossierId(dossierId);
+    if (dossierId !== undefined) {
+      setSelectedDossierId(dossierId || null);
     }
   };
 
@@ -95,13 +148,17 @@ export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> 
             </h2>
             {diagramEvents.length > 0 && (
               <span className="inline-flex items-center rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-mono font-bold text-emerald-300">
-                {isEn ? `${diagramEvents.length} VERIFIED SIGNALS` : `${diagramEvents.length} DOĞRULANMIŞ GELİŞME`}
+                {isEn
+                  ? `${diagramEvents.length} VERIFIED SIGNALS`
+                  : `${diagramEvents.length} DOĞRULANMIŞ GELİŞME`}
               </span>
             )}
-            <PanelHelpTooltip panelTitle="Muğla İstihbarat & Çapraz Sorgu Odası" />
+            <PanelHelpTooltip panelTitle="Haber Doğrulama Merkezi" />
           </div>
           <p className="text-xs text-slate-400 mt-1 font-sans">
-            {t("Yerel haberler, sosyal medya paylaşımları ve resmi açıklamaları karşılaştırarak doğruluğunu gösterir.")}
+            {t(
+              "Yerel haberler, sosyal medya paylaşımları, resmi uyarılar ve il protokolü kayıtları arasındaki gerçek ilişkileri gösterir."
+            )}
           </p>
         </div>
 
@@ -181,16 +238,18 @@ export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> 
         </div>
       )}
 
-      {/* ── MOD A: SORGU ODASI & KULİS-MEDYA İLİŞKİ AĞI ── */}
+      {/* ── MOD A: CANLI HABER DOĞRULAMA & İLİŞKİ AĞI ── */}
       {viewMode === "investigation" ? (
         <div className="space-y-4">
-          {/* 1. Sorgu Odası Konsolu (Soru sor, teyit et, transkripti gör) */}
           <InterrogationRoomConsole
+            dataset={liveDataset}
             onHighlightInvestigation={handleHighlight}
           />
 
-          {/* 2. Dedektif Panosu (Kırmızı İpler, Gazete Küpürleri, Kulisler) */}
           <InvestigationGraph
+            liveNodes={liveDataset.nodes}
+            liveLinks={liveDataset.links}
+            liveDossiers={liveDataset.dossiers}
             selectedDossierId={selectedDossierId}
             onSelectDossier={handleSelectDossier}
             highlightedNodeIds={highlightedNodeIds}
@@ -200,7 +259,6 @@ export const InvestigationHub: React.FC<{ initialView?: InvestigationHubView }> 
           />
         </div>
       ) : (
-        /* ── MOD B: 13 İLÇE KENTSEL ALTYAPI TOPOLOJİSİ & FAZ 4 KRİZ PROTOKOLÜ ── */
         <div className="space-y-4">
           <MuglaNetworkDiagram />
         </div>

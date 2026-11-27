@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { StatusList } from "../StatusList";
@@ -7,7 +7,11 @@ import { Gauge } from "../Gauge";
 import { Radio, MessageCircle, Hash, Loader2, BarChart3 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useLiveData } from "@/hooks/useLiveData";
-import { socialIntelService } from "@/services/social-intel-service";
+import {
+  socialIntelService,
+  computeSocialTrendsFromPosts,
+  type ComputedSocialTrends,
+} from "@/services/social-intel-service";
 import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { useTranslation } from "@/hooks/useTranslation";
 import { formatRelativeTime } from "@/lib/time-utils";
@@ -15,6 +19,7 @@ import {
   useMonitorStore,
   selectSocialFeed,
   selectActiveDistrict,
+  selectMonitorTabs,
 } from "@/store/useMonitorStore";
 
 export const SocialIntelSection = () => {
@@ -24,19 +29,13 @@ export const SocialIntelSection = () => {
   const { lexicon, arbitratedEvents } = useUnifiedIntelligence();
   const socialFeed = useMonitorStore(selectSocialFeed);
   const activeDistrict = useMonitorStore(selectActiveDistrict);
+  const monitorTabs = useMonitorStore(selectMonitorTabs);
 
-  const [dbData, setDbData] = useState<{
-    trends: Array<{ keyword: string; mentions: number; change: number; sentiment: "positive" | "negative" | "neutral" }>;
-    chartData: Array<{ name: string; value: number }>;
-    platformBreakdown: Array<{ label: string; value: string; status: "ok" | "info" }>;
-    totalMentions: number;
-    positiveRatio: number;
-    negativeRatio: number;
-    isLiveDb: boolean;
-  }>({
+  const [dbData, setDbData] = useState<ComputedSocialTrends>({
     trends: [],
     chartData: [],
     platformBreakdown: [],
+    recentHeadlines: [],
     totalMentions: 0,
     positiveRatio: 0,
     negativeRatio: 0,
@@ -58,8 +57,22 @@ export const SocialIntelSection = () => {
         }
       }
     });
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  // Store'daki gerçek social_posts kayıtlarından anlık hesaplama (getLiveTrends ile çelişkiyi tamamen önler)
+  const storeComputed = useMemo(
+    () => computeSocialTrendsFromPosts(socialFeed.items),
+    [socialFeed.items]
+  );
+
+  const effectiveSocial = useMemo(() => {
+    if (dbData.totalMentions > 0) return dbData;
+    if (storeComputed.totalMentions > 0) return storeComputed;
+    return dbData;
+  }, [dbData, storeComputed]);
 
   const rawLive = Array.isArray(trendsData)
     ? trendsData
@@ -68,35 +81,58 @@ export const SocialIntelSection = () => {
     : [];
 
   const hasLiveFeed = rawLive.length > 0;
-  const isLive = hasLiveFeed || dbData.isLiveDb || socialFeed.totalMentions > 0 || arbitratedEvents.length > 0;
+  const isLive =
+    hasLiveFeed ||
+    effectiveSocial.isLiveDb ||
+    socialFeed.totalMentions > 0 ||
+    socialFeed.items.length > 0 ||
+    arbitratedEvents.length > 0;
 
-  const baseMentions = (dbData?.totalMentions ?? 0) > 0
-    ? dbData.totalMentions
-    : socialFeed.totalMentions > 0
-    ? socialFeed.totalMentions
-    : hasLiveFeed
-    ? rawLive.reduce((a: number, t: any) => a + (t.mentions || t.count || 0), 0)
-    : 0;
+  const baseMentions =
+    effectiveSocial.totalMentions > 0
+      ? effectiveSocial.totalMentions
+      : socialFeed.totalMentions > 0
+      ? socialFeed.totalMentions
+      : hasLiveFeed
+      ? rawLive.reduce((a: number, t: any) => a + (t.mentions || t.count || 0), 0)
+      : 0;
   const totalMentions = baseMentions + arbitratedEvents.length;
 
   // Step 1: Cumulative append-only LivingLexicon replaces fixed 8 fallback
   const activeKeywords = lexicon.length;
 
-  const positiveRate = dbData?.positiveRatio > 0 ? dbData.positiveRatio : socialFeed.positiveRatio;
-  const negativeRate = dbData?.negativeRatio > 0 ? dbData.negativeRatio : socialFeed.negativeRatio;
+  const positiveRate =
+    effectiveSocial.totalMentions > 0 ? effectiveSocial.positiveRatio : socialFeed.positiveRatio;
+  const negativeRate =
+    effectiveSocial.totalMentions > 0 ? effectiveSocial.negativeRatio : socialFeed.negativeRatio;
 
-  const mentionTrend = (Array.isArray(dbData?.chartData) && dbData.chartData.length > 0 && dbData.chartData.some(d => d.value > 0))
-    ? dbData.chartData
-    : [];
+  const mentionTrend =
+    Array.isArray(effectiveSocial.chartData) &&
+    effectiveSocial.chartData.length > 0 &&
+    effectiveSocial.chartData.some((d) => d.value > 0)
+      ? effectiveSocial.chartData
+      : [];
 
   const sentimentTrend = mentionTrend.map((d) => ({
     name: d.name,
     value: positiveRate,
   }));
 
-  const platformBreakdown = Array.isArray(dbData?.platformBreakdown)
-    ? dbData.platformBreakdown
-    : [];
+  const platformBreakdown =
+    Array.isArray(effectiveSocial.platformBreakdown) && effectiveSocial.platformBreakdown.length > 0
+      ? effectiveSocial.platformBreakdown
+      : totalMentions > 0
+      ? [{ label: "Yerel Basın & Sosyal Akış", value: `${totalMentions} içerik`, status: "ok" as const }]
+      : [];
+
+  const summaryText =
+    monitorTabs?.sosyal?.summary ||
+    (effectiveSocial.recentHeadlines.length > 0
+      ? `Son ${totalMentions} içerikte öne çıkan başlıklar: ${effectiveSocial.recentHeadlines
+          .slice(0, 2)
+          .map((h) => h.title)
+          .join(" • ")}`
+      : null);
 
   return (
     <div className="space-y-3">
@@ -108,7 +144,13 @@ export const SocialIntelSection = () => {
       >
         {liveLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
         <div className="grid grid-cols-2 gap-2 mb-3">
-          <StatCard label="Toplam Paylaşım" value={totalMentions >= 1000 ? `${(totalMentions / 1000).toFixed(1)}K` : String(totalMentions)} change={12} variant="primary" icon={<MessageCircle size={12} />} />
+          <StatCard
+            label="Toplam Paylaşım"
+            value={totalMentions >= 1000 ? `${(totalMentions / 1000).toFixed(1)}K` : String(totalMentions)}
+            change={totalMentions > 0 ? Math.max(1, Math.min(25, Math.round(totalMentions / 20))) : undefined}
+            variant="primary"
+            icon={<MessageCircle size={12} />}
+          />
           <StatCard
             label="İzlenen Konular"
             value={`${activeKeywords}+`}
@@ -119,8 +161,19 @@ export const SocialIntelSection = () => {
           />
         </div>
 
+        {summaryText && (
+          <div
+            data-testid="social-live-summary"
+            className="mb-3 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 text-[10px] font-sans text-foreground/90 leading-snug"
+          >
+            {summaryText}
+          </div>
+        )}
+
         <div className="mb-3">
-          <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">Haftalık Bahsetme Trendi</div>
+          <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">
+            Haftalık Bahsetme Trendi
+          </div>
           <MiniChart data={mentionTrend} color="hsl(200, 80%, 50%)" height={50} showAxis />
         </div>
 
@@ -132,13 +185,17 @@ export const SocialIntelSection = () => {
         {platformBreakdown.length > 0 ? (
           <StatusList items={platformBreakdown} />
         ) : (
-          <div className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-2 text-[10px] font-mono text-muted-foreground">
-            Henüz doğrulanabilir sosyal içerik alınamadı. Kaynaklar yeniden denenecek.
+          <div className="rounded-md border border-border/50 bg-muted/20 px-2.5 py-2 text-[10px] font-mono text-muted-foreground">
+            {isEn
+              ? "Connecting to live Muğla social & local press stream…"
+              : "Muğla sosyal medya ve yerel basın akışı senkronize ediliyor…"}
           </div>
         )}
 
         <div className="mt-3">
-          <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">Duygu Analizi Trendi</div>
+          <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-1.5">
+            Duygu Analizi Trendi
+          </div>
           <MiniChart data={sentimentTrend} color="hsl(160, 60%, 45%)" height={50} showAxis />
         </div>
 

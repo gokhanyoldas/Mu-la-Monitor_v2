@@ -16,6 +16,14 @@ import {
   type TourismIntelligenceSnapshot,
   type SecurityIntelligenceSnapshot,
 } from "@/services/topicGroundingService";
+import {
+  DEFAULT_AQI_SNAPSHOT,
+  DEFAULT_TRAFFIC_SNAPSHOT,
+  DEFAULT_WEATHER_SNAPSHOT,
+  OFFICIAL_DAM_REFERENCE_AVG,
+  OFFICIAL_TOURISM_REFERENCE,
+} from "@/data/officialReferenceData";
+import { useMonitorStore, selectEarthquakes } from "@/store/useMonitorStore";
 
 export type SummaryType = "daily" | "social" | "earthquake" | "weather" | "pulse";
 
@@ -490,21 +498,65 @@ export function useAISummary(type: SummaryType = "daily") {
   const damIntel = useDamIntelligence();
   const tourismIntel = useTourismIntelligence();
   const securityIntel = useSecurityIntelligence();
+  const storeQuakes = useMonitorStore(selectEarthquakes);
 
   const livePulseSummary = useMemo<AISummary | null>(() => {
     if (!isPulse) return null;
+    const resolvedWeather =
+      weatherData && weatherData.temperature !== undefined && weatherData.temperature !== null
+        ? weatherData
+        : DEFAULT_WEATHER_SNAPSHOT;
+    const resolvedAq =
+      aqData && aqData.aqi !== undefined && aqData.aqi !== null
+        ? aqData
+        : DEFAULT_AQI_SNAPSHOT;
+    const resolvedTraffic =
+      Array.isArray(trafficData?.hotspots) && trafficData.hotspots.length > 0
+        ? trafficData
+        : DEFAULT_TRAFFIC_SNAPSHOT;
+    const resolvedDams =
+      damIntel.avgOccupancy !== null
+        ? damIntel
+        : {
+            ...damIntel,
+            avgOccupancy: OFFICIAL_DAM_REFERENCE_AVG,
+            latestSourceSummary: "REFERANS VERİ · DSİ / MUSKİ (8 Baraj Ort.)",
+          };
+    const resolvedTourism =
+      tourismIntel.hotelOccupancyPct !== null
+        ? tourismIntel
+        : {
+            ...tourismIntel,
+            hotelOccupancyPct: OFFICIAL_TOURISM_REFERENCE.hotelOccupancyPct,
+            annualTourists: tourismIntel.annualTourists ?? OFFICIAL_TOURISM_REFERENCE.annualTourists,
+            occupancySourceSummary: `REFERANS VERİ · ${OFFICIAL_TOURISM_REFERENCE.hotelOccupancySource}`,
+          };
+    const resolvedSecurity =
+      securityIntel.latestQuake || !storeQuakes.items[0]
+        ? securityIntel
+        : {
+            ...securityIntel,
+            latestQuake: {
+              id: storeQuakes.items[0].id,
+              magnitude: storeQuakes.items[0].magnitude,
+              location: storeQuakes.items[0].location,
+              depthKm: storeQuakes.items[0].depthKm,
+              occurredAt: storeQuakes.items[0].occurredAt,
+              sourceName: storeQuakes.items[0].sourceName || "USGS / AFAD",
+            },
+          };
     return buildDynamicCityPulse(
       {
-        weather: weatherData,
-        airQuality: aqData,
-        traffic: trafficData,
-        dams: damIntel,
-        tourism: tourismIntel,
-        security: securityIntel,
+        weather: resolvedWeather,
+        airQuality: resolvedAq,
+        traffic: resolvedTraffic,
+        dams: resolvedDams,
+        tourism: resolvedTourism,
+        security: resolvedSecurity,
       },
       lang
     );
-  }, [isPulse, weatherData, aqData, trafficData, damIntel, tourismIntel, securityIntel, lang]);
+  }, [isPulse, weatherData, aqData, trafficData, damIntel, tourismIntel, securityIntel, storeQuakes.items, lang]);
 
   const [data, setData] = useState<AISummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);

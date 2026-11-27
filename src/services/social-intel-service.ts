@@ -354,6 +354,7 @@ class SocialIntelService {
     positiveRatio: number;
     negativeRatio: number;
     platformBreakdown: Array<{ label: string; value: string; status: "ok" | "info" }>;
+    recentHeadlines: Array<{ title: string; platform: string; sentiment: string; region?: string }>;
     isLiveDb: boolean;
   }> {
     const defaultData = {
@@ -363,138 +364,80 @@ class SocialIntelService {
       positiveRatio: 0,
       negativeRatio: 0,
       platformBreakdown: [],
+      recentHeadlines: [],
       isLiveDb: false,
+    };
+
+    const runWithTimeout = async <T,>(promise: PromiseLike<T>, ms = 6000): Promise<T | null> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      });
+      try {
+        return await Promise.race([
+          Promise.resolve(promise).finally(() => {
+            if (timer) clearTimeout(timer);
+          }),
+          timeoutPromise,
+        ]);
+      } catch {
+        if (timer) clearTimeout(timer);
+        return null;
+      }
     };
 
     try {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      // Zaman aşımı koruması (Supabase pause/uyku durumunda arayüz donmaz ve Promise reddedilmez)
-      const fetchPromise = supabase
-        .from("social_posts")
-        .select("content, keywords_matched, sentiment, published_at, region, platform")
-        .gte("published_at", sevenDaysAgo)
-        .order("published_at", { ascending: false })
-        .limit(500);
+      // 1. Öncelik: Son 7 günde yayınlanan social_posts kayıtları
+      const recentRes = await runWithTimeout(
+        supabase
+          .from("social_posts")
+          .select("content, keywords_matched, sentiment, published_at, collected_at, region, platform")
+          .gte("published_at", sevenDaysAgo)
+          .order("published_at", { ascending: false })
+          .limit(500)
+      );
 
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<{ data: any; error: any }>((resolve) => {
-        timer = setTimeout(() => resolve({ data: null, error: null }), 3500);
-      });
+      let posts: any[] =
+        recentRes && !recentRes.error && Array.isArray(recentRes.data) ? recentRes.data : [];
 
-      const { data: posts, error } = (await Promise.race([
-        fetchPromise.finally(() => {
-          if (timer) clearTimeout(timer);
-        }),
-        timeoutPromise,
-      ])) as any;
+      // 2. Fallback: Son 7 gün boşsa (published_at null veya daha eski tarihli ise)
+      // tarih kısıtı olmadan en güncel 300 social_posts kaydını çek
+      if (posts.length === 0) {
+        const latestRes = await runWithTimeout(
+          supabase
+            .from("social_posts")
+            .select("content, keywords_matched, sentiment, published_at, collected_at, region, platform")
+            .order("collected_at", { ascending: false })
+            .limit(300)
+        );
+        if (latestRes && !latestRes.error && Array.isArray(latestRes.data)) {
+          posts = latestRes.data;
+        }
+      }
 
-      if (error || !posts || posts.length === 0) {
+      // 3. Fallback (collected_at sütunu yoksa published_at sırası ile tarih kısıtsız çek)
+      if (posts.length === 0) {
+        const fallbackRes = await runWithTimeout(
+          supabase
+            .from("social_posts")
+            .select("content, keywords_matched, sentiment, published_at, region, platform")
+            .order("published_at", { ascending: false })
+            .limit(300)
+        );
+        if (fallbackRes && !fallbackRes.error && Array.isArray(fallbackRes.data)) {
+          posts = fallbackRes.data;
+        }
+      }
+
+      if (posts.length === 0) {
         return defaultData;
       }
 
-      const effectivePosts = (posts && posts.length > 0) ? posts : [];
-      const totalMentions = effectivePosts.length;
-
-      // Sayım ve frekans analizi
-      const keywordFreq: Record<string, { count: number; pos: number; neg: number }> = {};
-
-      for (const p of effectivePosts) {
-        const words = new Set<string>();
-        // Matched keywords
-        if (Array.isArray(p.keywords_matched)) {
-          p.keywords_matched.forEach((k: string) => words.add(k.trim()));
-        }
-        // Region
-        if (p.region) {
-          words.add(p.region);
-        }
-        // Hashtags regex
-        const text = String(p.content || "");
-        const tags = text.match(/#[a-zA-Z0-9çğıöşüÇĞİÖŞÜ_]+/g) || [];
-        tags.forEach(t => words.add(t));
-
-        for (const w of words) {
-          if (!w || w.length < 3) continue;
-          const key = w.startsWith("#") ? w : `#${w}`;
-          if (!keywordFreq[key]) {
-            keywordFreq[key] = { count: 0, pos: 0, neg: 0 };
-          }
-          keywordFreq[key].count++;
-          if (p.sentiment === "positive") keywordFreq[key].pos++;
-          if (p.sentiment === "negative") keywordFreq[key].neg++;
-        }
-      }
-
-      // Sıralama
-      const sorted = Object.entries(keywordFreq)
-        .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 8);
-
-      const trends = sorted.map(([kw, stats]) => {
-        const sentiment: "positive" | "negative" | "neutral" =
-          stats.pos > stats.neg ? "positive" : stats.neg > stats.pos ? "negative" : "neutral";
-        // Gerçek hacme dayalı pozitif/nötr aktivite değişimi
-        const change = Math.round((stats.count / Math.max(1, totalMentions)) * 100);
-        return {
-          keyword: kw,
-          mentions: stats.count,
-          change: Math.max(5, change),
-          sentiment,
-        };
-      });
-
-      // Günlük chart verisi (Pzt - Paz)
-      const dayNames = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
-      const dayCounts: Record<string, number> = { "Pzt": 0, "Sal": 0, "Çar": 0, "Per": 0, "Cum": 0, "Cmt": 0, "Paz": 0 };
-
-      for (const p of effectivePosts) {
-        if (p.published_at) {
-          const d = new Date(p.published_at);
-          const dayName = dayNames[d.getDay()];
-          if (dayCounts[dayName] !== undefined) {
-            dayCounts[dayName]++;
-          }
-        }
-      }
-
-      const chartData = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"].map((name) => ({
-        name,
-        value: dayCounts[name] || 0,
-      }));
-
-      const posCount = effectivePosts.filter(p => p.sentiment === "positive").length;
-      const negCount = effectivePosts.filter(p => p.sentiment === "negative").length;
-      const positiveRatio = totalMentions > 0 ? Math.round((posCount / totalMentions) * 100) : 0;
-      const negativeRatio = totalMentions > 0 ? Math.round((negCount / totalMentions) * 100) : 0;
-
-      // Platform Dağılımı - 100% Gerçek Veri
-      const platMap: Record<string, number> = {};
-      for (const p of effectivePosts) {
-        const plat = (p.platform || "news").toLowerCase();
-        platMap[plat] = (platMap[plat] || 0) + 1;
-      }
-
-      const platformBreakdown = [
-        { label: "Bluesky", value: `${platMap["bluesky"] || 0} gönderi`, status: "ok" as const },
-        { label: "Mastodon", value: `${platMap["mastodon"] || 0} gönderi`, status: "ok" as const },
-        { label: "Google News RSS", value: `${platMap["news"] || 0} içerik`, status: "ok" as const },
-        { label: "Reddit", value: `${platMap["reddit"] || 0} başlık`, status: "info" as const },
-      ];
-
-      return {
-        trends: trends.length > 0 ? trends : [
-          { keyword: "#Muğla", mentions: totalMentions, change: 10, sentiment: "neutral" }
-        ],
-        chartData,
-        platformBreakdown,
-        totalMentions,
-        positiveRatio,
-        negativeRatio,
-        isLiveDb: true,
-      };
+      return computeSocialTrendsFromPosts(posts);
     } catch (e) {
-      console.warn("Notice: Live trends falling back to verified baseline:", e);
+      console.warn("Notice: Live trends query skipped:", e);
       return defaultData;
     }
   }
@@ -585,6 +528,228 @@ class SocialIntelService {
     if (error) return { success: false };
     return { success: true, collected: data?.collected, analyzed: data?.analyzed };
   }
+}
+
+const MUGLA_TOPIC_LEXICON: Array<{ needle: string; label: string }> = [
+  { needle: "bodrum", label: "Bodrum" },
+  { needle: "marmaris", label: "Marmaris" },
+  { needle: "fethiye", label: "Fethiye" },
+  { needle: "menteşe", label: "Menteşe" },
+  { needle: "mentese", label: "Menteşe" },
+  { needle: "milas", label: "Milas" },
+  { needle: "datça", label: "Datça" },
+  { needle: "datca", label: "Datça" },
+  { needle: "dalaman", label: "Dalaman" },
+  { needle: "ortaca", label: "Ortaca" },
+  { needle: "köyceğiz", label: "Köyceğiz" },
+  { needle: "koycegiz", label: "Köyceğiz" },
+  { needle: "yatağan", label: "Yatağan" },
+  { needle: "yatagan", label: "Yatağan" },
+  { needle: "seydikemer", label: "Seydikemer" },
+  { needle: "kavaklıdere", label: "Kavaklıdere" },
+  { needle: "ula", label: "Ula" },
+  { needle: "su kesinti", label: "SuKesintisi" },
+  { needle: "baraj", label: "Barajlar" },
+  { needle: "muski", label: "MUSKİ" },
+  { needle: "trafik", label: "Trafik" },
+  { needle: "turizm", label: "Turizm" },
+  { needle: "deprem", label: "Deprem" },
+  { needle: "yangın", label: "Yangın" },
+  { needle: "elektrik", label: "Enerji" },
+  { needle: "aydem", label: "ADM_Elektrik" },
+  { needle: "belediye", label: "Belediye" },
+  { needle: "altyapı", label: "Altyapı" },
+  { needle: "ulaşım", label: "Ulaşım" },
+  { needle: "muttaş", label: "MUTTAŞ" },
+  { needle: "sağlık", label: "Sağlık" },
+  { needle: "tarım", label: "Tarım" },
+  { needle: "ekonomi", label: "Ekonomi" },
+  { needle: "kıyı", label: "KıyıKoruma" },
+  { needle: "havalimanı", label: "Havalimanı" },
+];
+
+const PLATFORM_DISPLAY_LABELS: Record<string, string> = {
+  news: "Yerel Basın / Google News",
+  google_news: "Yerel Basın / Google News",
+  rss: "Yerel Basın / RSS",
+  yerel_basin: "Yerel Basın",
+  twitter: "X / Twitter",
+  x: "X / Twitter",
+  bluesky: "Bluesky",
+  mastodon: "Mastodon",
+  reddit: "Reddit",
+  eksisozluk: "Ekşi Sözlük",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  sikayetvar: "Şikayetvar",
+  youtube: "YouTube",
+};
+
+export interface ComputedSocialTrends {
+  trends: Array<{
+    keyword: string;
+    mentions: number;
+    change: number;
+    sentiment: "positive" | "negative" | "neutral";
+  }>;
+  chartData: Array<{ name: string; value: number }>;
+  totalMentions: number;
+  positiveRatio: number;
+  negativeRatio: number;
+  platformBreakdown: Array<{ label: string; value: string; status: "ok" | "info" }>;
+  recentHeadlines: Array<{ title: string; platform: string; sentiment: string; region?: string }>;
+  isLiveDb: boolean;
+}
+
+export function computeSocialTrendsFromPosts(
+  posts: Array<{
+    content?: string | null;
+    keywords_matched?: string[] | null;
+    sentiment?: string | null;
+    published_at?: string | null;
+    collected_at?: string | null;
+    publishedAt?: string | null;
+    region?: string | null;
+    districtName?: string | null;
+    platform?: string | null;
+  }>
+): ComputedSocialTrends {
+  const effectivePosts = Array.isArray(posts)
+    ? posts.filter((p) => p && typeof p.content === "string" && p.content.trim().length > 0)
+    : [];
+
+  if (effectivePosts.length === 0) {
+    return {
+      trends: [],
+      chartData: [],
+      totalMentions: 0,
+      positiveRatio: 0,
+      negativeRatio: 0,
+      platformBreakdown: [],
+      recentHeadlines: [],
+      isLiveDb: false,
+    };
+  }
+
+  const totalMentions = effectivePosts.length;
+  const keywordFreq: Record<string, { count: number; pos: number; neg: number }> = {};
+
+  for (const p of effectivePosts) {
+    const words = new Set<string>();
+    const sent = String(p.sentiment || "neutral").toLowerCase();
+
+    if (Array.isArray(p.keywords_matched)) {
+      p.keywords_matched.forEach((k) => {
+        if (typeof k === "string" && k.trim().length >= 3) words.add(k.trim());
+      });
+    }
+    const regionVal = p.region || p.districtName;
+    if (typeof regionVal === "string" && regionVal.trim().length >= 3) {
+      words.add(regionVal.trim());
+    }
+
+    const text = String(p.content || "");
+    const tags = text.match(/#[a-zA-Z0-9çğıöşüÇĞİÖŞÜ_]+/g) || [];
+    tags.forEach((t) => words.add(t));
+
+    // Metin başlık/içerik taraması — keywords_matched boş olsa bile gerçek konular çıkar
+    const lowerText = text.toLocaleLowerCase("tr-TR");
+    for (const entry of MUGLA_TOPIC_LEXICON) {
+      if (lowerText.includes(entry.needle)) {
+        words.add(entry.label);
+      }
+    }
+
+    for (const w of words) {
+      if (!w || w.length < 3) continue;
+      const key = w.startsWith("#") ? w : `#${w.replace(/\s+/g, "")}`;
+      if (!keywordFreq[key]) {
+        keywordFreq[key] = { count: 0, pos: 0, neg: 0 };
+      }
+      keywordFreq[key].count++;
+      if (sent === "positive") keywordFreq[key].pos++;
+      if (sent === "negative") keywordFreq[key].neg++;
+    }
+  }
+
+  const sorted = Object.entries(keywordFreq)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 8);
+
+  const trends = sorted.map(([kw, stats]) => {
+    const sentiment: "positive" | "negative" | "neutral" =
+      stats.pos > stats.neg ? "positive" : stats.neg > stats.pos ? "negative" : "neutral";
+    const change = Math.round((stats.count / Math.max(1, totalMentions)) * 100);
+    return {
+      keyword: kw,
+      mentions: stats.count,
+      change: Math.max(5, change),
+      sentiment,
+    };
+  });
+
+  const dayNames = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+  const dayCounts: Record<string, number> = { Pzt: 0, Sal: 0, Çar: 0, Per: 0, Cum: 0, Cmt: 0, Paz: 0 };
+
+  for (const p of effectivePosts) {
+    const ts = p.published_at || p.publishedAt || p.collected_at;
+    if (ts) {
+      const d = new Date(ts);
+      if (!Number.isNaN(d.getTime())) {
+        const dayName = dayNames[d.getDay()];
+        if (dayCounts[dayName] !== undefined) {
+          dayCounts[dayName]++;
+        }
+      }
+    }
+  }
+
+  const chartData = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"].map((name) => ({
+    name,
+    value: dayCounts[name] || 0,
+  }));
+
+  const posCount = effectivePosts.filter((p) => String(p.sentiment || "").toLowerCase() === "positive").length;
+  const negCount = effectivePosts.filter((p) => String(p.sentiment || "").toLowerCase() === "negative").length;
+  const positiveRatio = Math.round((posCount / totalMentions) * 100);
+  const negativeRatio = Math.round((negCount / totalMentions) * 100);
+
+  const platMap: Record<string, number> = {};
+  for (const p of effectivePosts) {
+    const rawPlat = String(p.platform || "news").trim().toLowerCase();
+    const label = PLATFORM_DISPLAY_LABELS[rawPlat] || (rawPlat ? rawPlat.toUpperCase() : "Yerel Basın");
+    platMap[label] = (platMap[label] || 0) + 1;
+  }
+
+  const platformBreakdown = Object.entries(platMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([label, count]) => ({
+      label,
+      value: `${count} içerik`,
+      status: (count >= 5 ? "ok" : "info") as "ok" | "info",
+    }));
+
+  const recentHeadlines = effectivePosts.slice(0, 3).map((p) => ({
+    title: String(p.content || "").replace(/\s+/g, " ").trim().slice(0, 120),
+    platform: PLATFORM_DISPLAY_LABELS[String(p.platform || "news").toLowerCase()] || String(p.platform || "Basın"),
+    sentiment: String(p.sentiment || "neutral").toLowerCase(),
+    region: p.region || p.districtName || undefined,
+  }));
+
+  return {
+    trends:
+      trends.length > 0
+        ? trends
+        : [{ keyword: "#Muğla", mentions: totalMentions, change: 10, sentiment: "neutral" }],
+    chartData,
+    platformBreakdown,
+    recentHeadlines,
+    totalMentions,
+    positiveRatio,
+    negativeRatio,
+    isLiveDb: true,
+  };
 }
 
 export const socialIntelService = new SocialIntelService();
