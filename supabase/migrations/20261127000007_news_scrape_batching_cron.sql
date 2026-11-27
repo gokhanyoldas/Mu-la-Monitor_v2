@@ -17,11 +17,11 @@
 DO $$
 DECLARE
   v_auth_headers text :=
-    $$jsonb_build_object(
+    $headers$jsonb_build_object(
       'Content-Type', 'application/json',
       'x-internal-secret', coalesce(current_setting('app.internal_function_secret', true), ''),
       'Authorization', 'Bearer ' || coalesce(nullif(current_setting('app.service_role_key', true), ''), nullif(current_setting('app.internal_function_secret', true), ''), '')
-    )$$;
+    )$headers$;
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
     -- Eski tek toplu job'ı kaldır (aksi halde tüm kaynaklar iki kez çekilir)
