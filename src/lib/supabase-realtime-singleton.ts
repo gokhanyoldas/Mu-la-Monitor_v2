@@ -1,9 +1,11 @@
 // src/lib/supabase-realtime-singleton.ts
 // Merkezi Singleton Supabase Realtime Kanal Yöneticisi
-// Tüm uygulama tek bir `mugla-monitor-sync` kanalı üzerinden çalışır.
-// Çoklu kanal açılmasını, StrictMode çift mount fırtınalarını ve
-// `SocketJoinRateLimitReached: Too many joins on this socket` 4 saniyelik
-// yeniden bağlanma döngüsünü tamamen önler.
+// - Tek bir `mugla-monitor-sync` kanalı açar; oluşturmadan önce `supabase.removeAllChannels()` ile
+//   artık kanalları temizler.
+// - `CHANNEL_ERROR` / `TIMED_OUT` / `CLOSED` geldiği ANDA `void supabase.removeChannel(channel)`
+//   çağırarak Phoenix'in agresif WebSocket yeniden bağlanma döngüsünü tamamen keser.
+// - Aynı oturumda en fazla 1 kez yeniden dener; başarısız olursa WebSocket'i tamamen bırakıp
+//   60 saniyelik hafif HTTP `select` polling modunda sessizce devam eder.
 
 import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -39,18 +41,14 @@ export type TableChangeHandler = (payload: PostgresChangePayload) => void;
 export type BroadcastHandler = (message: { payload: Record<string, unknown> }) => void;
 export type StatusChangeHandler = (isConnected: boolean) => void;
 
-const MAX_RETRIES = 4;
-const BASE_ERROR_BACKOFF_MS = 15_000; // Asla 4 saniyelik agresif döngüye girmez
-const BASE_RATE_LIMIT_BACKOFF_MS = 60_000; // Rate-limit durumunda en az 60sn geri çekilme
-const MAX_BACKOFF_MS = 300_000; // Üst sınır 5 dk
+export const MAX_SESSION_REALTIME_RETRIES = 1;
+export const REALTIME_RETRY_DELAY_MS = 60_000; // Tek yeniden deneme öncesi 60sn güvenli bekleme
+export const HTTP_FALLBACK_POLL_INTERVAL_MS = 60_000; // 60sn hafif HTTP select polling
 
 function getTeardownGraceMs(): number {
   const isTestEnv =
     typeof import.meta !== "undefined" &&
     (import.meta as { env?: { MODE?: string } }).env?.MODE === "test";
-  // React 18 StrictMode mount -> unmount -> remount döngüsü aynı tick içinde tamamlanır.
-  // Kısa bekleme süresi StrictMode çift mount'ta gereksiz leave/join'i engeller,
-  // gerçek unmount sonrasında ise `supabase.removeChannel(channel)` temizliğini garanti eder.
   return isTestEnv ? 25 : 1500;
 }
 
@@ -72,9 +70,14 @@ const statusListeners = new Set<StatusChangeHandler>();
 
 let activeChannel: RealtimeChannel | null = null;
 let channelState: RealtimeChannelLifecycleState = "IDLE";
+let sessionRetryAttempts = 0;
 let consecutiveFailures = 0;
+let realtimeDisabledForSession = false;
 let backoffTimer: ReturnType<typeof setTimeout> | null = null;
 let teardownTimer: ReturnType<typeof setTimeout> | null = null;
+let pollingTimer: ReturnType<typeof setInterval> | null = null;
+let pollingInFlight = false;
+let lastHttpPollIso: string | null = null;
 let isConnectedFlag = false;
 
 function getTotalDataListenerCount(): number {
@@ -100,7 +103,7 @@ function notifyStatus(connected: boolean) {
   }
 }
 
-function clearTimers() {
+function clearAllTimers() {
   if (backoffTimer !== null) {
     clearTimeout(backoffTimer);
     backoffTimer = null;
@@ -109,35 +112,31 @@ function clearTimers() {
     clearTimeout(teardownTimer);
     teardownTimer = null;
   }
+  if (pollingTimer !== null) {
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+  }
 }
 
 function safeRemoveChannel(channel: RealtimeChannel | null) {
   if (!channel) return;
   try {
     if (typeof supabase?.removeChannel === "function") {
-      supabase.removeChannel(channel);
+      void Promise.resolve(supabase.removeChannel(channel)).catch(() => {});
     }
   } catch {
     // Temizleme hatasını sessizce yut
   }
 }
 
-function isRateLimitError(err: unknown): boolean {
-  const text = String(
-    (err as { message?: string } | null)?.message ?? err ?? ""
-  ).toLowerCase();
-  return (
-    text.includes("socketjoinratelimitreached") ||
-    text.includes("too many joins") ||
-    text.includes("rate limit") ||
-    text.includes("429")
-  );
-}
-
-export function computeBackoffDelayMs(attempt: number, rateLimited: boolean): number {
-  const safeAttempt = Math.max(1, attempt);
-  const base = rateLimited ? BASE_RATE_LIMIT_BACKOFF_MS : BASE_ERROR_BACKOFF_MS;
-  return Math.min(base * 2 ** (safeAttempt - 1), MAX_BACKOFF_MS);
+function safeRemoveAllChannels() {
+  try {
+    if (typeof supabase?.removeAllChannels === "function") {
+      void Promise.resolve(supabase.removeAllChannels()).catch(() => {});
+    }
+  } catch {
+    // Temizleme hatasını sessizce yut
+  }
 }
 
 function dispatchTableEvent(table: RealtimeTableName, payload: PostgresChangePayload) {
@@ -173,7 +172,146 @@ function isChannelAlreadyActiveOrJoining(channel: RealtimeChannel | null): boole
   return rawState === "joined" || rawState === "joining";
 }
 
-function scheduleSafeReconnect(err: unknown) {
+/**
+ * 60 saniyelik hafif HTTP `select` fallback senkronizasyonu.
+ * WebSocket Realtime devre dışı bırakıldığında aktif dinleyicileri hafif sorgularla besler.
+ */
+async function runHttpPollingTick() {
+  if (pollingInFlight) return;
+  if (!isSupabaseClientConfigured || typeof supabase?.from !== "function") return;
+  if (getTotalDataListenerCount() === 0) return;
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+
+  pollingInFlight = true;
+  const pollStartedIso = new Date().toISOString();
+  const sinceIso = lastHttpPollIso;
+
+  try {
+    if (tableListeners.live_data_cache.size > 0) {
+      const { data, error } = await supabase
+        .from("live_data_cache")
+        .select("data_type, data, fetched_at")
+        .order("fetched_at", { ascending: false })
+        .limit(25);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rec = row as Record<string, unknown>;
+          if (sinceIso && typeof rec.fetched_at === "string" && rec.fetched_at <= sinceIso) {
+            continue;
+          }
+          dispatchTableEvent("live_data_cache", {
+            eventType: "UPDATE",
+            table: "live_data_cache",
+            schema: "public",
+            new: rec,
+          });
+        }
+      }
+    }
+
+    if (tableListeners.social_posts.size > 0) {
+      const { data, error } = await supabase
+        .from("social_posts")
+        .select("id, platform, content, sentiment, region, author, url, published_at, created_at")
+        .order("published_at", { ascending: false })
+        .limit(10);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rec = row as Record<string, unknown>;
+          const ts = String(rec.published_at ?? rec.created_at ?? "");
+          if (sinceIso && ts && ts <= sinceIso) continue;
+          dispatchTableEvent("social_posts", {
+            eventType: "INSERT",
+            table: "social_posts",
+            schema: "public",
+            new: rec,
+          });
+        }
+      }
+    }
+
+    if (tableListeners.alert_events.size > 0) {
+      const { data, error } = await supabase
+        .from("alert_events")
+        .select("id, type, severity, title, body, source, lat, lon, created_at")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rec = row as Record<string, unknown>;
+          if (sinceIso && typeof rec.created_at === "string" && rec.created_at <= sinceIso) {
+            continue;
+          }
+          dispatchTableEvent("alert_events", {
+            eventType: "INSERT",
+            table: "alert_events",
+            schema: "public",
+            new: rec,
+          });
+        }
+      }
+    }
+
+    if (tableListeners.anomaly_alerts.size > 0) {
+      const { data, error } = await supabase
+        .from("anomaly_alerts")
+        .select("id, severity, category, title, description, detected_at, value_num, baseline_num, is_active")
+        .eq("is_active", true)
+        .order("detected_at", { ascending: false })
+        .limit(10);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rec = row as Record<string, unknown>;
+          if (sinceIso && typeof rec.detected_at === "string" && rec.detected_at <= sinceIso) {
+            continue;
+          }
+          dispatchTableEvent("anomaly_alerts", {
+            eventType: "UPDATE",
+            table: "anomaly_alerts",
+            schema: "public",
+            new: rec,
+          });
+        }
+      }
+    }
+
+    lastHttpPollIso = pollStartedIso;
+  } catch {
+    // HTTP polling hatası arayüzü kesmez; bir sonraki 60sn periyodunda tekrar dener
+  } finally {
+    pollingInFlight = false;
+  }
+}
+
+function enterHttpPollingFallback() {
+  realtimeDisabledForSession = true;
+  channelState = "FALLBACK_POLLING";
+  if (backoffTimer !== null) {
+    clearTimeout(backoffTimer);
+    backoffTimer = null;
+  }
+  const ch = activeChannel;
+  activeChannel = null;
+  safeRemoveChannel(ch);
+  safeRemoveAllChannels();
+  notifyStatus(false);
+
+  if (pollingTimer === null && getTotalDataListenerCount() > 0) {
+    lastHttpPollIso = new Date().toISOString();
+    pollingTimer = setInterval(() => {
+      void runHttpPollingTick();
+    }, HTTP_FALLBACK_POLL_INTERVAL_MS);
+  }
+}
+
+function handleChannelFailure(channel: RealtimeChannel | null) {
+  // Hata / timeout / kapanma anında kanalı HEMEN kaldır — Phoenix'in yeniden join döngüsünü durdur
+  if (activeChannel === channel) {
+    activeChannel = null;
+  }
+  safeRemoveChannel(channel);
+  notifyStatus(false);
+
   if (getTotalDataListenerCount() === 0) {
     channelState = "IDLE";
     return;
@@ -181,15 +319,13 @@ function scheduleSafeReconnect(err: unknown) {
 
   consecutiveFailures += 1;
 
-  // Maksimum deneme aşıldıysa WebSocket rejoin döngüsünü tamamen durdur;
-  // uygulama mevcut periyodik sorgu (polling) katmanıyla sessizce devam eder.
-  if (consecutiveFailures > MAX_RETRIES) {
-    channelState = "FALLBACK_POLLING";
+  // Aynı oturumda en fazla 1 kez yeniden dene; o da başarısız olursa 60sn HTTP polling moduna geç
+  if (sessionRetryAttempts >= MAX_SESSION_REALTIME_RETRIES) {
+    enterHttpPollingFallback();
     return;
   }
 
-  const rateLimited = isRateLimitError(err);
-  const delayMs = computeBackoffDelayMs(consecutiveFailures, rateLimited);
+  sessionRetryAttempts += 1;
   channelState = "BACKOFF";
 
   if (backoffTimer !== null) {
@@ -202,22 +338,27 @@ function scheduleSafeReconnect(err: unknown) {
       channelState = "IDLE";
       return;
     }
-    // Sekme arka plandaysa görünür olana kadar beklemek yerine bir sonraki adıma ertele
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-      channelState = "FALLBACK_POLLING";
+    if (realtimeDisabledForSession) {
+      enterHttpPollingFallback();
       return;
     }
     channelState = "IDLE";
     ensureChannelConnected();
-  }, delayMs);
+  }, REALTIME_RETRY_DELAY_MS);
 }
 
 function ensureChannelConnected() {
   if (!isSupabaseClientConfigured) return;
-  if (typeof supabase?.channel !== "function") return;
   if (getTotalDataListenerCount() === 0) return;
 
-  // Singleton guard: kanal zaten JOINING, SUBSCRIBED, BACKOFF veya FALLBACK_POLLING ise tekrar .subscribe() çağırma
+  if (realtimeDisabledForSession) {
+    enterHttpPollingFallback();
+    return;
+  }
+
+  if (typeof supabase?.channel !== "function") return;
+
+  // Singleton guard: zaten JOINING, SUBSCRIBED, BACKOFF veya FALLBACK_POLLING ise tekrar .subscribe() çağırma
   if (
     channelState === "JOINING" ||
     channelState === "SUBSCRIBED" ||
@@ -231,11 +372,13 @@ function ensureChannelConnected() {
     return;
   }
 
-  // Bekleyen bir kapatma zamanlayıcısı varsa iptal et
   if (teardownTimer !== null) {
     clearTimeout(teardownTimer);
     teardownTimer = null;
   }
+
+  // Yeni tekil kanal açılmadan önce mevcut tüm artık/aktif kanalları temizle
+  safeRemoveAllChannels();
 
   channelState = "JOINING";
 
@@ -284,8 +427,7 @@ function ensureChannelConnected() {
       .on("broadcast", { event: "fire_alert" }, (msg) =>
         dispatchBroadcastEvent("fire_alert", msg as { payload: Record<string, unknown> })
       )
-      .subscribe((status, err) => {
-        // Eski / değiştirilmiş kanaldan gelen geç geri çağrıları yoksay
+      .subscribe((status) => {
         if (activeChannel !== channel) return;
 
         if (status === "SUBSCRIBED") {
@@ -296,18 +438,11 @@ function ensureChannelConnected() {
         }
 
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-          // Phoenix'in 4 saniyelik yerleşik yeniden katılma döngüsünü durdurmak için kanalı hemen kaldır
-          activeChannel = null;
-          safeRemoveChannel(channel);
-          notifyStatus(false);
-          scheduleSafeReconnect(err);
+          handleChannelFailure(channel);
         }
       });
-  } catch (err) {
-    activeChannel = null;
-    safeRemoveChannel(channel);
-    notifyStatus(false);
-    scheduleSafeReconnect(err);
+  } catch {
+    handleChannelFailure(channel);
   }
 }
 
@@ -322,15 +457,10 @@ function scheduleTeardownIfIdle() {
     teardownTimer = null;
     if (getTotalDataListenerCount() > 0) return;
 
-    if (backoffTimer !== null) {
-      clearTimeout(backoffTimer);
-      backoffTimer = null;
-    }
-
+    clearAllTimers();
     const ch = activeChannel;
     activeChannel = null;
-    channelState = "IDLE";
-    consecutiveFailures = 0;
+    channelState = realtimeDisabledForSession ? "FALLBACK_POLLING" : "IDLE";
     safeRemoveChannel(ch);
     notifyStatus(false);
   }, getTeardownGraceMs());
@@ -404,19 +534,26 @@ export function getRealtimeSingletonSnapshot() {
     isConnected: isConnectedFlag,
     listenerCount: getTotalDataListenerCount(),
     consecutiveFailures,
+    sessionRetryAttempts,
+    realtimeDisabledForSession,
     hasActiveChannel: activeChannel !== null,
+    isHttpPollingActive: pollingTimer !== null,
   };
 }
 
 /**
- * Testler veya tam oturum sıfırlama için singleton kanalı hemen kapatır ve tüm dinleyicileri temizler.
+ * Testler veya tam oturum sıfırlama için singleton kanalı ve polling zamanlayıcılarını hemen sıfırlar.
  */
 export function resetRealtimeSingleton() {
-  clearTimers();
+  clearAllTimers();
   const ch = activeChannel;
   activeChannel = null;
   channelState = "IDLE";
+  sessionRetryAttempts = 0;
   consecutiveFailures = 0;
+  realtimeDisabledForSession = false;
+  pollingInFlight = false;
+  lastHttpPollIso = null;
   isConnectedFlag = false;
   for (const set of Object.values(tableListeners)) {
     set.clear();

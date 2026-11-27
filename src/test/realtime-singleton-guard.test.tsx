@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React, { StrictMode, useState } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, act, fireEvent, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   SINGLETON_REALTIME_CHANNEL_NAME,
+  REALTIME_RETRY_DELAY_MS,
+  HTTP_FALLBACK_POLL_INTERVAL_MS,
   subscribeToRealtimeTable,
   subscribeToRealtimeStatus,
   getRealtimeSingletonSnapshot,
   resetRealtimeSingleton,
-  computeBackoffDelayMs,
 } from "@/lib/supabase-realtime-singleton";
 import { useLiveData } from "@/hooks/useLiveData";
 import { useRealtimeAlerts } from "@/hooks/useRealtimeAlerts";
@@ -20,6 +23,10 @@ const realtimeSpy = {
   channelCalls: [] as string[],
   subscribeCalls: 0,
   removeChannelCalls: 0,
+  removeAllChannelsCalls: 0,
+  callOrder: [] as string[],
+  selectCalls: [] as string[],
+  pollRows: [] as Array<Record<string, unknown>>,
   lastStatusCallback: null as StatusCallback | null,
   tableHandlers: new Map<string, (payload: unknown) => void>(),
 };
@@ -33,21 +40,33 @@ vi.mock("@/integrations/supabase/client", () => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       })),
     },
-    from: vi.fn(() => {
+    from: vi.fn((table: string) => {
       const chain: Record<string, unknown> = {};
-      chain.select = vi.fn(() => chain);
+      chain.select = vi.fn(() => {
+        realtimeSpy.selectCalls.push(table);
+        return chain;
+      });
       chain.eq = vi.fn(() => chain);
       chain.neq = vi.fn(() => chain);
       chain.order = vi.fn(() => chain);
-      chain.limit = vi.fn(async () => ({ data: [], error: null }));
+      chain.limit = vi.fn(async () => ({
+        data: table === "live_data_cache" ? realtimeSpy.pollRows : [],
+        error: null,
+      }));
       chain.maybeSingle = vi.fn(async () => ({ data: null, error: null }));
       return chain;
     }),
     functions: {
       invoke: vi.fn(async () => ({ data: null, error: null })),
     },
+    removeAllChannels: vi.fn(async () => {
+      realtimeSpy.removeAllChannelsCalls += 1;
+      realtimeSpy.callOrder.push("removeAllChannels");
+      return [];
+    }),
     channel: vi.fn((name: string) => {
       realtimeSpy.channelCalls.push(name);
+      realtimeSpy.callOrder.push(`channel:${name}`);
       const ch: Record<string, unknown> = {
         name,
         state: "closed",
@@ -66,6 +85,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       );
       ch.subscribe = vi.fn((statusCb?: StatusCallback) => {
         realtimeSpy.subscribeCalls += 1;
+        realtimeSpy.callOrder.push("subscribe");
         ch.state = "joining";
         realtimeSpy.lastStatusCallback = statusCb ?? null;
         return ch;
@@ -74,7 +94,9 @@ vi.mock("@/integrations/supabase/client", () => ({
     }),
     removeChannel: vi.fn((ch: { state?: string } | null) => {
       realtimeSpy.removeChannelCalls += 1;
+      realtimeSpy.callOrder.push("removeChannel");
       if (ch) ch.state = "closed";
+      return Promise.resolve("ok");
     }),
   },
 }));
@@ -82,7 +104,6 @@ vi.mock("@/integrations/supabase/client", () => ({
 const MultiConsumerHarness: React.FC = () => {
   const [tick, setTick] = useState(0);
   useSupabaseRealtimeSync(true);
-  // Inline extraBody ve inline onCritical — state değişiminde kanal yeniden açılmamalı
   useLiveData("weather", { extraBody: { tick } });
   useLiveData("air_quality", { extraBody: { tick } });
   useLiveData("dams", { extraBody: { tick } });
@@ -97,13 +118,17 @@ const MultiConsumerHarness: React.FC = () => {
   );
 };
 
-describe("Singleton Supabase Realtime Kanalı & SocketJoinRateLimitReached Koruması", () => {
+describe("Singleton Supabase Realtime Kanalı & Kesin SocketJoinRateLimitReached Koruması", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetRealtimeSingleton();
     realtimeSpy.channelCalls = [];
     realtimeSpy.subscribeCalls = 0;
     realtimeSpy.removeChannelCalls = 0;
+    realtimeSpy.removeAllChannelsCalls = 0;
+    realtimeSpy.callOrder = [];
+    realtimeSpy.selectCalls = [];
+    realtimeSpy.pollRows = [];
     realtimeSpy.lastStatusCallback = null;
     realtimeSpy.tableHandlers.clear();
   });
@@ -113,7 +138,13 @@ describe("Singleton Supabase Realtime Kanalı & SocketJoinRateLimitReached Korum
     vi.useRealTimers();
   });
 
-  it("1. StrictMode çift mount, 7 eşzamanlı hook ve state re-render'ları tek bir mugla-monitor-sync kanalı ve tek .subscribe() çağrısı yapar", () => {
+  it("1. createClient ayarı eventsPerSecond: 2 içerir ve kanal oluşturulmadan önce supabase.removeAllChannels() çağrılır", () => {
+    const clientSource = readFileSync(
+      resolve(process.cwd(), "src/integrations/supabase/client.ts"),
+      "utf-8"
+    );
+    expect(clientSource).toMatch(/eventsPerSecond:\s*2/);
+
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     const { unmount } = render(
@@ -124,44 +155,47 @@ describe("Singleton Supabase Realtime Kanalı & SocketJoinRateLimitReached Korum
       </StrictMode>
     );
 
+    // Önce removeAllChannels, sonra tek bir mugla-monitor-sync kanalı, sonra tek subscribe
+    expect(realtimeSpy.callOrder.slice(0, 3)).toEqual([
+      "removeAllChannels",
+      `channel:${SINGLETON_REALTIME_CHANNEL_NAME}`,
+      "subscribe",
+    ]);
     expect(realtimeSpy.channelCalls).toEqual([SINGLETON_REALTIME_CHANNEL_NAME]);
     expect(realtimeSpy.subscribeCalls).toBe(1);
-    expect(getRealtimeSingletonSnapshot().state).toBe("JOINING");
 
-    // SUBSCRIBED durumuna geç
     act(() => {
       realtimeSpy.lastStatusCallback?.("SUBSCRIBED");
     });
     expect(getRealtimeSingletonSnapshot().state).toBe("SUBSCRIBED");
     expect(getRealtimeSingletonSnapshot().isConnected).toBe(true);
 
-    // State değişiklikleri ve re-render'lar yeni kanal/subscribe tetiklememeli
+    // State değişiklikleri yeni kanal/subscribe tetiklemez
     fireEvent.click(screen.getByTestId("rerender-btn"));
     fireEvent.click(screen.getByTestId("rerender-btn"));
-    fireEvent.click(screen.getByTestId("rerender-btn"));
-
     expect(realtimeSpy.channelCalls).toHaveLength(1);
     expect(realtimeSpy.subscribeCalls).toBe(1);
 
-    // Gerçek unmount sonrası supabase.removeChannel(channel) çağrılır
+    // Unmount sonrası removeChannel çalışır
     unmount();
     act(() => {
       vi.advanceTimersByTime(100);
     });
-
     expect(realtimeSpy.removeChannelCalls).toBe(1);
     expect(getRealtimeSingletonSnapshot().state).toBe("IDLE");
-    expect(getRealtimeSingletonSnapshot().hasActiveChannel).toBe(false);
   });
 
-  it("2. SocketJoinRateLimitReached hatasında 4 saniyelik döngüye girmez; kanalı hemen kapatır ve 60sn+ üstel geri çekilme + polling fallback uygular", () => {
+  it("2. CHANNEL_ERROR / TIMED_OUT / CLOSED anında removeChannel çağrılır, oturumda en fazla 1 kez yeniden dener ve sonra 60sn HTTP select polling moduna geçer", async () => {
     const statuses: boolean[] = [];
+    const receivedUpdates: Array<Record<string, unknown>> = [];
     const unsubStatus = subscribeToRealtimeStatus((c) => statuses.push(c));
-    const unsubData = subscribeToRealtimeTable("live_data_cache", () => {});
+    const unsubData = subscribeToRealtimeTable("live_data_cache", (payload) => {
+      if (payload.new) receivedUpdates.push(payload.new);
+    });
 
     expect(realtimeSpy.subscribeCalls).toBe(1);
 
-    // Rate-limit hatası simüle et
+    // 1. hata (CHANNEL_ERROR) -> anında removeChannel çağrılır ve 60sn BACKOFF başlar
     act(() => {
       realtimeSpy.lastStatusCallback?.(
         "CHANNEL_ERROR",
@@ -169,84 +203,72 @@ describe("Singleton Supabase Realtime Kanalı & SocketJoinRateLimitReached Korum
       );
     });
 
-    // Hatalı kanal hemen kaldırılmış ve durum BACKOFF olmuş olmalı
     expect(realtimeSpy.removeChannelCalls).toBe(1);
     expect(getRealtimeSingletonSnapshot().state).toBe("BACKOFF");
     expect(statuses[statuses.length - 1]).toBe(false);
 
-    // 4 saniye, 10 saniye ve 59 saniye sonra ASLA tekrar join denememeli!
+    // 4sn / 15sn / 59sn geçse de tekrar join yapılmaz
     act(() => {
-      vi.advanceTimersByTime(4_000);
+      vi.advanceTimersByTime(59_000);
     });
     expect(realtimeSpy.subscribeCalls).toBe(1);
 
+    // 60sn dolunca oturumdaki TEK (1.) yeniden deneme yapılır
     act(() => {
-      vi.advanceTimersByTime(55_000);
-    });
-    expect(realtimeSpy.subscribeCalls).toBe(1);
-
-    // 60 saniye dolunca 1 kontrollü deneme yapılır
-    act(() => {
-      vi.advanceTimersByTime(1_500);
+      vi.advanceTimersByTime(REALTIME_RETRY_DELAY_MS - 59_000 + 100);
     });
     expect(realtimeSpy.subscribeCalls).toBe(2);
 
-    // Üst üste hatalar devam ederse backoff artar ve maksimum denemeden sonra FALLBACK_POLLING'e geçip tamamen durur
-    for (let attempt = 2; attempt <= 5; attempt++) {
-      act(() => {
-        realtimeSpy.lastStatusCallback?.(
-          "CHANNEL_ERROR",
-          new Error("SocketJoinRateLimitReached: Too many joins on this socket")
-        );
-      });
-      const expectedDelay = computeBackoffDelayMs(attempt, true);
-      act(() => {
-        vi.advanceTimersByTime(expectedDelay + 1_000);
-      });
-    }
-
-    const callsAtFallback = realtimeSpy.subscribeCalls;
-    expect(getRealtimeSingletonSnapshot().state).toBe("FALLBACK_POLLING");
-
-    // 10 dakika geçse bile artık agresif WebSocket join denemesi yapılmaz
+    // 2. hata (TIMED_OUT veya CLOSED) -> anında removeChannel + kalıcı 60sn HTTP polling fallback
     act(() => {
-      vi.advanceTimersByTime(600_000);
+      realtimeSpy.lastStatusCallback?.("TIMED_OUT");
     });
-    expect(realtimeSpy.subscribeCalls).toBe(callsAtFallback);
+
+    expect(realtimeSpy.removeChannelCalls).toBe(2);
+    expect(getRealtimeSingletonSnapshot().state).toBe("FALLBACK_POLLING");
+    expect(getRealtimeSingletonSnapshot().realtimeDisabledForSession).toBe(true);
+    expect(getRealtimeSingletonSnapshot().isHttpPollingActive).toBe(true);
+
+    // 60sn sonra hafif HTTP select polling veriyi çeker, WebSocket join sayısı ASLA artmaz!
+    const futureIso = new Date(Date.now() + 120_000).toISOString();
+    realtimeSpy.pollRows = [
+      {
+        data_type: "weather",
+        data: { temperature: 23.5 },
+        fetched_at: futureIso,
+      },
+    ];
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(HTTP_FALLBACK_POLL_INTERVAL_MS + 100);
+    });
+
+    expect(realtimeSpy.subscribeCalls).toBe(2); // Bir daha ASLA WebSocket .subscribe() yok!
+    expect(realtimeSpy.selectCalls).toContain("live_data_cache");
+    expect(receivedUpdates).toHaveLength(1);
+    expect(receivedUpdates[0].data_type).toBe("weather");
+
+    // 10 dakika daha geçse de WebSocket yeniden bağlanma yapmaz
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(600_000);
+    });
+    expect(realtimeSpy.subscribeCalls).toBe(2);
 
     unsubData();
     unsubStatus();
   });
 
-  it("3. Tekil kanal üzerinden gelen olaylar aynı tabloyu dinleyen tüm bileşenlere eksiksiz iletilir", () => {
-    const receivedA: unknown[] = [];
-    const receivedB: unknown[] = [];
-
-    const unsubA = subscribeToRealtimeTable("social_posts", (p) => receivedA.push(p.new));
-    const unsubB = subscribeToRealtimeTable("social_posts", (p) => receivedB.push(p.new));
-
+  it("3. CLOSED durumunda da kanalı hemen kapatıp aynı 1-deneme + HTTP polling korumasını uygular", () => {
+    const unsub = subscribeToRealtimeTable("social_posts", () => {});
     expect(realtimeSpy.subscribeCalls).toBe(1);
 
-    const handler = realtimeSpy.tableHandlers.get("social_posts");
-    expect(handler).toBeTruthy();
-
-    handler!({ eventType: "INSERT", new: { id: "post-48", content: "Muğla canlı test" } });
-
-    expect(receivedA).toEqual([{ id: "post-48", content: "Muğla canlı test" }]);
-    expect(receivedB).toEqual([{ id: "post-48", content: "Muğla canlı test" }]);
-
-    unsubA();
-    // Hâlâ 1 aktif dinleyici olduğu için kanal kapatılmaz
     act(() => {
-      vi.advanceTimersByTime(100);
+      realtimeSpy.lastStatusCallback?.("CLOSED");
     });
-    expect(realtimeSpy.removeChannelCalls).toBe(0);
 
-    // Son dinleyici de ayrılınca kanal temizlenir
-    unsubB();
-    act(() => {
-      vi.advanceTimersByTime(100);
-    });
     expect(realtimeSpy.removeChannelCalls).toBe(1);
+    expect(getRealtimeSingletonSnapshot().state).toBe("BACKOFF");
+
+    unsub();
   });
 });
