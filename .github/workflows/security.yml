@@ -1,4 +1,4 @@
-name: Security & Quality
+name: Security Audit
 
 on:
   push:
@@ -12,16 +12,19 @@ on:
 permissions:
   contents: read
 
+# Not: Typecheck/lint/test/build doğrulamaları ci.yml içinde çalışır.
+# Bu workflow yalnızca bağımlılık güvenlik taramasına odaklanır (mükerrer CI yok).
 jobs:
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
@@ -40,71 +43,3 @@ jobs:
 
       - name: Full dependency audit (report)
         run: npm audit --audit-level=moderate || true
-
-  quality:
-    name: Typecheck & Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci || npm install --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint
-        run: npm run lint
-
-  build-check:
-    name: Production Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci || npm install --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Resolve build env
-        id: env
-        run: |
-          if [ -n "${{ secrets.VITE_SUPABASE_URL }}" ]; then
-            echo "url=${{ secrets.VITE_SUPABASE_URL }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "url=https://example.supabase.co" >> "$GITHUB_OUTPUT"
-          fi
-          if [ -n "${{ secrets.VITE_SUPABASE_ANON_KEY }}" ]; then
-            echo "key=${{ secrets.VITE_SUPABASE_ANON_KEY }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "key=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build
-        run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ steps.env.outputs.url }}
-          VITE_SUPABASE_ANON_KEY: ${{ steps.env.outputs.key }}

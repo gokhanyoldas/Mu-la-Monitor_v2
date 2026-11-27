@@ -7,6 +7,7 @@ import { handleCorsPreflight } from "../_shared/cors.ts";
 import { authorizeRequest } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
 import { analyzeText } from "../_shared/nlp.ts";
+import { canonicalizeUrl } from "../_shared/url.ts";
 
 const TWITTER_API = "https://api.twitter.com/2";
 const SEARCH_QUERY =
@@ -165,13 +166,19 @@ Deno.serve(async (req) => {
   }
 
   let inserted = 0;
+  const seenCanonical = new Set<string>();
   for (const t of tweets) {
+    const tweetUrl = `https://x.com/i/web/status/${t.id}`;
+    const canonical = canonicalizeUrl(tweetUrl);
+    if (canonical && seenCanonical.has(canonical)) continue;
+    if (canonical) seenCanonical.add(canonical);
     const nlp = analyzeText(t.text ?? "");
     const { error } = await sb.from("social_posts").upsert({
       platform: "twitter",
       content: t.text ?? "",
       author: t.author_id ?? null,
-      url: `https://x.com/i/web/status/${t.id}`,
+      url: tweetUrl,
+      url_canonical: canonical,
       published_at: t.created_at ?? new Date().toISOString(),
       keywords_matched: nlp.entities.map(e => e.name),
       region: nlp.district,
