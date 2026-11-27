@@ -47,13 +47,14 @@ export const DataSourceBadge = ({
   showIcon = true,
 }: DataSourceBadgeProps) => {
   const { lang, t } = useTranslation();
-  const cfg = CONFIG[type];
+  const normalizedType = String(type ?? "cached").trim().toLowerCase() as DataSourceType;
+  const cfg = CONFIG[normalizedType] ?? CONFIG.cached;
 
   const ageLabel = lastUpdated ? formatRelativeTime(lastUpdated, lang, { fallback: "" }) || null : null;
 
-  const IconEl = type === "live"
+  const IconEl = normalizedType === "live"
     ? <Zap size={8} />
-    : type === "estimate"
+    : normalizedType === "estimate"
     ? <Brain size={8} />
     : <Clock size={8} />;
 

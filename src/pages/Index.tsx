@@ -211,7 +211,16 @@ const Index = () => {
   const [metricOrder, setMetricOrder] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("mugla_metric_order_v3");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (
+          Array.isArray(parsed) &&
+          parsed.length > 0 &&
+          parsed.every((item): item is string => typeof item === "string")
+        ) {
+          return parsed;
+        }
+      }
     } catch {}
     return DEFAULT_METRIC_ORDER;
   });

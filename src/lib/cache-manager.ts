@@ -49,8 +49,18 @@ class CacheManager {
   constructor(prefix = CACHE_PREFIX) { this.prefix = prefix; }
   private buildKey(key: string): string { return `${this.prefix}${key}`; }
 
+  private isValidEntry<T>(value: unknown): value is CacheEntry<T> {
+    return (
+      Boolean(value) &&
+      typeof value === "object" &&
+      "data" in (value as Record<string, unknown>) &&
+      typeof (value as Record<string, unknown>).timestamp === "number"
+    );
+  }
+
   // JSON turns Infinity into null — both mean "never expires"
   private isExpired<T>(entry: CacheEntry<T>): boolean {
+    if (!entry || typeof entry !== "object") return true;
     if (entry.ttl == null || entry.ttl === Infinity) return false;
     return Date.now() - entry.timestamp > entry.ttl;
   }
@@ -68,11 +78,15 @@ class CacheManager {
     try {
       const raw = safeStorage.getItem(this.buildKey(key));
       if (!raw) return null;
-      const entry: CacheEntry<T> = JSON.parse(raw);
-      if (this.isExpired(entry)) {
+      const parsed: unknown = JSON.parse(raw);
+      if (!this.isValidEntry<T>(parsed)) {
+        this.delete(key);
+        return null;
+      }
+      if (this.isExpired(parsed)) {
         this.delete(key); return null;
       }
-      return entry.data;
+      return parsed.data;
     } catch { return null; }
   }
 
@@ -80,11 +94,15 @@ class CacheManager {
     try {
       const raw = safeStorage.getItem(this.buildKey(key));
       if (!raw) return null;
-      const entry: CacheEntry<T> = JSON.parse(raw);
-      if (this.isExpired(entry)) {
+      const parsed: unknown = JSON.parse(raw);
+      if (!this.isValidEntry<T>(parsed)) {
+        this.delete(key);
+        return null;
+      }
+      if (this.isExpired(parsed)) {
         this.delete(key); return null;
       }
-      return { data: entry.data, ageMs: Date.now() - entry.timestamp };
+      return { data: parsed.data, ageMs: Date.now() - parsed.timestamp };
     } catch { return null; }
   }
 
@@ -138,8 +156,8 @@ class CacheManager {
       const raw = safeStorage.getItem(k) ?? "";
       sizeBytes += raw.length * 2;
       try {
-        const entry = JSON.parse(raw) as CacheEntry<unknown>;
-        if (this.isExpired(entry)) expiredKeys++;
+        const entry: unknown = JSON.parse(raw);
+        if (!this.isValidEntry(entry) || this.isExpired(entry)) expiredKeys++;
       } catch { /* corrupt */ }
     }
     return { totalKeys, expiredKeys, sizeKB: Math.round(sizeBytes / 1024) };

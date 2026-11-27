@@ -218,7 +218,12 @@ export const MonitoredAccountsPanel = () => {
     return <div className="text-center py-4 text-[10px] font-mono text-muted-foreground/50">Yükleniyor…</div>;
   }
 
-  const meta = PLATFORM_META[newPlatform];
+  const getSafePlatformMeta = (rawPlatform: unknown) => {
+    const key = String(rawPlatform ?? "twitter").trim().toLowerCase() as Platform;
+    return PLATFORM_META[key] ?? PLATFORM_META.twitter;
+  };
+
+  const meta = getSafePlatformMeta(newPlatform);
 
   return (
     <div className="space-y-3">
@@ -232,7 +237,7 @@ export const MonitoredAccountsPanel = () => {
           {/* Platform selector */}
           <div className="flex flex-wrap gap-1">
             {ACTIVE_PLATFORMS.map((p) => {
-              const m = PLATFORM_META[p];
+              const m = getSafePlatformMeta(p);
               return (
                 <button
                   key={p}
@@ -243,20 +248,20 @@ export const MonitoredAccountsPanel = () => {
                       : "border-border/30 bg-muted/5 text-muted-foreground hover:bg-muted/10"
                   }`}
                 >
-                  <span className={m.color}>{m.icon}</span>
+                  <span className={m.color}>{m?.icon}</span>
                   {m.label}
                 </button>
               );
             })}
             {SOON_PLATFORMS.map((p) => {
-              const m = PLATFORM_META[p];
+              const m = getSafePlatformMeta(p);
               return (
                 <span
                   key={p}
                   title="Yakında"
                   className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-mono border border-border/20 bg-muted/5 text-muted-foreground/40 cursor-not-allowed"
                 >
-                  <span>{m.icon}</span>
+                  <span>{m?.icon}</span>
                   {m.label}
                   <span className="text-[8px] opacity-60">yakında</span>
                 </span>
@@ -306,7 +311,7 @@ export const MonitoredAccountsPanel = () => {
       ) : (
         <div className="space-y-1.5">
           {accounts.map((acc) => {
-            const m = PLATFORM_META[acc.platform];
+            const m = getSafePlatformMeta(acc.platform);
             const profileUrl = getPlatformUrl(acc.platform, acc.username);
 
             return (
@@ -326,7 +331,7 @@ export const MonitoredAccountsPanel = () => {
                   className={`shrink-0 ${m.color} hover:opacity-80 transition-opacity`}
                   title={`${m.label} profiline git ↗`}
                 >
-                  {m.icon}
+                  {m?.icon}
                 </a>
 
                 {/* Name + meta (Clickable link to external profile) */}

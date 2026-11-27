@@ -23,10 +23,12 @@ interface AISummaryCardProps { type?: SummaryType; className?: string; }
 
 export function AISummaryCard({ type = "daily", className }: AISummaryCardProps) {
   const { canGenerateAI } = useAuth();
-  const { data, isLoading, error, refresh } = useAISummary(type);
+  const normalizedType = String(type ?? "daily").trim().toLowerCase() as SummaryType;
+  const config = TYPE_CONFIG[normalizedType] ?? TYPE_CONFIG.daily;
+  const safeType: SummaryType = TYPE_CONFIG[normalizedType] ? normalizedType : "daily";
+  const { data, isLoading, error, refresh } = useAISummary(safeType);
   const { lang, t, translate } = useTranslation();
-  const config = TYPE_CONFIG[type];
-  const Icon = config.icon;
+  const Icon = config?.icon ?? Brain;
 
   const dateLocale = lang === "en" ? "en-US" : lang === "de" ? "de-DE" : "tr-TR";
 

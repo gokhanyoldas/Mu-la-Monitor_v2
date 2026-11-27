@@ -103,7 +103,7 @@ export const LivingLexiconDrawer: React.FC = () => {
             Yeni Öğrenilenler ({newlyLearnedCount})
           </button>
           {ALL_LAYERS.map((layer) => {
-            const meta = LEXICON_LAYER_META[layer];
+            const meta = LEXICON_LAYER_META[layer] ?? LEXICON_LAYER_META.core;
             return (
               <button
                 key={layer}
@@ -177,7 +177,7 @@ export const LivingLexiconDrawer: React.FC = () => {
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {filtered.map((entry) => {
-                const meta = LEXICON_LAYER_META[entry.layer];
+                const meta = LEXICON_LAYER_META[entry.layer] ?? LEXICON_LAYER_META.core;
                 return (
                   <div
                     key={entry.normalized}
