@@ -6,6 +6,7 @@
 import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
 import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
 import { canonicalizeUrl, dedupeByCanonical } from "../_shared/url.ts";
+import { analyzeText } from "../_shared/nlp.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface CollectedPost {
@@ -23,24 +24,9 @@ interface CollectedPost {
 const DEFAULT_KEYWORDS = ["Muğla", "Bodrum", "Fethiye", "Marmaris", "Milas", "Datça", "Dalaman", "Menteşe", "Ortaca", "Seydikemer"];
 const USER_AGENT = "muglamonitor/1.0";
 
-// Region detection
-const REGION_MAP: Record<string, string> = {
-  "bodrum": "Bodrum", "marmaris": "Marmaris", "fethiye": "Fethiye",
-  "datça": "Datça", "dalaman": "Dalaman", "milas": "Milas",
-  "köyceğiz": "Köyceğiz", "ortaca": "Ortaca", "menteşe": "Menteşe",
-  "yatağan": "Yatağan", "kavaklıdere": "Kavaklıdere", "seydikemer": "Seydikemer",
-  "ölüdeniz": "Fethiye", "göcek": "Dalaman", "turgutreis": "Bodrum",
-  "gümüşlük": "Bodrum", "hisarönü": "Fethiye", "dalyan": "Ortaca",
-  "akyaka": "Menteşe", "muğla": "Muğla Merkez",
-};
-
-function detectRegion(text: string): string | null {
-  const lower = text.toLowerCase();
-  for (const [key, region] of Object.entries(REGION_MAP)) {
-    if (lower.includes(key)) return region;
-  }
-  return null;
-}
+// Bölge/ilçe çözümlemesi artık TEK KAYNAKTAN gelir: _shared/nlp.ts (analyzeText).
+// Buradaki eski REGION_MAP kaldırıldı — göcek→Dalaman, akyaka→Menteşe,
+// muğla→"Muğla Merkez" gibi çakışan eşlemeler artık kullanılmıyor.
 
 // ─── Bluesky public API ───
 async function fetchBluesky(keywords: string[]): Promise<CollectedPost[]> {
@@ -56,7 +42,7 @@ async function fetchBluesky(keywords: string[]): Promise<CollectedPost[]> {
         const text = String(record.text || "").trim();
         if (!text) continue;
         const matched = keywords.filter((k) => text.toLocaleLowerCase("tr-TR").includes(k.toLocaleLowerCase("tr-TR")));
-        posts.push({ platform: "bluesky", source_type: "bluesky", source_instance: "api.bsky.app", content: text.slice(0, 2000), author: post?.author?.handle || "unknown", url: post?.uri ? `https://bsky.app/profile/${post.author?.handle}/post/${post.uri.split("/").pop()}` : "", published_at: record.createdAt || post?.indexedAt || new Date().toISOString(), keywords_matched: matched.length ? matched : [keyword], region: detectRegion(text) });
+        posts.push({ platform: "bluesky", source_type: "bluesky", source_instance: "api.bsky.app", content: text.slice(0, 2000), author: post?.author?.handle || "unknown", url: post?.uri ? `https://bsky.app/profile/${post.author?.handle}/post/${post.uri.split("/").pop()}` : "", published_at: record.createdAt || post?.indexedAt || new Date().toISOString(), keywords_matched: matched.length ? matched : [keyword] });
       }
     } catch (e) { console.error("Bluesky fetch error:", e); }
   }
@@ -78,7 +64,7 @@ async function fetchMastodon(keywords: string[]): Promise<CollectedPost[]> {
         const content = String(post?.content || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
         if (!content) continue;
         const matched = keywords.filter((k) => content.toLocaleLowerCase("tr-TR").includes(k.toLocaleLowerCase("tr-TR")));
-        posts.push({ platform: "mastodon", source_type: "mastodon", source_instance: instance, content: content.slice(0, 2000), author: post?.account?.acct || "unknown", url: post?.url || "", published_at: post?.created_at || new Date().toISOString(), keywords_matched: matched.length ? matched : [keyword], region: detectRegion(content) });
+        posts.push({ platform: "mastodon", source_type: "mastodon", source_instance: instance, content: content.slice(0, 2000), author: post?.account?.acct || "unknown", url: post?.url || "", published_at: post?.created_at || new Date().toISOString(), keywords_matched: matched.length ? matched : [keyword] });
       }
     } catch (e) { console.error("Mastodon fetch error:", e); }
   }
@@ -119,7 +105,6 @@ async function fetchGoogleNews(keywords: string[]): Promise<CollectedPost[]> {
             url: link.trim(),
             published_at: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
             keywords_matched: matchedKw,
-            region: detectRegion(title),
           });
         }
       }
@@ -161,7 +146,6 @@ async function fetchReddit(keywords: string[]): Promise<CollectedPost[]> {
             url: `https://reddit.com${post.permalink || ""}`,
             published_at: new Date((post.created_utc || 0) * 1000).toISOString(),
             keywords_matched: matchedKw,
-            region: detectRegion(text),
           });
         }
       }
@@ -206,7 +190,6 @@ async function fetchEksiSozluk(keywords: string[]): Promise<CollectedPost[]> {
               url: `https://eksisozluk1923.com/${href}`,
               published_at: new Date().toISOString(),
               keywords_matched: matchedKw,
-              region: detectRegion(title),
             });
           }
         }
@@ -265,7 +248,7 @@ async function fetchLocalNewsSources(supabase: any, keywords: string[]): Promise
             url: link,
             published_at: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
             keywords_matched: matchedKw,
-            region: src.region || detectRegion(text),
+            region: src.region || undefined,
           });
         }
       } catch (e) {
@@ -402,7 +385,6 @@ async function processEmailAlerts(supabase: any, keywords: string[]): Promise<Co
         url: alert.article_url || "",
         published_at: alert.published_at || alert.email_received_at,
         keywords_matched: matchedKw.length > 0 ? matchedKw : [alert.alert_keyword || ""],
-        region: detectRegion(text),
       });
 
       // Mark as processed
@@ -422,34 +404,11 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   // 1. Insert posts (upsert via content_hash)
-  // ── Inline keyword sentiment analysis (no API needed) ──────────────────────
-  const NEGATIVE_KW = [
-    "ölü","ölüm","hayatını kaybetti","can kaybı","yaralı","kaza",
-    "yangın","yanıyor","sel","deprem","sarsıntı","patlama",
-    "bomba","saldırı","çöktü","yıkıldı","feci",
-    "çöp","kirlilik","duman","rezalet","skandal","yolsuzluk","usulsüz","kaçak",
-    "sorun","problem","hata","tepki yağdı","şok","endişe",
-    "itiraz","grev","protesto","eleştiri","kriz",
-  ];
-  const POSITIVE_KW = [
-    "yatırım","tamamlandı","açıldı","başarı","ödül","ihracat",
-    "büyüme","kalkınma","gelişme","rekor","artış",
-    "turizm","festival","etkinlik","ziyaretçi","güzel","mükemmel",
-    "şampiyon","final","zafer","gol","kazandı",
-    "işbirliği","proje","imzalandı","katkı","destek",
-  ];
-
-  function analyzeSentiment(text: string): { sentiment: string; confidence: number } {
-    const lower = text.toLowerCase();
-    const negHits = NEGATIVE_KW.filter(kw => lower.includes(kw)).length;
-    const posHits = POSITIVE_KW.filter(kw => lower.includes(kw)).length;
-    if (negHits > posHits) return { sentiment: "negative", confidence: Math.min(0.5 + negHits * 0.12, 0.95) };
-    if (posHits > negHits) return { sentiment: "positive", confidence: Math.min(0.5 + posHits * 0.12, 0.95) };
-    return { sentiment: "neutral", confidence: 0.55 };
-  }
-
+  // ── Metin zenginleştirme tek kaynaktan gelir: _shared/nlp.ts (analyzeText) ──
+  // Eski inline NEGATIVE_KW/POSITIVE_KW listeleri ve analyzeSentiment kaldırıldı;
+  // bölge/ilçe, kategori ve duygu artık ortak NLP motoruyla üretilir.
   const prepared = posts.map(p => {
-    const { sentiment, confidence } = analyzeSentiment(p.content);
+    const nlp = analyzeText(p.content);
     return {
       platform: p.platform,
       source_type: p.source_type || p.platform,
@@ -460,12 +419,17 @@ async function persistToDB(posts: CollectedPost[], keywords: string[]) {
       url_canonical: canonicalizeUrl(p.url),
       published_at: p.published_at,
       keywords_matched: p.keywords_matched,
-      region: p.region || null,
-      collected_at: new Date().toISOString(),
-      sentiment,
-      sentiment_confidence: confidence,
+      region: p.region || nlp.district,
+      district: nlp.district,
+      category: nlp.category,
+      sentiment: nlp.sentiment,
+      sentiment_score: nlp.sentimentScore,
+      sentiment_confidence: nlp.sentimentConfidence,
       sentiment_method: "keyword",
       analyzed_at: new Date().toISOString(),
+      entities: nlp.entities,
+      lat: nlp.lat,
+      lon: nlp.lon,
     };
   });
 

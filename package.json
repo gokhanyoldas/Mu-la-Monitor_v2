@@ -8,6 +8,7 @@
     "start": "node server.ts",
     "agent:run": "node scripts/run-autonomous-agent.mjs",
     "backfill:canonical": "node scripts/backfill-canonical-urls.mjs",
+    "backfill:nlp": "tsx scripts/backfill-nlp.ts",
     "smoke:production": "node scripts/smoke-production.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
