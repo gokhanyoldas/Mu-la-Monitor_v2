@@ -242,6 +242,7 @@ export type Database = {
           lon?: number | null
           is_duplicate?: boolean | null
           cluster_id?: number | null
+          raw_metadata?: Json | null
         }
         Insert: {
           analyzed_at?: string | null
@@ -252,6 +253,8 @@ export type Database = {
           keywords_matched?: string[] | null
           platform: string
           published_at?: string | null
+          region?: string | null
+          raw_metadata?: Json | null
           sentiment?: string | null
           sentiment_confidence?: number | null
           sentiment_method?: string | null
@@ -274,6 +277,8 @@ export type Database = {
           keywords_matched?: string[] | null
           platform?: string
           published_at?: string | null
+          region?: string | null
+          raw_metadata?: Json | null
           sentiment?: string | null
           sentiment_confidence?: number | null
           sentiment_method?: string | null
@@ -647,31 +652,31 @@ export type Database = {
       }
       monitor_data: {
         Row: {
-          id: string
-          metrics: Json
+          category: string | null
+          content: string
+          created_at: string
+          district_name: string | null
+          id?: string | number
+          sentiment: string | null
           source: string | null
-          summary: string | null
-          tab_key: string
-          title: string
-          updated_at: string
         }
         Insert: {
-          id: string
-          metrics?: Json
+          category?: string | null
+          content: string
+          created_at?: string
+          district_name?: string | null
+          id?: string | number
+          sentiment?: string | null
           source?: string | null
-          summary?: string | null
-          tab_key: string
-          title?: string
-          updated_at?: string
         }
         Update: {
-          id?: string
-          metrics?: Json
+          category?: string | null
+          content?: string
+          created_at?: string
+          district_name?: string | null
+          id?: string | number
+          sentiment?: string | null
           source?: string | null
-          summary?: string | null
-          tab_key?: string
-          title?: string
-          updated_at?: string
         }
         Relationships: []
       }
@@ -679,23 +684,20 @@ export type Database = {
         Row: {
           id: string
           lat: number
-          lon: number
+          lng: number
           name: string
-          population: number | null
         }
         Insert: {
           id: string
           lat: number
-          lon: number
+          lng: number
           name: string
-          population?: number | null
         }
         Update: {
           id?: string
           lat?: number
-          lon?: number
+          lng?: number
           name?: string
-          population?: number | null
         }
         Relationships: []
       }

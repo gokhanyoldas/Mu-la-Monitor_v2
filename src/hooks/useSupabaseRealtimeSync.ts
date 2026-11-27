@@ -22,7 +22,7 @@ import {
   type SectorTopicKey,
   type TopicGroundingPayload,
 } from "@/services/topicGroundingService";
-import { useMonitorStore } from "@/store/useMonitorStore";
+import { useMonitorStore, parseMonitorDataRow } from "@/store/useMonitorStore";
 
 function mapCategoryToLexiconLayer(category?: string | null): LexiconLayer {
   const low = String(category || "").toLocaleLowerCase("tr-TR");
@@ -221,12 +221,12 @@ export function useSupabaseRealtimeSync(enabled = true) {
         const results = await Promise.allSettled([
           safeSelect(
             "monitor_data",
-            "id, tab_key, title, metrics, summary, source, updated_at",
-            "updated_at",
+            "source, district_name, content, sentiment, category, created_at",
+            "created_at",
             false,
-            20
+            40
           ),
-          safeSelect("districts", "id, name, lat, lon, population", "name", true, 20),
+          safeSelect("districts", "id, name, lat, lng", "name", true, 20),
           safeSelect(
             "protocol_members",
             "id, isim, unvan, kategori, telefon, faks, district, updated_at",
@@ -245,21 +245,16 @@ export function useSupabaseRealtimeSync(enabled = true) {
         const [monitorRes, districtsRes, membersRes, changesRes, summariesRes, cacheRes] = results;
 
         if (monitorRes.status === "fulfilled" && !monitorRes.value.error && Array.isArray(monitorRes.value.data)) {
-          const tabRows = monitorRes.value.data
-            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
-            .map((r) => ({
-              id: String(r.id || r.tab_key || ""),
-              tabKey: String(r.tab_key || r.id || ""),
-              title: String(r.title || ""),
-              metrics:
-                r.metrics && typeof r.metrics === "object" && !Array.isArray(r.metrics)
-                  ? (r.metrics as Record<string, unknown>)
-                  : {},
-              summary: typeof r.summary === "string" ? r.summary : null,
-              source: typeof r.source === "string" ? r.source : null,
-              updatedAt: typeof r.updated_at === "string" ? r.updated_at : new Date().toISOString(),
-            }))
-            .filter((r) => Boolean(r.tabKey));
+          // En güncel kayıtlar önce geldiği için her kategori için ilk (en yeni) satırı koru
+          const seenTabKeys = new Set<string>();
+          const tabRows = [];
+          for (const raw of monitorRes.value.data) {
+            if (!raw || typeof raw !== "object") continue;
+            const parsed = parseMonitorDataRow(raw as Record<string, unknown>);
+            if (!parsed || seenTabKeys.has(parsed.tabKey)) continue;
+            seenTabKeys.add(parsed.tabKey);
+            tabRows.push(parsed);
+          }
           if (tabRows.length > 0) {
             store.setMonitorTabs(tabRows);
           }
@@ -272,8 +267,7 @@ export function useSupabaseRealtimeSync(enabled = true) {
               id: String(r.id || ""),
               name: String(r.name || ""),
               lat: Number(r.lat ?? 0),
-              lon: Number(r.lon ?? 0),
-              population: r.population !== null && r.population !== undefined ? Number(r.population) : null,
+              lng: Number(r.lng ?? r.lon ?? 0),
             }))
             .filter((r) => Boolean(r.id && r.name));
           if (districtRows.length > 0) {
@@ -473,40 +467,22 @@ export function useSupabaseRealtimeSync(enabled = true) {
       })
     );
 
-    // 6. 11 ana sekme metrikleri (public.monitor_data)
+    // 6. 11 ana sekme metrikleri (public.monitor_data — content JSON veya düz metin)
     unsubscribers.push(
       subscribeToRealtimeTable("monitor_data", (payload) => {
-        const row = payload.new as
-          | {
-              id?: string;
-              tab_key?: string;
-              title?: string;
-              metrics?: Record<string, unknown>;
-              summary?: string | null;
-              source?: string | null;
-              updated_at?: string;
-            }
-          | undefined;
-        const tabKey = row?.tab_key || row?.id || "";
-        if (tabKey) {
-          useMonitorStore.getState().upsertMonitorTab({
-            id: String(row?.id || tabKey),
-            tabKey: String(tabKey),
-            title: String(row?.title || ""),
-            metrics:
-              row?.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics)
-                ? row.metrics
-                : {},
-            summary: row?.summary ?? null,
-            source: row?.source ?? null,
-            updatedAt: row?.updated_at || new Date().toISOString(),
-          });
+        const parsed = parseMonitorDataRow(payload.new as Record<string, unknown> | undefined);
+        if (parsed) {
+          useMonitorStore.getState().upsertMonitorTab(parsed);
         }
         queryClientRef.current.invalidateQueries({ queryKey: ["monitor-data"] });
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent(REALTIME_SYNC_EVENT, {
-              detail: { table: "monitor_data", tabKey, eventType: payload.eventType },
+              detail: {
+                table: "monitor_data",
+                tabKey: parsed?.tabKey || "",
+                eventType: payload.eventType,
+              },
             })
           );
         }

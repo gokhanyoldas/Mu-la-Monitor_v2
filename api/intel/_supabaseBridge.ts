@@ -138,13 +138,13 @@ export async function persistTopicGroundingToSupabase(
     console.error(`[api/intel/_supabaseBridge] live_data_cache ağ hatası:`, msg);
   }
 
-  // 2. monitor_data (ilgili sekmenin canlı metrik kaydı)
+  // 2. monitor_data — canlı sütunlar: (source, district_name, content, sentiment, category, created_at)
   if (meta) {
     try {
-      const monitorRow = {
-        id: meta.tabKey,
-        tab_key: meta.tabKey,
+      const structuredPayload = {
+        tabKey: meta.tabKey,
         title: meta.title,
+        summary: `${meta.title} canlı web doğrulaması güncellendi (${nowIso.slice(0, 16).replace("T", " ")}).`,
         metrics: {
           topic,
           fetchedAt: nowIso,
@@ -164,11 +164,17 @@ export async function persistTopicGroundingToSupabase(
             ? { protocolActivitiesCount: payload.protocolActivities.length }
             : {}),
         },
-        summary: `${meta.title} canlı web doğrulaması güncellendi (${nowIso.slice(0, 16).replace("T", " ")}).`,
-        source: "api-intel-topic-grounding",
-        updated_at: nowIso,
+        updatedAt: nowIso,
       };
-      const out = await postgrestUpsert(config, "monitor_data", monitorRow, "id", fetchImpl);
+      const monitorRow = {
+        source: "api-intel-topic-grounding",
+        district_name: "Muğla",
+        category: meta.tabKey,
+        sentiment: "neutral",
+        content: JSON.stringify(structuredPayload),
+        created_at: nowIso,
+      };
+      const out = await postgrestUpsert(config, "monitor_data", monitorRow, undefined, fetchImpl);
       recordWrite("monitor_data", 1, out);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -219,6 +225,8 @@ export async function persistTopicGroundingToSupabase(
         title: `[${String(e.district || "Muğla")}] ${String(e.title || "").slice(0, 120)}`,
         body: String(e.summary || e.title || "").slice(0, 280),
         source: "api-intel-topic-grounding",
+        lat: typeof e.lat === "number" ? e.lat : 37.2153,
+        lon: typeof e.lon === "number" ? e.lon : 28.3636,
         metadata: {
           district: e.district || "Muğla",
           source_url: e.sourceUrl || null,

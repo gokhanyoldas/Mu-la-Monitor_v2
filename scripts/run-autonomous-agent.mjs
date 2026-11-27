@@ -912,15 +912,19 @@ export function buildSupabasePayloads({
       author: post.sourceName,
       content: post.content,
       url: post.url,
-      district: post.district,
-      category: post.category,
+      region: post.district,
       sentiment: post.sentiment,
-      sentiment_score: sentimentScore,
       sentiment_confidence: 0.82,
       sentiment_method: "gemini_autonomous_agent",
       keywords_matched: post.keywords,
-      lat: coords.lat,
-      lon: coords.lon,
+      raw_metadata: {
+        district: post.district,
+        category: post.category,
+        sentiment_score: sentimentScore,
+        lat: coords.lat,
+        lon: coords.lon,
+        source_name: post.sourceName,
+      },
       published_at: nowIso,
       collected_at: nowIso,
       analyzed_at: nowIso,
@@ -975,9 +979,9 @@ export function buildSupabasePayloads({
 
     alertRows.push({
       type: alert.type || "field_intel",
+      severity: alert.severity,
       title: alert.title,
       body: alert.body || null,
-      severity: alert.severity,
       source: AGENT_SOURCE,
       lat: coords.lat,
       lon: coords.lon,
@@ -989,6 +993,7 @@ export function buildSupabasePayloads({
         grounding_urls: validGroundingUrls,
         collected_at: nowIso,
       },
+      created_at: nowIso,
     });
   }
 
@@ -1003,9 +1008,9 @@ export function buildSupabasePayloads({
       const coords = DISTRICT_COORDS[urgentPost.district] || DISTRICT_COORDS.Menteşe;
       alertRows.push({
         type: urgentPost.category || "field_intel",
+        severity: urgentPost.severity,
         title: `[${urgentPost.district}] ${urgentPost.title.slice(0, 160)}`,
         body: urgentPost.content.slice(0, 600),
-        severity: urgentPost.severity,
         source: AGENT_SOURCE,
         lat: coords.lat,
         lon: coords.lon,
@@ -1016,6 +1021,7 @@ export function buildSupabasePayloads({
           verified: isValidExternalSourceUrl(urgentPost.url),
           collected_at: nowIso,
         },
+        created_at: nowIso,
       });
     }
   }
@@ -1626,23 +1632,39 @@ export function deterministicUuid(namespace, key) {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${variant}${hash.slice(18, 20)}-${hash.slice(20, 32)}`;
 }
 
-// Muğla'nın 13 resmi ilçesi (TÜİK 2024 ADNKS nüfus kayıtları + resmi koordinatlar)
-// Not: `geom` kolonu veritabanında GENERATED ALWAYS olduğu için payload'a DAHİL EDİLMEZ.
+// Muğla'nın 13 resmi ilçesi — canlı Supabase `districts` şeması birebir: (id, name, lat, lng)
 export const VERIFIED_DISTRICTS_SEED = Object.freeze([
-  { id: "mentese", name: "Menteşe", lat: 37.2153, lon: 28.3636, population: 121831 },
-  { id: "bodrum", name: "Bodrum", lat: 37.0344, lon: 27.4305, population: 198335 },
-  { id: "fethiye", name: "Fethiye", lat: 36.6222, lon: 29.1156, population: 177569 },
-  { id: "marmaris", name: "Marmaris", lat: 36.855, lon: 28.2742, population: 96589 },
-  { id: "milas", name: "Milas", lat: 37.3164, lon: 27.7839, population: 149691 },
-  { id: "dalaman", name: "Dalaman", lat: 36.7658, lon: 28.8028, population: 49044 },
-  { id: "ortaca", name: "Ortaca", lat: 36.8392, lon: 28.7647, population: 54714 },
-  { id: "koycegiz", name: "Köyceğiz", lat: 36.9689, lon: 28.6939, population: 40468 },
-  { id: "datca", name: "Datça", lat: 36.7378, lon: 27.6844, population: 25649 },
-  { id: "ula", name: "Ula", lat: 37.1056, lon: 28.4167, population: 27051 },
-  { id: "yatagan", name: "Yatağan", lat: 37.3397, lon: 28.1369, population: 45172 },
-  { id: "seydikemer", name: "Seydikemer", lat: 36.6458, lon: 29.3611, population: 65912 },
-  { id: "kavaklidere", name: "Kavaklıdere", lat: 37.4447, lon: 28.3661, population: 10711 },
+  { id: "mentese", name: "Menteşe", lat: 37.2153, lng: 28.3636 },
+  { id: "bodrum", name: "Bodrum", lat: 37.0344, lng: 27.4305 },
+  { id: "fethiye", name: "Fethiye", lat: 36.6222, lng: 29.1156 },
+  { id: "marmaris", name: "Marmaris", lat: 36.855, lng: 28.2742 },
+  { id: "milas", name: "Milas", lat: 37.3164, lng: 27.7839 },
+  { id: "dalaman", name: "Dalaman", lat: 36.7658, lng: 28.8028 },
+  { id: "ortaca", name: "Ortaca", lat: 36.8392, lng: 28.7647 },
+  { id: "koycegiz", name: "Köyceğiz", lat: 36.9689, lng: 28.6939 },
+  { id: "datca", name: "Datça", lat: 36.7378, lng: 27.6844 },
+  { id: "ula", name: "Ula", lat: 37.1056, lng: 28.4167 },
+  { id: "yatagan", name: "Yatağan", lat: 37.3397, lng: 28.1369 },
+  { id: "seydikemer", name: "Seydikemer", lat: 36.6458, lng: 29.3611 },
+  { id: "kavaklidere", name: "Kavaklıdere", lat: 37.4447, lng: 28.3661 },
 ]);
+
+// TÜİK 2024 ADNKS resmi ilçe nüfusları (özet hesaplamaları için; districts tablosuna gönderilmez)
+export const VERIFIED_DISTRICT_POPULATIONS = Object.freeze({
+  mentese: 121831,
+  bodrum: 198335,
+  fethiye: 177569,
+  marmaris: 96589,
+  milas: 149691,
+  dalaman: 49044,
+  ortaca: 54714,
+  koycegiz: 40468,
+  datca: 25649,
+  ula: 27051,
+  yatagan: 45172,
+  seydikemer: 65912,
+  kavaklidere: 10711,
+});
 
 // Doğrulanmış Muğla il protokol çekirdek listesi (Vali Seddar YAVUZ dahil)
 export const VERIFIED_PROTOCOL_MEMBERS_SEED = Object.freeze([
@@ -1998,14 +2020,20 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
     else if (sentiment === "negative") negativeCount += 1;
     else neutralCount += 1;
 
-    // İlçe eşleştirme
-    const rawDistrict = normalizeTextForMatch(post?.district || post?.region || "");
+    // İlçe eşleştirme (gerçek `social_posts.region` + `raw_metadata` + `keywords_matched` + `content`)
+    const metaObj =
+      post?.raw_metadata && typeof post.raw_metadata === "object" ? post.raw_metadata : {};
+    const kwText = Array.isArray(post?.keywords_matched) ? post.keywords_matched.join(" ") : "";
+    const rawRegion = normalizeTextForMatch(
+      post?.region || metaObj.district || post?.district || ""
+    );
     let matchedDistrict = VERIFIED_DISTRICTS_SEED.find(
-      (d) => rawDistrict === d.id || rawDistrict.includes(normalizeTextForMatch(d.name))
+      (d) => rawRegion === d.id || rawRegion.includes(normalizeTextForMatch(d.name))
     );
     if (!matchedDistrict) {
+      const combinedText = `${norm} ${normalizeTextForMatch(kwText)}`;
       matchedDistrict = VERIFIED_DISTRICTS_SEED.find((d) =>
-        norm.includes(normalizeTextForMatch(d.name))
+        combinedText.includes(normalizeTextForMatch(d.name))
       );
     }
     if (matchedDistrict) {
@@ -2014,9 +2042,12 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
       if (sentiment === "positive") districtCounts[matchedDistrict.id].positive += 1;
     }
 
-    // Kategori sınıflandırması
-    const cat = normalizeTextForMatch(post?.category || "");
-    const postDistrictName = matchedDistrict?.name || post?.district || post?.region || "Muğla";
+    // Kategori sınıflandırması (`raw_metadata.category`, `keywords_matched` ve `content`)
+    const cat = normalizeTextForMatch(
+      metaObj.category || post?.category || kwText
+    );
+    const postDistrictName =
+      matchedDistrict?.name || post?.region || metaObj.district || "Muğla";
     const postUrl = sanitizeHttpUrl(post?.url);
     const publishedAt = post?.published_at || post?.collected_at || now.toISOString();
 
@@ -2079,7 +2110,7 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
     }
     categoryCounts.sosyal += 1;
 
-    // Acil kesinti / deprem / yangın uyarı sinyalleri (sadece doğrulanmış URL veya resmi haberlerde)
+    // Acil kesinti / deprem / yangın uyarı sinyalleri (exact alert_events 9 sütun)
     const isUrgentQuake = /deprem|afad|kandilli/.test(norm) && /\b[3-7][.,][0-9]\b/.test(content);
     const isUrgentOutage =
       /(adm elektrik|aydem|muski).*(kesinti|ariza)|planli elektrik kesintisi|ana isale hatti/.test(
@@ -2103,7 +2134,7 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
         body: content.slice(0, 280),
         source: AGENT_SOURCE,
         lat: matchedDistrict?.lat ?? 37.2153,
-        lon: matchedDistrict?.lon ?? 28.3636,
+        lon: matchedDistrict?.lng ?? 28.3636,
         metadata: {
           district: postDistrictName,
           source_url: postUrl,
@@ -2131,9 +2162,73 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
 }
 
 /**
+ * Gemini 429 (RESOURCE_EXHAUSTED) durumunda ücretsiz Google News RSS akışından
+ * Muğla ve ilgili bölgesel grup haberlerini okuyan hafif açık kaynak yedeği.
+ */
+export async function fetchOpenSourceRssFallback(group, fetchImpl = globalThis.fetch, now = new Date()) {
+  if (typeof fetchImpl !== "function") return [];
+  const districts = Array.isArray(group?.districts) ? group.districts : ["Muğla"];
+  const query = encodeURIComponent(`Muğla OR ${districts.slice(0, 3).join(" OR ")} belediye OR baraj OR elektrik OR turizm`);
+  const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=tr&gl=TR&ceid=TR:tr`;
+  try {
+    const res = await fetchWithRetry(
+      fetchImpl,
+      rssUrl,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+          "User-Agent": "MuglaMonitor-RSS/2.0",
+        },
+      },
+      { label: "Google News RSS Yedeği", maxRetries: 1, retryDelayMs: 300, timeoutMs: 8000 }
+    );
+    if (!res?.ok) return [];
+    const xml = await res.text();
+    if (!xml || typeof xml !== "string") return [];
+
+    const items = [];
+    const itemRe = /<item>([\s\S]*?)<\/item>/gi;
+    let match;
+    while ((match = itemRe.exec(xml)) !== null && items.length < 15) {
+      const block = match[1];
+      const rawTitle = (block.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i)?.[1] || "")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&amp;/g, "&")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .trim();
+      const rawLink = (block.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || "").trim();
+      const rawSource = (block.match(/<source[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/source>/i)?.[1] || "Yerel Basın RSS").trim();
+      const rawPubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1] || "").trim();
+      if (!rawTitle) continue;
+      const parsedDate = rawPubDate && !Number.isNaN(Date.parse(rawPubDate))
+        ? new Date(rawPubDate).toISOString()
+        : now.toISOString();
+      items.push({
+        id: `rss-${deterministicUuid("rss_item", rawTitle).slice(0, 12)}`,
+        platform: "rss_fallback",
+        author: rawSource,
+        content: rawTitle,
+        sentiment: "neutral",
+        region: districts[0] || "Muğla",
+        url: sanitizeHttpUrl(rawLink),
+        keywords_matched: districts.slice(0, 2),
+        raw_metadata: { origin: "google_news_rss_fallback" },
+        published_at: parsedDate,
+        collected_at: now.toISOString(),
+      });
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * 7 çekirdek Supabase tablosunun (`monitor_data`, `districts`, `protocol_members`,
  * `protocol_changes`, `alert_events`, `ai_summaries`, `live_data_cache`) tamamı için
- * idempotent upsert/insert payload'larını üretir.
+ * canlı şemayla birebir uyumlu upsert/insert payload'larını üretir.
  */
 export function buildBridgeTablePayloads({
   findings,
@@ -2149,13 +2244,12 @@ export function buildBridgeTablePayloads({
   const nextYear = currentYear + 1;
   const signals = extractSignalsFromSocialPosts(recentSocialPosts, now);
 
-  // 1. districts (13 Muğla ilçesi — idempotent upsert onConflict: "id")
+  // 1. districts — YALNIZCA gerçek sütunlar: (id, name, lat, lng)
   const districtsRows = VERIFIED_DISTRICTS_SEED.map((d) => ({
     id: d.id,
     name: d.name,
     lat: d.lat,
-    lon: d.lon,
-    population: d.population,
+    lng: d.lng,
   }));
 
   // 2. protocol_members & protocol_changes
@@ -2391,17 +2485,48 @@ export function buildBridgeTablePayloads({
     },
   ];
 
-  // 5. monitor_data (11 ana sekmenin canlı metrik kayıtları — idempotent upsert onConflict: "id")
-  const totalPopulation = VERIFIED_DISTRICTS_SEED.reduce((sum, d) => sum + d.population, 0);
+  // 5. monitor_data — YALNIZCA canlı sütunlar: (source, district_name, content, sentiment, category, created_at)
+  const totalPopulation = Object.values(VERIFIED_DISTRICT_POPULATIONS).reduce(
+    (sum, pop) => sum + pop,
+    0
+  );
   const topActiveDistricts = Object.values(signals.districtCounts)
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
+  const overallSentiment =
+    signals.negativeCount > signals.positiveCount
+      ? "negative"
+      : signals.positiveCount > signals.negativeCount
+        ? "positive"
+        : "neutral";
+
+  const makeMonitorRow = ({
+    tabKey,
+    title,
+    districtName = "Muğla",
+    sentiment = "neutral",
+    summary,
+    metrics,
+  }) => ({
+    source: AGENT_SOURCE,
+    district_name: districtName,
+    category: tabKey,
+    sentiment,
+    content: JSON.stringify({
+      tabKey,
+      title,
+      summary,
+      metrics,
+      updatedAt: isoNow,
+    }),
+    created_at: isoNow,
+  });
 
   const monitorDataRows = [
-    {
-      id: "genel",
-      tab_key: "genel",
+    makeMonitorRow({
+      tabKey: "genel",
       title: "Genel Bakış",
+      sentiment: overallSentiment,
       metrics: {
         totalPopulation,
         districtCount: VERIFIED_DISTRICTS_SEED.length,
@@ -2415,12 +2540,9 @@ export function buildBridgeTablePayloads({
         scanYear: currentYear,
       },
       summary: `Muğla (${VERIFIED_DISTRICTS_SEED.length} ilçe, ${totalPopulation.toLocaleString("tr-TR")} nüfus) — Grup ${group.id} canlı senkronizasyon tamamlandı.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "diyagram",
-      tab_key: "diyagram",
+    }),
+    makeMonitorRow({
+      tabKey: "diyagram",
       title: "Şehir Ağı Diyagramı",
       metrics: {
         districtNodes: VERIFIED_DISTRICTS_SEED.length,
@@ -2429,13 +2551,11 @@ export function buildBridgeTablePayloads({
         topActiveDistricts,
       },
       summary: `${VERIFIED_DISTRICTS_SEED.length} ilçe, ${protocolMemberRows.length} protokol üyesi ve ${OFFICIAL_MUGLA_DAMS_SEED.length} baraj düğümü senkronize edildi.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "ekonomi",
-      tab_key: "ekonomi",
+    }),
+    makeMonitorRow({
+      tabKey: "ekonomi",
       title: "Ekonomi & Bütçe",
+      sentiment: "positive",
       metrics: {
         budgetYear: ecoBudgetYear,
         combinedTotalBillionTry: ecoBudgetTotal,
@@ -2444,12 +2564,9 @@ export function buildBridgeTablePayloads({
         socialMentions: signals.categoryCounts.ekonomi,
       },
       summary: `Toplam yerel yönetim bütçesi ${ecoBudgetTotal} Milyar ₺ (${ecoBudgetYear}); ${signals.categoryCounts.ekonomi} güncel ekonomi/ihale sinyali işlendi.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "cevre",
-      tab_key: "cevre",
+    }),
+    makeMonitorRow({
+      tabKey: "cevre",
       title: "Çevre & Barajlar",
       metrics: {
         damCount: OFFICIAL_MUGLA_DAMS_SEED.length,
@@ -2458,12 +2575,9 @@ export function buildBridgeTablePayloads({
         socialMentions: signals.categoryCounts.cevre,
       },
       summary: `${OFFICIAL_MUGLA_DAMS_SEED.length} resmi Muğla barajı izleniyor; ${verifiedDamRates.length} barajda güncel basın/DSİ ölçümü doğrulandı.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "turizm",
-      tab_key: "turizm",
+    }),
+    makeMonitorRow({
+      tabKey: "turizm",
       title: "Turizm & Konaklama",
       metrics: {
         hotelOccupancyPct: findings?.tourismMetrics?.hotelOccupancyPct ?? null,
@@ -2474,12 +2588,9 @@ export function buildBridgeTablePayloads({
         socialMentions: signals.categoryCounts.turizm,
       },
       summary: `${currentYear}/${nextYear} turizm verileri ve ${signals.categoryCounts.turizm} turizm sinyali senkronize edildi.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "ulasim",
-      tab_key: "ulasim",
+    }),
+    makeMonitorRow({
+      tabKey: "ulasim",
       title: "Ulaşım & Altyapı",
       metrics: {
         monitoredDistricts: VERIFIED_DISTRICTS_SEED.length,
@@ -2487,13 +2598,11 @@ export function buildBridgeTablePayloads({
         socialMentions: signals.categoryCounts.ulasim,
       },
       summary: `13 ilçe trafik/altyapı akışı ve ${findings?.transportIncidents?.length ?? 0} güncel yol/altyapı bildirimi işlendi.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "sosyal",
-      tab_key: "sosyal",
+    }),
+    makeMonitorRow({
+      tabKey: "sosyal",
       title: "Sosyal İstihbarat",
+      sentiment: overallSentiment,
       metrics: {
         postsAnalyzed: signals.totalPostsAnalyzed,
         positiveCount: signals.positiveCount,
@@ -2502,38 +2611,35 @@ export function buildBridgeTablePayloads({
         topActiveDistricts,
       },
       summary: `Son ${signals.totalPostsAnalyzed} sosyal/basın gönderisi analiz edildi (Olumlu: ${signals.positiveCount}, Olumsuz: ${signals.negativeCount}, Nötr: ${signals.neutralCount}).`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "guvenlik",
-      tab_key: "guvenlik",
+    }),
+    makeMonitorRow({
+      tabKey: "guvenlik",
       title: "Güvenlik & Asayiş",
+      sentiment:
+        derivedAlertRows.length + (findings?.alerts?.length ?? 0) > 0 ? "negative" : "neutral",
       metrics: {
         eventsCount: findings?.securityEvents?.length || signals.securityHighlights.length,
         urgentAlertsCount: derivedAlertRows.length + (findings?.alerts?.length ?? 0),
         socialMentions: signals.categoryCounts.guvenlik,
       },
       summary: `${findings?.securityEvents?.length || signals.securityHighlights.length} güvenlik/deprem gelişmesi ve ${derivedAlertRows.length + (findings?.alerts?.length ?? 0)} acil uyarı kaydı izleniyor.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "enerji",
-      tab_key: "enerji",
+    }),
+    makeMonitorRow({
+      tabKey: "enerji",
       title: "Enerji & Kesintiler",
+      sentiment:
+        (findings?.energyOutages?.length || signals.energyHighlights.length) > 0
+          ? "negative"
+          : "neutral",
       metrics: {
         activeOutagesCount: findings?.energyOutages?.length || signals.energyHighlights.length,
         provider: "ADM Elektrik",
         socialMentions: signals.categoryCounts.enerji,
       },
       summary: `ADM Elektrik ve enerji hattı sinyalleri güncellendi (${findings?.energyOutages?.length || signals.energyHighlights.length} kayıt).`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "protokol",
-      tab_key: "protokol",
+    }),
+    makeMonitorRow({
+      tabKey: "protokol",
       title: "Muğla Protokol",
       metrics: {
         governor: activeGovernor,
@@ -2542,13 +2648,11 @@ export function buildBridgeTablePayloads({
         activitiesCount: protoActivities.length,
       },
       summary: `Muğla Valisi ${activeGovernor} dahil ${protocolMemberRows.length} protokol üyesi ve atama değişiklikleri güncel.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
-    {
-      id: "ilceler",
-      tab_key: "ilceler",
+    }),
+    makeMonitorRow({
+      tabKey: "ilceler",
       title: "İlçeler (13 İlçe)",
+      districtName: group.districts?.[0] || "Muğla",
       metrics: {
         districtCount: VERIFIED_DISTRICTS_SEED.length,
         totalPopulation,
@@ -2557,9 +2661,7 @@ export function buildBridgeTablePayloads({
         districtCounts: signals.districtCounts,
       },
       summary: `13 ilçenin tamamı (${group.districts.join(", ")} öncelikli tarama) canlı veritabanına bağlandı.`,
-      source: AGENT_SOURCE,
-      updated_at: isoNow,
-    },
+    }),
   ];
 
   // 6. ai_summaries (günlük yönetici özeti + şehir nabzı — onConflict: "type,date")
@@ -2776,13 +2878,20 @@ export async function runAutonomousAgent(options = {}) {
     existingKwData.find((r) => r.user_id)?.user_id ||
     null;
 
-  // 1b. Mevcut son social_posts kayıtları (hem URL tekilleştirme hem 7-tablo canlı sentez için)
+  const warnings = [];
+  const recordWarning = (step, err) => {
+    const message = err?.message || String(err);
+    warnings.push({ step, message });
+    console.warn(`[1. Ajan] [UYARI] ${step}: ${message}`);
+  };
+
+  // 1b. Mevcut son social_posts kayıtları — gerçek sütunlar: region, content, keywords_matched, raw_metadata
   let recentSocialPosts = [];
   let existingUrls = [];
   try {
     const { data, error } = await supabase.select(
       "social_posts",
-      "select=id,platform,author,content,sentiment,district,region,category,url,published_at,collected_at&order=collected_at.desc&limit=200"
+      "select=id,platform,author,content,sentiment,region,url,keywords_matched,raw_metadata,published_at,collected_at&order=collected_at.desc&limit=200"
     );
     if (error) {
       recordStepError("social_posts okuma", error, "social_posts");
@@ -2825,13 +2934,17 @@ export async function runAutonomousAgent(options = {}) {
   }
 
   // 2. Dinamik yıl (currentYear / nextYear) destekli Gemini Search Grounding çağrısı
-  // Not: GEMINI_API_KEY eksik olsa veya 429 dönse bile 7 çekirdek tablonun social_posts + seed senkronizasyonu KESİNLİKLE çalışır!
+  // Not: Gemini 429 (RESOURCE_EXHAUSTED) durumunda ajan çökmez; [UYARI] loglar ve
+  // mevcut social_posts + ücretsiz RSS/açık kaynak yedeğiyle Supabase yazımlarını tamamlar.
   let groundingResponse = null;
   let geminiSucceeded = false;
+  let quotaFallbackUsed = false;
   if (!geminiApiKey) {
-    console.warn(
-      "[1. Ajan] GEMINI_API_KEY eksik — Gemini araması atlanıyor, mevcut social_posts ve idempotent 7-tablo senkronizasyonu çalıştırılıyor."
+    recordWarning(
+      "Gemini Search Grounding",
+      "GEMINI_API_KEY eksik — mevcut social_posts ve ücretsiz açık kaynak verileriyle senkronizasyon çalıştırılıyor."
     );
+    quotaFallbackUsed = true;
   } else {
     try {
       const prompt = buildGroundingPrompt(group);
@@ -2855,10 +2968,24 @@ export async function runAutonomousAgent(options = {}) {
       geminiSucceeded = true;
     } catch (err) {
       if (isRateLimitMessage(err)) {
-        recordStepError("Gemini Search Grounding (429 kota limiti)", err);
+        quotaFallbackUsed = true;
+        recordWarning(
+          "Gemini Search Grounding (429 RESOURCE_EXHAUSTED)",
+          `${err?.message || err} — ücretsiz RSS/açık kaynak + mevcut social_posts verileriyle sentez tamamlanacak.`
+        );
       } else {
         recordStepError("Gemini Search Grounding", err);
       }
+    }
+  }
+
+  if (quotaFallbackUsed && options.skipOpenRssFallback !== true) {
+    const rssItems = await fetchOpenSourceRssFallback(group, fetchImpl, now);
+    if (rssItems.length > 0) {
+      console.log(
+        `[1. Ajan] Ücretsiz RSS yedeğinden ${rssItems.length} güncel Muğla başlığı senteze eklendi.`
+      );
+      recentSocialPosts = [...recentSocialPosts, ...rssItems];
     }
   }
 
@@ -3063,19 +3190,17 @@ export async function runAutonomousAgent(options = {}) {
     }
   }
 
-  // 11. monitor_data (11 ana sekmenin canlı özet ve metrikleri — idempotent upsert)
+  // 11. monitor_data — canlı şema (source, district_name, content, sentiment, category, created_at)
   if (bridgePayloads.monitorDataRows.length > 0) {
     try {
-      const { error } = await supabase.upsert("monitor_data", bridgePayloads.monitorDataRows, {
-        onConflict: "id",
-      });
+      const { error, count } = await supabase.insert("monitor_data", bridgePayloads.monitorDataRows);
       if (error) {
-        recordStepError("monitor_data upsert", error, "monitor_data");
+        recordStepError("monitor_data insert", error, "monitor_data");
       } else {
-        inserted.monitor_data = bridgePayloads.monitorDataRows.length;
+        inserted.monitor_data = count;
       }
     } catch (err) {
-      recordStepError("monitor_data upsert", err, "monitor_data");
+      recordStepError("monitor_data insert", err, "monitor_data");
     }
   }
 
@@ -3086,7 +3211,7 @@ export async function runAutonomousAgent(options = {}) {
       `protocol_members: ${inserted.protocol_members}, protocol_changes: ${inserted.protocol_changes}, ` +
       `alert_events: ${inserted.alert_events}, ai_summaries: ${inserted.ai_summaries}, ` +
       `live_data_cache: ${inserted.live_data_cache}, social_keywords: ${inserted.social_keywords}, ` +
-      `social_posts: ${inserted.social_posts} | Hata sayısı: ${errors.length}`
+      `social_posts: ${inserted.social_posts} | Uyarı: ${warnings.length} | Hata: ${errors.length}`
   );
 
   if (errors.length > 0) {
@@ -3102,7 +3227,9 @@ export async function runAutonomousAgent(options = {}) {
     group,
     topics,
     quota,
+    quotaFallbackUsed,
     inserted,
+    warnings,
     errors,
   };
 }
