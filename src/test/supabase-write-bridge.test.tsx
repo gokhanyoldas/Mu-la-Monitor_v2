@@ -27,8 +27,8 @@ const syncMockState = {
   tableRows: {
     monitor_data: [
       {
-        source: "autonomous-intel-agent",
-        district_name: "Muğla Geneli",
+        source: "otonom-ajan",
+        district_name: "Menteşe",
         category: "ekonomi",
         sentiment: "neutral",
         content: JSON.stringify({
@@ -147,6 +147,7 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
 
   it("1. runAutonomousAgent canlı Supabase şemasıyla (region, lng, 6 sütunlu monitor_data, 9 sütunlu alert_events) 7 çekirdek tabloya yazar", async () => {
     const writesByTable = new Map<string, Array<{ url: string; body: unknown; auth: string }>>();
+    const writeOrder: string[] = [];
     const socialPostsSelectUrls: string[] = [];
 
     const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
@@ -259,6 +260,7 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
 
       const match = url.match(/\/rest\/v1\/([^?]+)/);
       const table = match ? decodeURIComponent(match[1]) : "unknown";
+      writeOrder.push(table);
       const parsedBody = typeof init?.body === "string" ? JSON.parse(init.body) : null;
       const list = writesByTable.get(table) ?? [];
       list.push({ url, body: parsedBody, auth: headers.Authorization || "" });
@@ -340,7 +342,14 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
       expect(Object.keys(row).sort()).toEqual(["lat", "lng", "name"]);
     }
 
-    // monitor_data payload'ı YALNIZCA 6 gerçek sütun içermeli ve varchar(20) sınırına uymalı
+    // FK sırası: tüm districts yazımları monitor_data insert'inden ÖNCE tamamlanmış olmalı
+    const lastDistrictWriteIdx = writeOrder.lastIndexOf("districts");
+    const firstMonitorWriteIdx = writeOrder.indexOf("monitor_data");
+    expect(lastDistrictWriteIdx).toBeGreaterThanOrEqual(0);
+    expect(firstMonitorWriteIdx).toBeGreaterThan(lastDistrictWriteIdx);
+
+    // monitor_data payload'ı YALNIZCA 6 gerçek sütun içermeli, varchar(20) ve FK (districts.name) sınırına uymalı
+    const validDistrictSet = new Set(VERIFIED_DISTRICTS_SEED.map((d: { name: string }) => d.name));
     const monitorPayload = writesByTable.get("monitor_data")![0].body as Array<Record<string, unknown>>;
     expect(monitorPayload).toHaveLength(11);
     for (const row of monitorPayload) {
@@ -357,10 +366,17 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
       expect(String(row.district_name).length).toBeLessThanOrEqual(20);
       expect(String(row.sentiment).length).toBeLessThanOrEqual(20);
       expect(String(row.category).length).toBeLessThanOrEqual(20);
+      // monitor_data_district_name_fkey: ASLA "Muğla" veya "Muğla Geneli" gönderilmemeli
+      expect(row.district_name).not.toBe("Muğla");
+      expect(row.district_name).not.toBe("Muğla Geneli");
+      expect(validDistrictSet.has(String(row.district_name))).toBe(true);
       expect(typeof row.content).toBe("string");
       const parsed = JSON.parse(row.content as string);
       expect(parsed.tabKey).toBe(row.category);
     }
+    // İl geneli özet sekmeleri (ör. genel, ekonomi) "Menteşe" ile eşleşmeli
+    const genelRow = monitorPayload.find((r) => r.category === "genel");
+    expect(genelRow?.district_name).toBe("Menteşe");
 
     // alert_events payload'ı birebir 9 canlı sütun içermeli
     const alertPayload = writesByTable.get("alert_events")![0].body as Array<Record<string, unknown>>;
@@ -490,9 +506,17 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
     }
   });
 
-  it("4. api/intel/_supabaseBridge.ts doğrulanan konu çıktısını canlı monitor_data 6 sütunuyla Supabase'e yazar", async () => {
+  it("4. api/intel/_supabaseBridge.ts doğrulanan konu çıktısını canlı monitor_data 6 sütunu ve FK uyumlu ilçe adıyla Supabase'e yazar", async () => {
     const writes: Array<{ table: string; body: unknown }> = [];
     const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = (init?.method || "GET").toUpperCase();
+      if (method === "GET" && url.includes("/rest/v1/districts")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [{ name: "Menteşe" }, { name: "Bodrum" }, { name: "Marmaris" }],
+        } as unknown as Response;
+      }
       const match = url.match(/\/rest\/v1\/([^?]+)/);
       if (match) {
         writes.push({
@@ -545,6 +569,7 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
     ]);
     expect("metrics" in monitorBody).toBe(false);
     expect(monitorBody.source).toBe("konu-dogrulama");
+    expect(monitorBody.district_name).toBe("Menteşe");
     expect(String(monitorBody.source).length).toBeLessThanOrEqual(20);
     expect(String(monitorBody.district_name).length).toBeLessThanOrEqual(20);
     expect(String(monitorBody.sentiment).length).toBeLessThanOrEqual(20);

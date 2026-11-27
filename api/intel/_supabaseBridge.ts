@@ -71,10 +71,89 @@ async function postgrestUpsert(
 }
 
 const MONITOR_DATA_BRIDGE_SOURCE = "konu-dogrulama";
+const DEFAULT_PROVINCIAL_DISTRICT_NAME = "Menteşe";
+const OFFICIAL_MUGLA_DISTRICT_NAMES = [
+  "Menteşe",
+  "Bodrum",
+  "Fethiye",
+  "Marmaris",
+  "Milas",
+  "Dalaman",
+  "Ortaca",
+  "Köyceğiz",
+  "Datça",
+  "Ula",
+  "Yatağan",
+  "Seydikemer",
+  "Kavaklıdere",
+] as const;
 
 function clampVarchar20(value: unknown, fallback = ""): string {
   const cleaned = String(value ?? "").trim() || fallback.trim();
   return cleaned.slice(0, 20);
+}
+
+function normalizeDistrictKey(raw: unknown): string {
+  return String(raw ?? "")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function resolveValidDistrictName(candidate: unknown, validDistrictNames: string[]): string {
+  const pool =
+    validDistrictNames.length > 0 ? validDistrictNames : [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+  const byNorm = new Map<string, string>();
+  for (const name of pool) {
+    const norm = normalizeDistrictKey(name);
+    if (norm && !byNorm.has(norm)) byNorm.set(norm, name);
+  }
+  const fallback =
+    byNorm.get(normalizeDistrictKey(DEFAULT_PROVINCIAL_DISTRICT_NAME)) ||
+    pool[0] ||
+    DEFAULT_PROVINCIAL_DISTRICT_NAME;
+
+  const normCand = normalizeDistrictKey(candidate);
+  if (!normCand || normCand === "mugla" || normCand === "mugla geneli") {
+    return clampVarchar20(fallback, DEFAULT_PROVINCIAL_DISTRICT_NAME);
+  }
+  const exact = byNorm.get(normCand);
+  if (exact) return clampVarchar20(exact, fallback);
+  for (const [norm, realName] of byNorm.entries()) {
+    if (normCand.includes(norm)) return clampVarchar20(realName, fallback);
+  }
+  return clampVarchar20(fallback, DEFAULT_PROVINCIAL_DISTRICT_NAME);
+}
+
+async function fetchLiveDistrictNames(
+  config: { url: string; serviceRoleKey: string },
+  fetchImpl: typeof fetch
+): Promise<string[]> {
+  try {
+    const endpoint = `${config.url}/rest/v1/districts?select=name&limit=100`;
+    const res = await fetchImpl(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: config.serviceRoleKey,
+        Authorization: `Bearer ${config.serviceRoleKey}`,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) return [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+    const rows = (await res.json()) as Array<{ name?: unknown }>;
+    const names = Array.isArray(rows)
+      ? rows.map((r) => String(r?.name ?? "").trim()).filter(Boolean)
+      : [];
+    return names.length > 0 ? names : [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+  } catch {
+    return [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+  }
 }
 
 const TOPIC_TO_TAB_MAP: Record<string, { tabKey: string; title: string; cacheType: string }> = {
@@ -146,9 +225,14 @@ export async function persistTopicGroundingToSupabase(
   }
 
   // 2. monitor_data — canlı sütunlar: (source, district_name, content, sentiment, category, created_at)
-  // `source`, `district_name`, `sentiment`, `category` varchar(20) sınırına uymalıdır; uzun JSON yalnızca `content` içindedir.
+  // `district_name` FK -> `districts.name`: ASLA "Muğla" gönderilmez, canlı ilçe listesiyle (il geneli -> "Menteşe") eşleştirilir.
   if (meta) {
     try {
+      const liveDistrictNames = await fetchLiveDistrictNames(config, fetchImpl);
+      const validDistrictName = resolveValidDistrictName(
+        typeof payload.district === "string" ? payload.district : DEFAULT_PROVINCIAL_DISTRICT_NAME,
+        liveDistrictNames
+      );
       const structuredPayload = {
         tabKey: meta.tabKey,
         title: meta.title,
@@ -176,7 +260,7 @@ export async function persistTopicGroundingToSupabase(
       };
       const monitorRow = {
         source: clampVarchar20(MONITOR_DATA_BRIDGE_SOURCE, "konu-dogrulama"),
-        district_name: clampVarchar20("Muğla", "Muğla"),
+        district_name: validDistrictName,
         category: clampVarchar20(meta.tabKey, "genel"),
         sentiment: clampVarchar20("neutral", "neutral"),
         content: JSON.stringify(structuredPayload),

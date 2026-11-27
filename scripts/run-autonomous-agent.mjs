@@ -1634,6 +1634,7 @@ export function deterministicUuid(namespace, key) {
 
 // monitor_data `varchar(20)` sütunları için kısa sabit kaynak kodu (<= 20 karakter)
 export const MONITOR_DATA_SOURCE = "otonom-ajan";
+export const DEFAULT_PROVINCIAL_DISTRICT_NAME = "Menteşe";
 
 export function clampVarchar20(value, fallback = "") {
   const cleaned = String(value ?? "").trim() || String(fallback ?? "").trim();
@@ -1972,6 +1973,50 @@ function normalizeTextForMatch(raw) {
     .replace(/ç/g, "c")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+/**
+ * `monitor_data_district_name_fkey` yabancı anahtarı gereği `district_name` değerini
+ * yalnızca canlı `districts.name` listesinde bulunan gerçek bir ilçe adıyla birebir eşleştirir.
+ * İl geneli / merkez verileri ("Muğla", "Muğla Geneli" veya eşleşmeyen değerler)
+ * ASLA "Muğla" olarak yazılmaz; doğrudan il merkezi "Menteşe" ile eşlenir.
+ */
+export function resolveValidDistrictName(
+  candidate,
+  validDistrictNames = VERIFIED_DISTRICTS_SEED.map((d) => d.name)
+) {
+  const byNorm = new Map();
+  let firstValid = null;
+
+  for (const rawName of Array.isArray(validDistrictNames) ? validDistrictNames : []) {
+    const clean = String(rawName ?? "").trim();
+    if (!clean) continue;
+    const norm = normalizeTextForMatch(clean);
+    if (!norm || norm === "mugla" || norm === "mugla geneli") continue;
+    if (!byNorm.has(norm)) {
+      byNorm.set(norm, clean);
+      if (!firstValid) firstValid = clean;
+    }
+  }
+
+  // Canlı liste boşsa 13 doğrulanmış Muğla ilçesine düş
+  if (byNorm.size === 0) {
+    for (const d of VERIFIED_DISTRICTS_SEED) {
+      byNorm.set(normalizeTextForMatch(d.name), d.name);
+      if (!firstValid) firstValid = d.name;
+    }
+  }
+
+  const canonicalCenter =
+    byNorm.get("mentese") || firstValid || DEFAULT_PROVINCIAL_DISTRICT_NAME;
+
+  const candidateNorm = normalizeTextForMatch(candidate);
+  if (candidateNorm && candidateNorm !== "mugla" && candidateNorm !== "mugla geneli") {
+    const exact = byNorm.get(candidateNorm);
+    if (exact) return clampVarchar20(exact, canonicalCenter);
+  }
+
+  return clampVarchar20(canonicalCenter, DEFAULT_PROVINCIAL_DISTRICT_NAME);
 }
 
 function sanitizeHttpUrl(raw) {
@@ -2561,17 +2606,25 @@ export function buildBridgeTablePayloads({
         ? "positive"
         : "neutral";
 
+  // monitor_data_district_name_fkey uyumu: yalnızca districts tablosundaki gerçek ilçe adları kullanılır
+  const validDistrictNamesForMonitor = [
+    ...(Array.isArray(existingDistrictRows)
+      ? existingDistrictRows.map((r) => String(r?.name || "").trim()).filter(Boolean)
+      : []),
+    ...VERIFIED_DISTRICTS_SEED.map((d) => d.name),
+  ];
+
   const makeMonitorRow = ({
     tabKey,
     title,
-    districtName = "Muğla",
+    districtName = DEFAULT_PROVINCIAL_DISTRICT_NAME,
     sentiment = "neutral",
     summary,
     metrics,
   }) => ({
-    // varchar(20) sütunları: en fazla 20 karakter kısa sabit kodlar
+    // varchar(20) sütunları: en fazla 20 karakter kısa sabit kodlar + geçerli districts.name FK eşleşmesi
     source: clampVarchar20(MONITOR_DATA_SOURCE, "otonom-ajan"),
-    district_name: clampVarchar20(districtName, "Muğla"),
+    district_name: resolveValidDistrictName(districtName, validDistrictNamesForMonitor),
     category: clampVarchar20(tabKey, "genel"),
     sentiment: clampVarchar20(sentiment, "neutral"),
     // Uzun metin ve yapılandırılmış JSON yalnızca `text` tipindeki `content` sütununa yazılır
@@ -2715,7 +2768,7 @@ export function buildBridgeTablePayloads({
     makeMonitorRow({
       tabKey: "ilceler",
       title: "İlçeler (13 İlçe)",
-      districtName: group.districts?.[0] || "Muğla",
+      districtName: group.districts?.[0] || DEFAULT_PROVINCIAL_DISTRICT_NAME,
       metrics: {
         districtCount: VERIFIED_DISTRICTS_SEED.length,
         totalPopulation,
@@ -3300,9 +3353,37 @@ export async function runAutonomousAgent(options = {}) {
   }
 
   // 11. monitor_data — canlı şema (source, district_name, content, sentiment, category, created_at)
+  // `districts` upsert/insert adımı (Adım 6) tamamlandıktan sonra canlı `districts.name` listesi
+  // doğrulanır ve her satırın `district_name` değeri birebir gerçek bir ilçe adıyla (il geneli -> "Menteşe") eşlenir.
   if (bridgePayloads.monitorDataRows.length > 0) {
+    let liveDistrictNames = [];
     try {
-      const { error, count } = await supabase.insert("monitor_data", bridgePayloads.monitorDataRows);
+      const { data: freshDistricts, error: freshErr } = await supabase.select(
+        "districts",
+        "select=name&limit=100"
+      );
+      if (!freshErr && Array.isArray(freshDistricts) && freshDistricts.length > 0) {
+        liveDistrictNames = freshDistricts
+          .map((d) => String(d?.name || "").trim())
+          .filter(Boolean);
+      }
+    } catch {
+      liveDistrictNames = [];
+    }
+    if (liveDistrictNames.length === 0) {
+      liveDistrictNames = [
+        ...existingDistrictRows.map((d) => String(d?.name || "").trim()).filter(Boolean),
+        ...VERIFIED_DISTRICTS_SEED.map((d) => d.name),
+      ];
+    }
+
+    const fkValidatedMonitorRows = bridgePayloads.monitorDataRows.map((row) => ({
+      ...row,
+      district_name: resolveValidDistrictName(row.district_name, liveDistrictNames),
+    }));
+
+    try {
+      const { error, count } = await supabase.insert("monitor_data", fkValidatedMonitorRows);
       if (error) {
         recordStepError("monitor_data insert", error, "monitor_data");
       } else {
