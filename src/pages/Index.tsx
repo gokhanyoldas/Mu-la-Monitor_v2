@@ -45,6 +45,7 @@ import { FireRiskIndicator } from "@/components/FireRiskIndicator";
 import { TourismForecastPanel } from "@/components/TourismForecastPanel";
 // Şehir Özeti: güncel şehir durumunu tek kartta toplar
 import { AISummaryCard } from "@/components/AISummaryCard";
+import { NewsletterSignupWidget } from "@/components/dashboard/NewsletterSignupWidget";
 import { InvestigationHub } from "@/components/investigation/InvestigationHub";
 
 import { EconomyOverviewPanel, RealEstatePanel } from "@/components/dashboard/sections/EconomySection";
@@ -744,6 +745,9 @@ const Index = () => {
                 </div>
               </div>
               <AISummaryCard type="pulse" />
+              <div className="max-w-2xl">
+                <NewsletterSignupWidget />
+              </div>
             </div>
           )}
 

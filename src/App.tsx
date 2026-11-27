@@ -31,6 +31,7 @@ import { I18nProvider } from "@/hooks/useTranslation";
 import { AccessibilityProvider } from "@/contexts/AccessibilityContext";
 import { UnifiedIntelligenceProvider } from "@/contexts/UnifiedIntelligenceContext";
 import { LivingLexiconDrawer } from "@/components/social/LivingLexiconDrawer";
+import { NewsletterActionBanner } from "@/components/dashboard/NewsletterActionBanner";
 import { useSupabaseRealtimeSync } from "@/hooks/useSupabaseRealtimeSync";
 
 const queryClient = new QueryClient({
@@ -57,6 +58,7 @@ function AppContent() {
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
+      <NewsletterActionBanner />
       <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<Index />} />

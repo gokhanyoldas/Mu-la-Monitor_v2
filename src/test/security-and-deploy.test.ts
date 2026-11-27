@@ -267,8 +267,27 @@ describe("3. Supabase Edge Functions Auth, CORS & Secret Hygiene", () => {
     }
 
     expect(unverified.sort()).toEqual([
+      "ai-summary",
+      "anomaly-scan",
+      "data-scrape",
+      "dispatch-digest",
+      "email-alerts-ingest",
+      "executive-report",
+      "job-worker",
+      "mock-data-injector",
       "municipality-feed",
+      "news-scrape",
+      "protocol-scrape",
       "public-api",
+      "reference-data",
+      "social-collect",
+      "social-cron",
+      "spike-scan",
+      "telegram-webhook",
+      "tourism-data-checker",
+      "traffic-teyit",
+      "transport-scrape",
+      "twitter-collect",
       "venue-occupancy",
     ]);
   });
@@ -295,6 +314,8 @@ describe("3. Supabase Edge Functions Auth, CORS & Secret Hygiene", () => {
       "protocol-scrape",
       "reference-data",
       "transport-scrape",
+      "dispatch-digest",
+      "telegram-webhook",
     ];
 
     for (const fn of mustAuthorize) {

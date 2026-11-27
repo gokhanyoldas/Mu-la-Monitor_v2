@@ -653,6 +653,13 @@ export type Database = {
         Relationships: []
       }
       newsletter_subscribers: {
+        // NOT: 20261128000004_newsletter_and_telegram_subscriptions.sql bu tabloyu
+        // KVKK/İYS uyumlu ANONİM şemayla (email/districts/status/consent_*) yeniden
+        // tanımlar ve doğrudan public erişimi RLS + RPC ile kapatır. Yeni akış
+        // tabloya dokunmaz; yalnızca `subscribe_newsletter` / `verify_newsletter_subscription`
+        // / `unsubscribe_newsletter` RPC'lerini kullanır (aşağıdaki Functions bloğu).
+        // Aşağıdaki eski (user_id) imza, kaldırılana kadar mevcut kullanıcı hook'u
+        // için korunmaktadır.
         Row: {
           created_at: string
           email: string
@@ -679,6 +686,36 @@ export type Database = {
           subscribed?: boolean
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      telegram_subscribers: {
+        // İsteğe bağlı, ilçe filtreli Telegram uyarı aboneleri.
+        // 20261128000004_newsletter_and_telegram_subscriptions.sql ile tanımlanır.
+        // Yalnızca service_role ve telegram-webhook edge function erişir (public erişim yok).
+        Row: {
+          chat_id: number
+          consented_at: string
+          districts: string[]
+          is_active: boolean
+          unsubscribed_at: string | null
+          username: string | null
+        }
+        Insert: {
+          chat_id: number
+          consented_at?: string
+          districts?: string[]
+          is_active?: boolean
+          unsubscribed_at?: string | null
+          username?: string | null
+        }
+        Update: {
+          chat_id?: number
+          consented_at?: string
+          districts?: string[]
+          is_active?: boolean
+          unsubscribed_at?: string | null
+          username?: string | null
         }
         Relationships: []
       }
@@ -817,7 +854,23 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      // KVKK/İYS uyumlu bülten RPC'leri — 20261128000004 migration ile tanımlanır.
+      subscribe_newsletter: {
+        Args: {
+          p_consent_version?: string
+          p_districts?: string[]
+          p_email: string
+        }
+        Returns: Json
+      }
+      unsubscribe_newsletter: {
+        Args: { p_token: string }
+        Returns: Json
+      }
+      verify_newsletter_subscription: {
+        Args: { p_token: string }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

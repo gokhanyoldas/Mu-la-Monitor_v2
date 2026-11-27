@@ -76,3 +76,13 @@ verify_jwt = false
 
 [functions.social-cron]
 verify_jwt = false
+
+# ── Günlük Bülten & Telegram Dağıtımı (KVKK/İYS) ──────────────────────────────
+# Cron (dispatch-digest) ve Telegram (telegram-webhook) JWT gönderemez; bu uç
+# noktalar kimlik doğrulamayı kendi içinde yapar (INTERNAL_FUNCTION_SECRET veya
+# Telegram secret token).
+[functions.dispatch-digest]
+verify_jwt = false
+
+[functions.telegram-webhook]
+verify_jwt = false
