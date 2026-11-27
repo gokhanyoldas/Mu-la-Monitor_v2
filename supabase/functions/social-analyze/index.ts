@@ -1,10 +1,11 @@
 // supabase/functions/social-analyze/index.ts
 // Sentiment analysis using HuggingFace Inference API (free tier)
 // Model: savasy/bert-base-turkish-sentiment-cased (Turkish BERT)
-// Fallback: Enhanced keyword-based hybrid analysis
+// Fallback: _shared/nlp.ts (tek doğruluk kaynağı) kelime tabanlı analiz
 
 import { getCorsHeaders, handleCorsPreflight } from "../_shared/cors.ts";
 import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from "../_shared/auth.ts";
+import { analyzeText } from "../_shared/nlp.ts";
 
 interface SentimentResult {
   text: string;
@@ -92,55 +93,18 @@ function processBatchResults(data: any, texts: string[], results: SentimentResul
   }
 }
 
-// ─── Enhanced Keyword-based Fallback ───
+// ─── Keyword-based Fallback (tek kaynak: _shared/nlp.ts) ────────────────────
+// Yerel kelime listeleri kaldırıldı; duygu skoru ve güveni ortak NLP motorundan
+// gelir — böylece toplayıcılar ve backfill ile aynı sonuçlar üretilir.
 function analyzeWithKeywords(texts: string[]): SentimentResult[] {
-  const negativeWords = new Set([
-    "kriz", "tehlike", "ölüm", "felaket", "korku", "panik", "afet", "acil",
-    "alarm", "kötü", "berbat", "feci", "kaos", "düşüş", "kayıp", "çatışma",
-    "işsizlik", "yoksul", "hastalık", "yangın", "suç", "cinayet", "şiddet",
-    "bomba", "terör", "saldırı", "kirli", "nefret", "sorun", "problem",
-    "tehdit", "zarar", "hasar", "mağdur", "şikayet", "kaza", "deprem",
-    "sel", "heyelan", "çöp", "gürültü", "trafik", "sıkıntı", "zam",
-  ]);
-  
-  const positiveWords = new Set([
-    "başarı", "kazanç", "yükseliş", "güzel", "mükemmel", "harika",
-    "umut", "gelişme", "iyileşme", "büyüme", "özgürlük", "inovasyon",
-    "ilerleme", "fırsat", "destek", "yatırım", "proje", "açılış",
-    "festival", "kutlama", "ödül", "rekor", "artış", "büyüdü",
-    "modernizasyon", "yenileme", "iyileştirme", "hizmet", "kalite",
-    "turizm", "güvenli", "temiz", "yeşil", "doğa", "kültür",
-  ]);
-
   return texts.map(text => {
-    const words = text.toLowerCase().split(/\s+/);
-    let posCount = 0;
-    let negCount = 0;
-    
-    for (const word of words) {
-      const cleaned = word.replace(/[^a-zçğıöşü]/gi, "");
-      if (positiveWords.has(cleaned)) posCount++;
-      if (negativeWords.has(cleaned)) negCount++;
-    }
-    
-    const total = posCount + negCount || 1;
-    const score = (posCount - negCount) / total;
-    
-    let sentiment: "positive" | "negative" | "neutral";
-    let confidence: number;
-    
-    if (score > 0.2) {
-      sentiment = "positive";
-      confidence = Math.min(0.85, 0.5 + score * 0.5);
-    } else if (score < -0.2) {
-      sentiment = "negative";
-      confidence = Math.min(0.85, 0.5 + Math.abs(score) * 0.5);
-    } else {
-      sentiment = "neutral";
-      confidence = 0.55;
-    }
-    
-    return { text, sentiment, confidence: Math.round(confidence * 100) / 100, method: "keyword" as const };
+    const nlp = analyzeText(text);
+    return {
+      text,
+      sentiment: nlp.sentiment,
+      confidence: nlp.sentimentConfidence,
+      method: "keyword" as const,
+    };
   });
 }
 
