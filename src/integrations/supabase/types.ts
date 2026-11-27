@@ -286,6 +286,38 @@ export type Database = {
         }
         Relationships: []
       }
+      social_posts_daily_rollup: {
+        // Ham social_posts satırları budandıktan sonra korunan günlük özet.
+        // 20261127000003_data_lifecycle_retention.sql ile tanımlanır.
+        Row: {
+          avg_sentiment: number | null
+          category: string
+          day: string
+          district: string
+          platform: string
+          post_count: number
+          sentiment: string
+        }
+        Insert: {
+          avg_sentiment?: number | null
+          category?: string
+          day: string
+          district?: string
+          platform?: string
+          post_count?: number
+          sentiment?: string
+        }
+        Update: {
+          avg_sentiment?: number | null
+          category?: string
+          day?: string
+          district?: string
+          platform?: string
+          post_count?: number
+          sentiment?: string
+        }
+        Relationships: []
+      }
       user_preferences: {
         Row: {
           created_at: string | null
@@ -766,7 +798,23 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      district_pulse: {
+        // Son 24 saat ilçe nabzı — 13 ilçe tam kapsam (aktivite yoksa sıfır).
+        // 20261128000001_revive_cron_and_district_pulse.sql ile tanımlanır.
+        Row: {
+          avg_sentiment: number | null
+          disaster_count: number
+          district: string
+          governance_count: number
+          infra_count: number
+          latest_at: string | null
+          negative_count: number
+          post_count: number
+          positive_count: number
+          tourism_count: number
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never
