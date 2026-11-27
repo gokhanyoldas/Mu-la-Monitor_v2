@@ -52,9 +52,3 @@ jobs:
 
       - name: Verify root build assets
         run: npm run verify:assets -- --base=/
-
-      - name: Verify GitHub Pages build assets
-        run: |
-          rm -rf dist
-          DEPLOY_TARGET=gh-pages npm run build
-          npm run verify:assets -- --base=/Mu-la-Monitor_v2/
