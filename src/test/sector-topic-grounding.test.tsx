@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 import {
   TOPIC_GROUNDING_QUERIES,
   fetchTopicGrounding,
+  refreshTopicGrounding,
   resetTopicGroundingClientState,
   mergeEnergyIntelligence,
   mergeSecurityIntelligence,
@@ -371,8 +372,8 @@ describe("Extended Sector Topic Grounding (Enerji, Güvenlik, Turizm, Ekonomi, P
     } as Response);
 
     const [a, b] = await Promise.all([
-      fetchTopicGrounding("environment_dams"),
-      fetchTopicGrounding("environment_dams"),
+      refreshTopicGrounding("environment_dams"),
+      refreshTopicGrounding("environment_dams"),
     ]);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -380,8 +381,21 @@ describe("Extended Sector Topic Grounding (Enerji, Güvenlik, Turizm, Ekonomi, P
     expect(b.damUpdates).toEqual([]);
 
     // Subsequent call for another topic must short-circuit via persisted cooldown
-    const c = await fetchTopicGrounding("tourism_occupancy");
+    const c = await refreshTopicGrounding("tourism_occupancy");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(c.tourismMetrics).toBeNull();
+  });
+
+  it("does not issue a grounding POST for automatic cache-miss reads", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    } as Response);
+
+    const result = await fetchTopicGrounding("environment_dams");
+
+    expect(result.damUpdates).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

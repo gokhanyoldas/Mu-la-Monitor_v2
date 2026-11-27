@@ -1,11 +1,10 @@
-// Madde 8: 30-günlük duygu trendi — gerçek DB verisi (social_posts tablosu)
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// Presentational sentiment chart for the parent-filtered social analysis dataset.
+import { useMemo, useState } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Legend, CartesianGrid, BarChart, Bar,
 } from "recharts";
-import { TrendingUp, Loader2 } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 
 interface DayBucket {
@@ -24,66 +23,56 @@ interface PlatformBucket {
   total: number;
 }
 
+interface AnalysisForChart {
+  platform: string;
+  sentiment: string;
+  collected_at?: string;
+  published_at?: string;
+  analyzed_at?: string;
+}
+
+export function buildSentimentHistory(analyses: AnalysisForChart[]) {
+  const dayMap: Record<string, DayBucket> = {};
+  const platformMap: Record<string, PlatformBucket> = {};
+
+  for (const item of analyses) {
+    const sentiment = (["positive", "negative", "neutral"].includes(item.sentiment)
+      ? item.sentiment
+      : "neutral") as "positive" | "negative" | "neutral";
+    const timestamp = item.published_at || item.collected_at || item.analyzed_at;
+    if (timestamp && Number.isFinite(Date.parse(timestamp))) {
+      const day = new Date(timestamp).toLocaleDateString("tr-TR", {
+        timeZone: "Europe/Istanbul",
+        day: "2-digit",
+        month: "2-digit",
+      });
+      if (!dayMap[day]) dayMap[day] = { date: day, positive: 0, negative: 0, neutral: 0, total: 0 };
+      dayMap[day][sentiment]++;
+      dayMap[day].total++;
+    }
+
+    const platform = item.platform || "other";
+    if (!platformMap[platform]) platformMap[platform] = { platform, positive: 0, negative: 0, neutral: 0, total: 0 };
+    platformMap[platform][sentiment]++;
+    platformMap[platform].total++;
+  }
+
+  return {
+    daily: Object.values(dayMap),
+    platforms: Object.values(platformMap).sort((a, b) => b.total - a.total),
+  };
+}
+
 const PLATFORM_LABELS: Record<string, string> = {
   google_news: "Google News", reddit: "Reddit", eksisozluk: "Ekşi Sözlük",
   local_rss: "Yerel Gazete", email_alerts: "Haber Alarmı",
   twitter: "Twitter", youtube: "YouTube", bluesky: "Bluesky", mastodon: "Mastodon",
 };
 
-export const SentimentHistoryChart = () => {
-  const [daily, setDaily] = useState<DayBucket[]>([]);
-  const [platforms, setPlatforms] = useState<PlatformBucket[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export const SentimentHistoryChart = ({ analyses }: { analyses: AnalysisForChart[] }) => {
   const [view, setView] = useState<"daily" | "platform">("daily");
-  const [totalPosts, setTotalPosts] = useState(0);
-
-  useEffect(() => {
-    const load = async () => {
-      const since = new Date();
-      since.setDate(since.getDate() - 29);
-
-      const { data: posts } = await supabase
-        .from("social_posts")
-        .select("published_at, collected_at, sentiment, platform")
-        .gte("published_at", since.toISOString())
-        .order("published_at", { ascending: true });
-
-      if (!posts) { setIsLoading(false); return; }
-
-      setTotalPosts(posts.length);
-
-      // ── Daily buckets ──────────────────────────────────────────
-      const dayMap: Record<string, DayBucket> = {};
-      posts.forEach(p => {
-        const ts = p.published_at || p.collected_at;
-        if (!ts) return;
-        const d = new Date(ts);
-        const day = d.toLocaleDateString("tr-TR", {
-          timeZone: "Europe/Istanbul",
-          day: "2-digit", month: "2-digit",
-        });
-        if (!dayMap[day]) dayMap[day] = { date: day, positive: 0, negative: 0, neutral: 0, total: 0 };
-        const s = (p.sentiment ?? "neutral") as "positive" | "negative" | "neutral";
-        dayMap[day][s]++;
-        dayMap[day].total++;
-      });
-      setDaily(Object.values(dayMap));
-
-      // ── Platform buckets ───────────────────────────────────────
-      const platMap: Record<string, PlatformBucket> = {};
-      posts.forEach(p => {
-        const pl = p.platform ?? "other";
-        if (!platMap[pl]) platMap[pl] = { platform: pl, positive: 0, negative: 0, neutral: 0, total: 0 };
-        const s = (p.sentiment ?? "neutral") as "positive" | "negative" | "neutral";
-        platMap[pl][s]++;
-        platMap[pl].total++;
-      });
-      setPlatforms(Object.values(platMap).sort((a, b) => b.total - a.total));
-
-      setIsLoading(false);
-    };
-    load();
-  }, []);
+  const { daily, platforms } = useMemo(() => buildSentimentHistory(analyses), [analyses]);
+  const totalPosts = analyses.length;
 
   const positiveTotal = daily.reduce((s, d) => s + d.positive, 0);
   const negativeTotal = daily.reduce((s, d) => s + d.negative, 0);
@@ -99,16 +88,12 @@ export const SentimentHistoryChart = () => {
 
   return (
     <DashboardPanel
-      title="30 Günlük Duygu Trendi"
+      title="Filtrelenmiş Duygu Trendi"
       icon={<TrendingUp size={14} />}
-      badge={isLoading ? "YÜKLENİYOR" : `${totalPosts} İÇERİK`}
-      badgeVariant="live"
+      badge={`${totalPosts} İÇERİK`}
+      badgeVariant="default"
     >
-      {isLoading ? (
-        <div className="flex items-center justify-center h-36">
-          <Loader2 size={18} className="animate-spin text-muted-foreground" />
-        </div>
-      ) : totalPosts === 0 ? (
+      {totalPosts === 0 ? (
         <div className="flex items-center justify-center h-36 text-[10px] font-mono text-muted-foreground/50">
           Henüz yeterli veri yok — her gün 08:00'de otomatik eklenir
         </div>
@@ -206,7 +191,7 @@ export const SentimentHistoryChart = () => {
           )}
 
           <div className="text-[8px] font-mono text-muted-foreground text-right mt-1">
-            Kaynak: social_posts DB (son 30 gün)
+            Kaynak: Sayfadaki filtrelenmiş social_posts kayıtları
           </div>
         </>
       )}

@@ -1,7 +1,7 @@
 import { DashboardPanel } from "../DashboardPanel";
 import { StatCard } from "../StatCard";
 import { StatusList } from "../StatusList";
-import { Car, PlaneTakeoff, Loader2 } from "lucide-react";
+import { Car, PlaneTakeoff, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLiveData } from "@/hooks/useLiveData";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,12 +38,70 @@ const typeLabel: Record<string, string> = {
   trafik: "TRAFİK",
 };
 
+type TrafficVerificationAlert = {
+  id: number;
+  title: string;
+  body: string | null;
+  severity: string;
+  source: string | null;
+  created_at: string;
+  metadata: {
+    verified?: boolean;
+    district?: string;
+    verified_sources?: { source?: string; text?: string; url?: string | null; published_at?: string }[];
+  } | null;
+};
+
 export const TrafficSummaryPanel = () => {
   const { lang, t, translate } = useTranslation();
   const isEn = lang === "en";
   const { data: trafficData, isLoading: tLoading } = useLiveData<any>("traffic_density", { refetchInterval: 10 * 60 * 1000 });
   const { data: roadWorks, isLoading: rLoading } = useLiveData<any>("road_works", { refetchInterval: 15 * 60 * 1000 });
-  const { incidents: topicIncidents } = useTransportTopicGrounding();
+  const { incidents: topicIncidents, refresh: refreshTopicGrounding } = useTransportTopicGrounding();
+  const [trafficAlerts, setTrafficAlerts] = useState<TrafficVerificationAlert[]>([]);
+  const [groundingRefreshing, setGroundingRefreshing] = useState(false);
+
+  const refreshGrounding = async () => {
+    setGroundingRefreshing(true);
+    try {
+      await refreshTopicGrounding();
+    } catch {
+      // Keep existing cached and source-backed road information visible.
+    } finally {
+      setGroundingRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    const loadTrafficAlerts = async () => {
+      try {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data } = await supabase
+          .from("alert_events")
+          .select("id, title, body, severity, source, created_at, metadata")
+          .eq("type", "traffic")
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (!active) return;
+        setTrafficAlerts(
+          ((data ?? []) as unknown as TrafficVerificationAlert[]).filter((alert) =>
+            alert.source === "traffic-teyit" &&
+            (alert.metadata?.verified === true || alert.body?.toLocaleLowerCase("tr-TR").includes("basın teyidi"))
+          ),
+        );
+      } catch {
+        // Keep transport usable when alerts are unavailable or the query client is mocked.
+      }
+    };
+    void loadTrafficAlerts();
+    const interval = setInterval(loadTrafficAlerts, 5 * 60 * 1000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const hotspots = trafficData?.hotspots ?? trafficData?.zones ?? [];
   const avgDensity =
@@ -82,6 +140,12 @@ export const TrafficSummaryPanel = () => {
   const roadItems = [...groundedRoadItems, ...projectRoadItems];
 
   const hasLiveTraffic = Array.isArray(hotspots) && hotspots.length > 0;
+  const trafficStatus = trafficData?.status === "partial" || trafficData?.stale
+    ? "partial"
+    : trafficData?.cache_hit ? "cached" : hasLiveTraffic ? "live" : "reference";
+  const fetchedAt = typeof trafficData?.fetched_at === "string"
+    ? trafficData.fetched_at
+    : typeof trafficData?.updated_at === "string" ? trafficData.updated_at : null;
   const hasRoadWorks = projects.length > 0 || topicIncidents.length > 0;
   const latestTopic = topicIncidents[0];
   const latestTopicDate = latestTopic ? formatShortTurkishDate(latestTopic.publishedAt) : "";
@@ -90,10 +154,21 @@ export const TrafficSummaryPanel = () => {
     <DashboardPanel
       title="Ulaşım & Trafik Akışı"
       icon={<Car size={14} />}
-      badge={hasLiveTraffic || hasRoadWorks ? "CANLI" : "BEKLEYEN"}
-      badgeVariant={hasLiveTraffic || hasRoadWorks ? "live" : "warning"}
-      count={(hasLiveTraffic ? 1 : 0) + projects.length + topicIncidents.length}
+      badge={trafficStatus === "partial" ? (isEn ? "PARTIAL DATA" : "KISMİ VERİ") : trafficStatus === "cached" ? (isEn ? "CACHED" : "ÖNBELLEK") : trafficStatus === "live" ? "CANLI" : (isEn ? "REFERENCE" : "REFERANS")}
+      badgeVariant={trafficStatus === "live" ? "live" : trafficStatus === "partial" ? "warning" : "info"}
+      count={(hasLiveTraffic ? 1 : 0) + trafficAlerts.length + projects.length + topicIncidents.length}
     >
+      <button
+        type="button"
+        onClick={refreshGrounding}
+        disabled={groundingRefreshing}
+        className="mb-2 inline-flex items-center gap-1 rounded border border-border/40 px-2 py-1 text-[9px] font-mono text-muted-foreground hover:text-foreground disabled:opacity-50"
+      >
+        <RefreshCw size={10} className={groundingRefreshing ? "animate-spin" : ""} />
+        {groundingRefreshing
+          ? (isEn ? "Refreshing verified sources..." : "Doğrulanmış kaynaklar yenileniyor...")
+          : (isEn ? "Refresh verified sources" : "Doğrulanmış kaynakları yenile")}
+      </button>
       {(tLoading || rLoading) && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
         <StatCard
@@ -133,6 +208,48 @@ export const TrafficSummaryPanel = () => {
           />
         )}
       </div>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2 text-[8px] font-mono text-muted-foreground">
+        <span>
+          {isEn ? "Traffic source" : "Trafik kaynağı"}: {String(trafficData?.source ?? (trafficStatus === "reference" ? (isEn ? "District reference data" : "İlçe referans verisi") : "TomTom Traffic Flow"))}
+        </span>
+        <span>
+          {fetchedAt && !Number.isNaN(new Date(fetchedAt).getTime())
+            ? `${isEn ? "Fetched" : "Alındı"}: ${new Date(fetchedAt).toLocaleString(isEn ? "en-US" : "tr-TR")}`
+            : (isEn ? "Fetch time unavailable" : "Alınma zamanı bilinmiyor")}
+        </span>
+      </div>
+
+      {trafficAlerts.length > 0 && (
+        <div className="mb-3 space-y-1">
+          <span className="text-[9px] font-mono text-muted-foreground uppercase block">
+            {isEn ? "Verified traffic alerts (last 24h)" : "Teyitli trafik uyarıları (son 24 saat)"}
+          </span>
+          {trafficAlerts.slice(0, 4).map((alert) => (
+            <div key={alert.id} className="rounded border border-warning/30 bg-warning/5 px-2 py-1.5">
+              <div className="text-[10px] font-mono font-semibold text-foreground">
+                {alert.metadata?.district ? `${alert.metadata.district}: ` : ""}{alert.title}
+              </div>
+              <p className="text-[9px] text-muted-foreground">{alert.body}</p>
+              {alert.metadata?.verified_sources?.slice(0, 2).map((source, index) => (
+                <a
+                  key={`${alert.id}-${index}`}
+                  href={source.url || undefined}
+                  target={source.url ? "_blank" : undefined}
+                  rel={source.url ? "noreferrer" : undefined}
+                  className="block text-[8px] text-primary hover:underline truncate"
+                  title={source.text}
+                >
+                  {source.source ?? (isEn ? "Source" : "Kaynak")}
+                  {source.published_at && !Number.isNaN(new Date(source.published_at).getTime())
+                    ? ` · ${new Date(source.published_at).toLocaleString(isEn ? "en-US" : "tr-TR")}`
+                    : ""}
+                  {source.text ? ` — ${source.text}` : ""}
+                </a>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {roadItems.length > 0 ? (
         <>

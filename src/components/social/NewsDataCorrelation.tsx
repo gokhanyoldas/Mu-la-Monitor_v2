@@ -1,7 +1,5 @@
-// Madde 6: Haber × Veri Korelasyon Motoru
-// Sosyal medya olaylarını + haber akışını anlık metrik değişimleriyle ilişkilendirir
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// Correlates the shared, already-filtered Social dataset with metric categories.
+import { useState } from "react";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { Zap, TrendingUp, TrendingDown, Minus } from "lucide-react";
 
@@ -16,25 +14,14 @@ interface CorrelatedEvent {
   url?: string;
 }
 
-// Classify post into a data category based on keyword matching
-function classifyPost(content: string): { category: string; hint: string } {
-  const lower = content.toLocaleLowerCase("tr-TR");
-
-  const rules: [RegExp, string, string][] = [
-    [/yangın|orman|duman|alev/,        "environment", "Yangın/çevre olayı sırasında"],
-    [/deprem|sars[ıi]nt[ıi]|şiddet/,  "earthquake",  "Deprem aktivitesi sırasında"],
-    [/fiyat|enflasyon|zam|pahal/,      "economy",     "Ekonomik dalgalanma döneminde"],
-    [/turist|doluluk|sezon|rezerv/,    "tourism",     "Turizm sezonu yoğunluğunda"],
-    [/yağmur|fırtına|dolu|taşk/,      "weather",     "Kötü hava koşulları sırasında"],
-    [/kaza|trafik|kapan|yol kapal/,   "transport",   "Trafik olayı sırasında"],
-    [/enerji|elektrik|kesint/,         "energy",      "Enerji olayı sırasında"],
-    [/suç|gözalt|olay|ihbar/,          "security",    "Güvenlik olayı sırasında"],
-  ];
-
-  for (const [re, cat, hint] of rules) {
-    if (re.test(lower)) return { category: cat, hint };
-  }
-  return { category: "genel", hint: "" };
+interface SocialCorrelationPost {
+  id?: string;
+  published_at?: string;
+  content: string;
+  platform: string;
+  sentiment: string;
+  category?: string;
+  source_url?: string;
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -49,47 +36,19 @@ const SENTIMENT_ICON: Record<string, React.ReactNode> = {
   neutral:  <Minus size={10} className="text-gray-400" />,
 };
 
-export const NewsDataCorrelation = () => {
-  const [events, setEvents] = useState<CorrelatedEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export const NewsDataCorrelation = ({ analyses }: { analyses: SocialCorrelationPost[] }) => {
   const [activeCategory, setActiveCategory] = useState<string>("all");
-
-  useEffect(() => {
-    const load = async () => {
-      const since = new Date();
-      since.setHours(since.getHours() - 72); // last 72h
-
-      const { data } = await supabase
-        .from("social_posts")
-        .select("id, content, platform, sentiment, published_at, url")
-        .gte("published_at", since.toISOString())
-        .order("published_at", { ascending: false })
-        .limit(200);
-
-      if (!data) { setIsLoading(false); return; }
-
-      // Filter and classify: only posts that match a specific data category
-      const classified: CorrelatedEvent[] = data
-        .map(p => {
-          const { category, hint } = classifyPost(p.content ?? "");
-          return {
-            id: p.id,
-            event_time: p.published_at ?? "",
-            content: p.content ?? "",
-            platform: p.platform ?? "",
-            sentiment: p.sentiment ?? "neutral",
-            category,
-            metric_hint: hint || undefined,
-            url: p.url ?? undefined,
-          };
-        })
-        .filter(e => e.category !== "genel"); // only categorized events
-
-      setEvents(classified);
-      setIsLoading(false);
-    };
-    load();
-  }, []);
+  const events: CorrelatedEvent[] = analyses
+    .filter((post) => post.category && post.category !== "general")
+    .map((post, index) => ({
+      id: post.id ?? `social-${index}`,
+      event_time: post.published_at ?? "",
+      content: post.content,
+      platform: post.platform,
+      sentiment: post.sentiment,
+      category: post.category ?? "genel",
+      url: post.source_url,
+    }));
 
   const categories = ["all", ...Array.from(new Set(events.map(e => e.category)))];
 
@@ -110,13 +69,9 @@ export const NewsDataCorrelation = () => {
       badge={`${events.length} OLAY`}
       badgeVariant={events.filter(e => e.sentiment === "negative").length > 5 ? "alert" : "live"}
     >
-      {isLoading ? (
-        <div className="space-y-1.5">
-          {[1,2,3].map(i => <div key={i} className="h-10 rounded bg-muted/20 animate-pulse" />)}
-        </div>
-      ) : events.length === 0 ? (
+      {events.length === 0 ? (
         <p className="text-[10px] font-mono text-muted-foreground text-center py-6">
-          Son 72 saatte kategorize edilebilen olay bulunamadı
+          Filtrelenmiş sosyal içerikte kategorize edilmiş olay bulunamadı
         </p>
       ) : (
         <>

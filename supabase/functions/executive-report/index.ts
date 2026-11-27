@@ -30,7 +30,7 @@ async function gatherContext(sb: ReturnType<typeof createClient>, periodHours: n
   const { data: pulse } = await sb.from("district_pulse").select("*");
   const { data: alerts } = await sb
     .from("alert_events")
-    .select("type, severity, title, created_at")
+    .select("type, severity, title, body, source, created_at, lat, lon, metadata")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(15);
@@ -78,7 +78,16 @@ function buildPrompt(ctx: Awaited<ReturnType<typeof gatherContext>>, period: str
 
   const alertLines = ctx.alerts
     .slice(0, 10)
-    .map((a) => `- [${a.severity}] ${a.title} (${new Date(a.created_at).toLocaleString("tr-TR")})`)
+    .map((a) => {
+      const district = a.type === "traffic"
+        ? String(a.metadata?.district ?? "")
+        : "";
+      const coordinates = a.type === "traffic" && typeof a.lat === "number" && typeof a.lon === "number"
+        ? `${a.lat}, ${a.lon}`
+        : "";
+      const details = [district, coordinates, a.source, a.body].filter(Boolean).join(" — ");
+      return `- [${a.severity}] ${a.title}${details ? ` — ${details}` : ""} (${new Date(a.created_at).toLocaleString("tr-TR")})`;
+    })
     .join("\n");
 
   const complaintLines = Object.entries(ctx.complaintsByDistrict)

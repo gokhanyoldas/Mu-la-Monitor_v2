@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Filter, X, Calendar, MapPin, Hash, TrendingUp } from "lucide-react";
+import { Filter, Calendar, MapPin, Hash, TrendingUp, Search } from "lucide-react";
 import { MUGLA_DISTRICTS } from "@/lib/time-utils";
 
 export interface SocialFilters {
@@ -19,9 +19,16 @@ interface FilterPanelProps {
 const platforms = [
   { value: "all", label: "Tümü" },
   { value: "news", label: "Haberler" },
+  { value: "google_news", label: "Google News" },
+  { value: "local_rss", label: "Yerel RSS" },
+  { value: "email_alerts", label: "Haber Alarmı" },
   { value: "reddit", label: "Reddit" },
   { value: "eksisozluk", label: "Ekşi Sözlük" },
   { value: "twitter", label: "X (Twitter)" },
+  { value: "bluesky", label: "Bluesky" },
+  { value: "mastodon", label: "Mastodon" },
+  { value: "youtube", label: "YouTube" },
+  { value: "web", label: "Web" },
 ];
 
 const sentiments = [
@@ -41,7 +48,7 @@ const dateRanges = [
 ];
 
 export const FilterPanel = ({ filters, onChange, activeCount }: FilterPanelProps) => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   const activeFilters = [
     filters.platform !== "all" && "platform",
@@ -89,6 +96,21 @@ export const FilterPanel = ({ filters, onChange, activeCount }: FilterPanelProps
       {/* Filter body */}
       {expanded && (
         <div className="px-3 pb-3 space-y-3 border-t border-border/30 pt-3">
+          {/* Keyword */}
+          <div>
+            <label htmlFor="social-keyword-filter" className="text-[9px] font-mono text-muted-foreground flex items-center gap-1 mb-1.5">
+              <Search size={9} /> ANAHTAR KELİME
+            </label>
+            <input
+              id="social-keyword-filter"
+              type="search"
+              value={filters.keyword}
+              onChange={(event) => onChange({ ...filters, keyword: event.target.value })}
+              placeholder="İçerik, kategori veya varlık ara"
+              className="w-full rounded border border-border/50 bg-background px-2 py-1.5 text-[10px] font-mono text-foreground placeholder:text-muted-foreground/50"
+            />
+          </div>
+
           {/* Platform */}
           <div>
             <label className="text-[9px] font-mono text-muted-foreground flex items-center gap-1 mb-1.5">
@@ -168,13 +190,13 @@ export const FilterPanel = ({ filters, onChange, activeCount }: FilterPanelProps
           {/* Date Range */}
           <div>
             <label className="text-[9px] font-mono text-muted-foreground flex items-center gap-1 mb-1.5">
-              <Calendar size={9} /> TARİH ARAILIĞI
+              <Calendar size={9} /> TARİH ARALIĞI
             </label>
             <div className="flex flex-wrap gap-1">
               {dateRanges.map(d => (
                 <button
                   key={d.value}
-                  onClick={() => onChange({ ...filters, dateRange: d.value as any })}
+                  onClick={() => onChange({ ...filters, dateRange: d.value as SocialFilters["dateRange"] })}
                   className={`text-[9px] font-mono px-2 py-1 rounded border transition-colors ${
                     filters.dateRange === d.value
                       ? "bg-primary/20 text-primary border-primary/40"

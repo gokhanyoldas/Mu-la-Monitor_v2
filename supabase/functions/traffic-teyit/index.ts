@@ -7,28 +7,28 @@
 
 import { authorizeRequest, checkRateLimit, buildRateLimitResponse } from "../_shared/auth.ts";
 import { getServiceClient } from "../_shared/cache.ts";
+import { isTrafficNews, toTrafficNewsItem, type TrafficNewsItem } from "../_shared/traffic.ts";
 
 const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent";
 const CRITICAL_DENSITY = 50;
 
-interface Hotspot { name: string; density: number; speed: number; freeFlow: number; confidence?: number }
-interface NewsItem { district: string | null; title: string; summary: string | null; source: string; published_at: string }
+interface Hotspot { name: string; density: number; speed: number; freeFlow: number; confidence?: number; lat?: number; lon?: number; stale?: boolean }
 
 // Son N saatlik trafikle ilgili haberleri topla
-async function fetchTrafficNews(sb: ReturnType<typeof getServiceClient> & object, hours = 24): Promise<NewsItem[]> {
+async function fetchTrafficNews(sb: ReturnType<typeof getServiceClient> & object, hours = 24): Promise<TrafficNewsItem[]> {
   const since = new Date(Date.now() - hours * 3600e3).toISOString();
   const trafficKw = ["trafik", "kaza", "yol", "ulaşım", "araç", "tıkalı", "kapalı", "çalışma", "D400", "D-400", "D550", "geçit", "köprü", "bariyer", "otoyol"];
 
   const { data } = await sb.from("social_posts")
-    .select("district, title, summary, source, published_at")
+    .select("content, platform, url, district, published_at")
     .gte("published_at", since)
     .eq("is_duplicate", false)
     .order("published_at", { ascending: false })
     .limit(300);
 
-  const items = (data ?? []) as NewsItem[];
-  const text = (n: NewsItem) => `${n.title ?? ""} ${n.summary ?? ""}`.toLowerCase();
-  return items.filter((n) => trafficKw.some((k) => text(n).includes(k)));
+  return (data ?? [])
+    .map(toTrafficNewsItem)
+    .filter((item): item is TrafficNewsItem => item !== null && isTrafficNews(item, trafficKw));
 }
 
 function norm(s?: string | null) { return (s ?? "").toLowerCase().replace(/\s+/g, "_").trim(); }
@@ -37,14 +37,16 @@ function norm(s?: string | null) { return (s ?? "").toLowerCase().replace(/\s+/g
 async function buildAiVerification(
   sb: ReturnType<typeof getServiceClient> & object,
   hotspots: Hotspot[],
-  trafficNews: NewsItem[],
+  trafficNews: TrafficNewsItem[],
 ): Promise<boolean> {
   const geminiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
   if (!geminiKey) return false;
 
   const dense = hotspots.filter((h) => h.density >= 25);
   const expected = dense.map((h) => `- ${h.name}: %${h.density} tıkanıklık (${h.speed}/${h.freeFlow} km/h, güven %${Math.round((h.confidence ?? 0) * 100)})`).join("\n") || "Şu an kritik tıkanıklık yok.";
-  const headlines = trafficNews.slice(0, 15).map((n) => `[${n.source}][${n.district ?? "genel"}] ${n.title}: ${n.summary ?? ""}`).join("\n") || "Son 24 saatte trafik haberleri bulunamadı.";
+  const headlines = trafficNews.slice(0, 15)
+    .map((n) => `[${n.source}][${n.district ?? "genel"}] ${n.text}${n.link ? ` (${n.link})` : ""}`)
+    .join("\n") || "Son 24 saatte trafik haberleri bulunamadı.";
 
   const prompt = `Muğla için TomTom canlı tıkanıklık verisi ve son 24 saat basın/duyuruları aşağıda.\n
 Görev: Verilen tıkanıklıkları haberlerle TEYİT et. Her ilçe için (a) o ilçede haber var mı, (b) haber tıkanıklıkla uyumlu mu (kaza/yol çalışması/mesai/yoğunluk). Yalnız gerçek tıkanıklık varsa değerlendir; normal seyir "sum" ise ekleme yapma.
@@ -72,7 +74,12 @@ CANLI TIKANIKLIK:\n${expected}\n\nHABERLER:\n${headlines}`;
   return true;
 }
 
-async function pushAlert(sb: ReturnType<typeof getServiceClient> & object, h: Hotspot, severity: "critical" | "warning") {
+async function pushAlert(
+  sb: ReturnType<typeof getServiceClient> & object,
+  h: Hotspot,
+  severity: "critical" | "warning",
+  verifiedSources: TrafficNewsItem[],
+) {
   const since = new Date(Date.now() - 2 * 3600e3).toISOString();
   const metricKey = `traffic_${norm(h.name)}`;
   const { data: ex } = await sb.from("anomaly_alerts").select("id").eq("metric_key", metricKey).eq("is_active", true)
@@ -89,8 +96,23 @@ async function pushAlert(sb: ReturnType<typeof getServiceClient> & object, h: Ho
   if (severity === "critical") {
     await sb.from("alert_events").insert({
       type: "traffic", severity: "high", title: `Trafik: ${h.name}`,
-      body: `${h.name} yoğunluğu %${h.density} — TomTom + basın teyidi.`,
+      body: `${h.name} yoğunluğu %${h.density} — TomTom + sosyal kaynak teyidi.`,
       source: "traffic-teyit",
+      lat: h.lat ?? null,
+      lon: h.lon ?? null,
+      metadata: {
+        district: h.name,
+        density: h.density,
+        speed: h.speed,
+        freeFlow: h.freeFlow,
+        verified: verifiedSources.length > 0,
+        verified_sources: verifiedSources.slice(0, 5).map((item) => ({
+          source: item.source,
+          text: item.text,
+          url: item.link,
+          published_at: item.published_at,
+        })),
+      },
     });
   }
 }
@@ -106,31 +128,35 @@ async function runTrafficVerification() {
   // cacheRes.data = satır; satırın .data alanı { hotspots, source, updated_at } payload'ıdır
   const hotspots = ((cacheRes?.data as { data?: { hotspots?: Hotspot[] } } | null)?.data?.hotspots) ?? [];
   if (hotspots.length === 0) return { ok: false, error: "traffic cache bos" };
+  const freshHotspots = hotspots.filter((hotspot) => !hotspot.stale);
+  if (freshHotspots.length === 0) return { ok: false, error: "no fresh traffic hotspots" };
 
   // İlçe adına göre haberleri eşleştir (ör. "Menteşe" haber → "menteşe" hotspot)
-  const byDistrict = new Map(hotspots.map((h) => [norm(h.name), h]));
+  const byDistrict = new Map(freshHotspots.map((h) => [norm(h.name), h]));
   const trafficNews = news.filter((n) => n.district && byDistrict.has(norm(n.district)));
   const mentionedDistricts = new Set(trafficNews.map((n) => norm(n.district!)));
 
   // Kritik veya %25+ ve düşük konfidanslı anomali noktaları
-  const active = hotspots.filter((h) => h.density >= CRITICAL_DENSITY || (h.density >= 25 && (h.confidence === undefined || h.confidence > 0.7)));
+  const active = freshHotspots.filter((h) => h.density >= CRITICAL_DENSITY || (h.density >= 25 && (h.confidence === undefined || h.confidence > 0.7)));
 
-  const aiOk = await buildAiVerification(sb, hotspots, trafficNews);
+  const aiOk = await buildAiVerification(sb, freshHotspots, trafficNews);
 
   // A) Mutlak eşik (≥%50) + haber teşidi → kritik/uyarı alarm
   for (const h of active) {
+    const verifiedSources = trafficNews.filter((item) => norm(item.district) === norm(h.name));
     const hasNews = mentionedDistricts.has(norm(h.name));
-    if (h.density >= CRITICAL_DENSITY && hasNews) await pushAlert(sb, h, "critical");
-    else if (h.density >= CRITICAL_DENSITY && !hasNews) await pushAlert(sb, h, "warning");
+    if (h.density >= CRITICAL_DENSITY && hasNews) await pushAlert(sb, h, "critical", verifiedSources);
+    else if (h.density >= CRITICAL_DENSITY && !hasNews) await pushAlert(sb, h, "warning", []);
   }
 
   // B) Ani değişiklik (spike) algılama: bir önceki koşudaki density ile karşılaştır
   //    (δ≥30 puan ve ≥%20 göreli artış), ardından anlık değeri snapshot'a yaz.
-  const spikes = await detectSpikeTraffic(sb, hotspots);
+  const spikes = await detectSpikeTraffic(sb, freshHotspots);
 
   return {
     ok: true,
     hotspots: hotspots.length,
+    fresh_hotspots: freshHotspots.length,
     traffic_news: trafficNews.length,
     mentioned: [...mentionedDistricts],
     active: active.length,
@@ -162,6 +188,9 @@ async function detectSpikeTraffic(sb: ReturnType<typeof getServiceClient> & obje
         type: "traffic", severity: "medium", title: `Trafik anomali: ${h.name}`,
         body: `${h.name} yoğunluğu %${h.density} (önceki %${prevCount}) — ani artış.`,
         source: "traffic-teyit",
+        lat: h.lat ?? null,
+        lon: h.lon ?? null,
+        metadata: { district: h.name, density: h.density, previous_density: prevCount, verified: false },
       });
       spikes.push(h.name);
     }

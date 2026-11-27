@@ -54,6 +54,13 @@ async function gatherContext(sb: ReturnType<typeof createClient>, scenario: stri
     .eq("is_duplicate", false)
     .order("published_at", { ascending: false })
     .limit(50);
+  const { data: trafficAlerts } = await sb
+    .from("alert_events")
+    .select("title, body, severity, source, created_at, lat, lon, metadata")
+    .eq("type", "traffic")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(10);
 
   const total = (pulse ?? []).reduce(
     (s: number, d: { post_count?: number }) => s + (d.post_count ?? 0),
@@ -82,7 +89,7 @@ async function gatherContext(sb: ReturnType<typeof createClient>, scenario: stri
     .slice(0, 10)
     .map((p: { content?: string }) => String(p.content ?? "").slice(0, 90));
 
-  return { total, neg, pos, topDistricts, headlines, scenario };
+  return { total, neg, pos, topDistricts, headlines, trafficAlerts: trafficAlerts ?? [], scenario };
 }
 
 const SCENARIO_TR: Record<string, string> = {
@@ -101,6 +108,14 @@ Toplam içerik: ${ctx.total}, olumlu: ${ctx.pos}, olumsuz: ${ctx.neg}
 En aktif ilçeler: ${ctx.topDistricts.join(" | ") || "veri yok"}
 Öne çıkan başlıklar:
 ${ctx.headlines.map((h) => "- " + h).join("\n") || "başlık yok"}
+Son 24 saatin trafik uyarıları:
+${ctx.trafficAlerts.map((alert) => {
+    const district = alert.metadata?.district ?? "";
+    const coordinates = typeof alert.lat === "number" && typeof alert.lon === "number"
+      ? ` (${alert.lat}, ${alert.lon})`
+      : "";
+    return `- [${alert.severity}] ${district ? `${district}: ` : ""}${alert.title}${coordinates}: ${alert.body ?? ""}`;
+  }).join("\n") || "trafik uyarısı yok"}
 
 Bu senaryo için SADECE aşağıdaki JSON şemasında geçerli JSON üret (markdown yok, açıklama yok):
 {
@@ -237,15 +252,26 @@ Deno.serve(async (req) => {
     if (!force) {
       const { data: cached } = await sb
         .from("ai_summaries")
-        .select("summary")
+        .select("summary, generated_at")
         .eq("type", type)
         .eq("date", today)
         .maybeSingle();
       if (cached?.summary) {
-        return new Response(
-          JSON.stringify({ ok: true, source: "cache", briefing: JSON.parse(cached.summary) }),
-          { headers: { ...cors, "Content-Type": "application/json" } }
-        );
+        const { data: latestTrafficAlert } = await sb.from("alert_events")
+          .select("created_at")
+          .eq("type", "traffic")
+          .gte("created_at", new Date(Date.now() - 24 * 3600e3).toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const trafficChanged = latestTrafficAlert?.created_at &&
+          new Date(latestTrafficAlert.created_at).getTime() > new Date(cached.generated_at).getTime();
+        if (!trafficChanged) {
+          return new Response(
+            JSON.stringify({ ok: true, source: "cache", briefing: JSON.parse(cached.summary) }),
+            { headers: { ...cors, "Content-Type": "application/json" } }
+          );
+        }
       }
     }
 

@@ -235,7 +235,7 @@ describe("Sprint 3 — Dinamik Şehir Nabzı, Supabase Realtime ve 7/24 Ekosiste
 
       // İlk açılış sorguları tamamlansın
       await waitFor(() => {
-        expect(qc.isFetching()).toBe(0);
+        expect(qc.isFetching({ queryKey: ["topic-grounding"] })).toBe(0);
       });
       const callsBeforePush = fetchSpy.mock.calls.length;
 

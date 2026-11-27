@@ -17,6 +17,48 @@ import {
   resolveProtocolMembers,
 } from "@/store/useMonitorStore";
 
+type ProtocolDisplayMember = ProtocolMember & { district?: string | null };
+type ProtocolScrapeStatus = {
+  scrapedAt: string | null;
+  memberCount: number | null;
+  complete: boolean | null;
+};
+
+const PROTOCOL_DISTRICTS = [
+  "Bodrum", "Datça", "Dalaman", "Fethiye", "Kavaklıdere", "Köyceğiz", "Marmaris",
+  "Menteşe", "Milas", "Ortaca", "Seydikemer", "Ula", "Yatağan",
+];
+
+const normalizeProtocolText = (value: string) =>
+  value
+    .toLocaleLowerCase("tr-TR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ı/g, "i")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getMemberDistrict = (member: ProtocolDisplayMember) =>
+  member.district ||
+  PROTOCOL_DISTRICTS.find((district) =>
+    normalizeProtocolText(member.unvan).includes(normalizeProtocolText(district))
+  ) ||
+  "";
+
+const getMemberRole = (member: ProtocolDisplayMember) => {
+  const title = normalizeProtocolText(member.unvan);
+  if (title.includes("kaymakam")) return "kaymakam";
+  if (title.includes("belediye baskan")) return "municipal";
+  if (
+    title.includes("vali") ||
+    title.includes("mudur") ||
+    title.includes("bassavci") ||
+    title.includes("komutan") ||
+    title.includes("muftu")
+  ) return "institution";
+  return "other";
+};
+
 export const ProtocolSection = () => {
   const { isAuthenticated } = useAuth();
   const { lang, t, translate } = useTranslation();
@@ -24,9 +66,17 @@ export const ProtocolSection = () => {
   const navigate = useNavigate();
   const hub = useOptionalUnifiedIntelligence();
   const [searchTerm, setSearchTerm] = useState("");
+  const [districtFilter, setDistrictFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set([""]));
-  const [fullData, setFullData] = useState<ProtocolMember[]>(PROTOCOL_DATA);
+  const [fullData, setFullData] = useState<ProtocolDisplayMember[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [dataOrigin, setDataOrigin] = useState<"empty" | "database" | "live" | "reference">("empty");
+  const [scrapeStatus, setScrapeStatus] = useState<ProtocolScrapeStatus>({
+    scrapedAt: null,
+    memberCount: null,
+    complete: null,
+  });
 
   const protocolOverride = useMonitorStore(selectProtocolOverride);
   const resolvedMembers = useMemo(
@@ -36,42 +86,69 @@ export const ProtocolSection = () => {
 
   const protocolIntel = useProtocolActivityIntelligence(resolvedMembers);
 
-  const fetchProtocol = useCallback(async () => {
+  const fetchProtocol = useCallback(async (runScrape = false) => {
     setIsLoading(true);
     try {
+      if (runScrape) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const { data: fnData, error: fnError } = await supabase.functions.invoke("protocol-scrape", { body: {} });
+          if (fnError) throw fnError;
+          if (fnData?.success && Array.isArray(fnData.protocol)) {
+            setFullData(fnData.protocol as ProtocolDisplayMember[]);
+            setDataOrigin("live");
+            setScrapeStatus({
+              scrapedAt: typeof fnData.scraped_at === "string" ? fnData.scraped_at : null,
+              memberCount: Number.isFinite(fnData.member_count) ? fnData.member_count : fnData.protocol.length,
+              complete: fnData.complete === true,
+            });
+            return;
+          }
+          throw new Error(fnData?.error || "Protocol scrape was rejected");
+        }
+      }
+
       const { data: dbData, error: dbError } = await supabase
         .from("protocol_members")
-        .select("isim, unvan, kategori, telefon, faks")
+        .select("isim, unvan, kategori, telefon, faks, district")
         .order("id", { ascending: true });
 
-      if (!dbError && dbData && dbData.length > 20) {
-        const mapped: ProtocolMember[] = dbData.map((d: any) => ({
+      const { data: statusRow } = await (supabase as any)
+        .from("protocol_scrape_status")
+        .select("scraped_at, member_count, complete")
+        .eq("id", true)
+        .maybeSingle();
+
+      if (!dbError && dbData && dbData.length > 0) {
+        const mapped: ProtocolDisplayMember[] = dbData.map((d) => ({
           sira: "",
           unvan: d.unvan || "",
           isim: d.isim || "",
           telefon: d.telefon || "",
           faks: d.faks || "",
           kategori: d.kategori || "",
+          district: d.district || null,
         }));
         setFullData(mapped);
+        setDataOrigin("database");
+        const countMatches = statusRow?.member_count === dbData.length;
+        setScrapeStatus({
+          scrapedAt: typeof statusRow?.scraped_at === "string" ? statusRow.scraped_at : null,
+          memberCount: Number.isFinite(statusRow?.member_count) ? statusRow.member_count : null,
+          complete: statusRow?.complete === true && countMatches,
+        });
         return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session?.access_token) {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke("protocol-scrape", { body: {} });
-        if (!fnError && fnData?.protocol && fnData.protocol.length > 0) {
-          setFullData(fnData.protocol);
-          return;
-        }
-      }
-
       setFullData(PROTOCOL_DATA);
+      setDataOrigin("reference");
+      setScrapeStatus({ scrapedAt: null, memberCount: null, complete: null });
     } catch (e) {
       console.warn("Protokol veri kontrolü fallback:", e);
-      setFullData(PROTOCOL_DATA);
+      setFullData((current) => current.length ? current : PROTOCOL_DATA);
+      setDataOrigin((current) => current === "empty" ? "reference" : current);
     } finally {
       setIsLoading(false);
     }
@@ -92,8 +169,7 @@ export const ProtocolSection = () => {
   }, [resolvedMembers]);
 
   const filtered = useMemo(() => {
-    const trLower = (s: string) => s.toLocaleLowerCase("tr-TR");
-    const lower = searchTerm.trim().toLocaleLowerCase("tr-TR");
+    const lower = normalizeProtocolText(searchTerm);
 
     const result = new Map<string, ProtocolMember[]>();
 
@@ -103,9 +179,20 @@ export const ProtocolSection = () => {
       if (lower) {
         filteredMembers = filteredMembers.filter(
           (m) =>
-            trLower(m.isim).includes(lower) ||
-            trLower(m.unvan).includes(lower) ||
-            trLower(cat).includes(lower)
+            normalizeProtocolText(m.isim).includes(lower) ||
+            normalizeProtocolText(m.unvan).includes(lower) ||
+            normalizeProtocolText(cat).includes(lower) ||
+            normalizeProtocolText(getMemberDistrict(m)).includes(lower)
+        );
+      }
+      if (districtFilter) {
+        filteredMembers = filteredMembers.filter((member) =>
+          normalizeProtocolText(getMemberDistrict(member)) === normalizeProtocolText(districtFilter)
+        );
+      }
+      if (roleFilter) {
+        filteredMembers = filteredMembers.filter((member) =>
+          getMemberRole(member) === roleFilter
         );
       }
 
@@ -115,7 +202,7 @@ export const ProtocolSection = () => {
     }
 
     return result;
-  }, [grouped, searchTerm]);
+  }, [districtFilter, grouped, roleFilter, searchTerm]);
 
   const toggleCategory = (cat: string) => {
     setExpandedCategories((prev) => {
@@ -130,6 +217,17 @@ export const ProtocolSection = () => {
   const collapseAll = () => setExpandedCategories(new Set());
 
   const totalVisible = Array.from(filtered.values()).reduce((s, a) => s + a.length, 0);
+  const scrapeDate = scrapeStatus.scrapedAt ? new Date(scrapeStatus.scrapedAt) : null;
+  const validScrapeDate = scrapeDate && Number.isFinite(scrapeDate.getTime()) ? scrapeDate : null;
+  const scrapeIsStale = validScrapeDate
+    ? Date.now() - validScrapeDate.getTime() > 48 * 60 * 60 * 1000
+    : false;
+  const scrapeTime = validScrapeDate
+    ? validScrapeDate.toLocaleString(isEn ? "en-US" : "tr-TR", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
 
   return (
     <div className="space-y-3.5">
@@ -140,7 +238,11 @@ export const ProtocolSection = () => {
           <h3 className="text-sm font-mono font-bold">{t("Muğla İl Protokol Listesi")}</h3>
           <PanelHelpTooltip panelTitle="Muğla İl Protokol Listesi" />
           <span className="text-[10px] font-mono tabular-nums-stat text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">
-            {isLoading ? t("Denetleniyor...") : `${totalVisible} / ${fullData.length} ${t("Kişi")}`}
+            {isLoading
+              ? t("Denetleniyor...")
+              : dataOrigin === "reference"
+                ? `${isEn ? "Reference list" : t("Referans liste")} · ${fullData.length} ${isEn ? "entries" : t("Kişi")}`
+                : `${fullData.length} ${isEn ? "loaded members" : t("yüklenmiş kişi")} · ${totalVisible} ${isEn ? "visible" : t("görünür")}`}
           </span>
           {protocolIntel.hasVerifiedLiveData && (
             <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
@@ -156,7 +258,7 @@ export const ProtocolSection = () => {
           {isAuthenticated && (
             <button
               type="button"
-              onClick={() => fetchProtocol()}
+              onClick={() => fetchProtocol(true)}
               disabled={isLoading}
               aria-label={t("Güncelliği Denetle")}
               className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono bg-secondary hover:bg-secondary/80 border border-border/60 rounded text-foreground transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -182,6 +284,23 @@ export const ProtocolSection = () => {
       <p className="text-[9px] font-mono text-muted-foreground/80" data-testid="protocol-source-note">
         {translate(protocolIntel.latestSourceSummary)}
       </p>
+      <p
+        className={`text-[9px] font-mono ${scrapeIsStale || scrapeStatus.complete === false ? "text-amber-400" : "text-muted-foreground/80"}`}
+        data-testid="protocol-scrape-status"
+      >
+        {dataOrigin === "reference"
+          ? isEn
+            ? "Showing the local reference list; no verified scrape time is available."
+            : t("Yerel referans listesi gösteriliyor; doğrulanmış yükleme zamanı yok.")
+          : scrapeTime
+            ? `${isEn ? "Last successful source scrape" : t("Son başarılı kaynak taraması")}: ${scrapeTime}${scrapeIsStale ? ` · ${isEn ? "stale" : t("eski")}` : ""}${scrapeStatus.complete === false ? ` · ${isEn ? "completeness unverified" : t("tamlık doğrulanamadı")}` : ""}`
+            : isEn
+              ? "No successful scrape time is available; snapshot completeness is unverified."
+              : t("Yüklenen verinin başarılı tarama zamanı bulunmuyor; tamlık doğrulanamadı.")}
+        {dataOrigin === "database" && scrapeStatus.memberCount !== null && scrapeStatus.memberCount !== fullData.length
+          ? ` · ${isEn ? "Count mismatch" : t("Kayıt sayısı uyuşmuyor")}: ${scrapeStatus.memberCount}/${fullData.length}`
+          : ""}
+      </p>
 
       {/* Arama Kutusu */}
       <div className="relative">
@@ -190,10 +309,34 @@ export const ProtocolSection = () => {
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          aria-label={t("İsim, unvan (örn. Kaymakam, Başsavcı, Rektör) veya kategori ara...")}
-          placeholder={t("İsim, unvan (örn. Kaymakam, Başsavcı, Rektör) veya kategori ara...")}
+          aria-label={t("İlçe, isim veya unvan ara...", "Search district, name, or title...")}
+          placeholder={t("İlçe, isim veya unvan ara...", "Search district, name, or title...")}
           className="w-full pl-8 pr-3 py-1.5 text-xs font-mono bg-background border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={districtFilter}
+          onChange={(event) => setDistrictFilter(event.target.value)}
+          aria-label={t("İlçeye göre filtrele", "Filter by district")}
+          className="min-w-36 px-2 py-1.5 text-xs font-mono bg-background border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <option value="">{t("Tüm ilçeler")}</option>
+          {PROTOCOL_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}
+        </select>
+        <select
+          value={roleFilter}
+          onChange={(event) => setRoleFilter(event.target.value)}
+          aria-label={t("Göreve göre filtrele", "Filter by role")}
+          className="min-w-40 px-2 py-1.5 text-xs font-mono bg-background border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <option value="">{t("Tüm görevler", "All roles")}</option>
+          <option value="kaymakam">{t("Kaymakamlık", "District Governor")}</option>
+          <option value="municipal">{t("Belediye Başkanlığı", "Mayor")}</option>
+          <option value="institution">{t("Kurum yöneticileri", "Institution leaders")}</option>
+          <option value="other">{t("Diğer görevler", "Other roles")}</option>
+        </select>
       </div>
 
       {/* Kontroller */}
@@ -224,7 +367,7 @@ export const ProtocolSection = () => {
       {/* Liste Görünümü */}
       <div className="space-y-1.5 max-h-[650px] overflow-y-auto scrollbar-thin">
         {Array.from(filtered.entries()).map(([category, members]) => {
-          const isExpanded = expandedCategories.has(category) || searchTerm.trim().length > 0;
+          const isExpanded = expandedCategories.has(category) || searchTerm.trim().length > 0 || Boolean(districtFilter || roleFilter);
           const displayCat = category || "ÜST DÜZEY YÖNETİCİLER";
 
           return (

@@ -2,8 +2,8 @@
 // Sabit veya gerçek dışı mock değerler yerine Gemini Search Grounding (/api/intel/topic-grounding)
 // ve doğrulanmış yerel basın/kurum kaynaklarından (Anter Haber, AA, MUSKİ, DSİ vb.) beslenir.
 
-import { useEffect, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { useLiveData } from "@/hooks/useLiveData";
 import { isValidVerificationUrl } from "@/services/fieldArbitrationEngine";
@@ -715,7 +715,7 @@ const DEFAULT_CLIENT_COOLDOWN_MS = 15 * 60 * 1000;
 
 let clientRateLimitCooldownUntil = 0;
 const topicNegativeCacheUntil = new Map<SectorTopicKey, number>();
-const inFlightClientTopicFetches = new Map<SectorTopicKey, Promise<TopicGroundingPayload>>();
+const inFlightClientTopicFetches = new Map<string, Promise<TopicGroundingPayload>>();
 
 export function resetTopicGroundingClientState() {
   clientRateLimitCooldownUntil = 0;
@@ -853,20 +853,31 @@ async function readSupabaseTopicCache(
 }
 
 export async function fetchTopicGrounding(
-  topic: SectorTopicKey
+  topic: SectorTopicKey,
+  options: { allowClientRequest?: boolean; forceRefresh?: boolean } = {}
 ): Promise<TopicGroundingPayload> {
-  const cached = readLocalTopicCache(topic);
-  if (cached) return cached;
+  const allowClientRequest = options.allowClientRequest === true;
+  const forceRefresh = options.forceRefresh === true;
+  const cacheKey = `${topic}:${allowClientRequest ? "client" : "cache"}`;
+  if (!forceRefresh) {
+    const cached = readLocalTopicCache(topic);
+    if (cached) return cached;
+  }
 
-  const existingInFlight = inFlightClientTopicFetches.get(topic);
+  const existingInFlight = inFlightClientTopicFetches.get(cacheKey);
   if (existingInFlight) return existingInFlight;
 
   const task = (async (): Promise<TopicGroundingPayload> => {
     // 7/24 arka plan işçisinin Supabase'e yazdığı güncel tarama varsa ek Gemini kotası tüketme
-    const remoteCached = await readSupabaseTopicCache(topic);
-    if (remoteCached) return remoteCached;
+    if (!forceRefresh) {
+      const remoteCached = await readSupabaseTopicCache(topic);
+      if (remoteCached) return remoteCached;
+    }
 
     const empty = createEmptyTopicPayload(topic);
+    // Page-load queries may read caches, but expensive grounding requires an
+    // explicit refresh action; scheduled backend jobs remain independent.
+    if (!allowClientRequest) return empty;
 
     // Sunucu 429 RESOURCE_EXHAUSTED bekleme modundaysa yeni istek gönderme
     if (Date.now() < getClientCooldownUntil()) {
@@ -929,11 +940,15 @@ export async function fetchTopicGrounding(
       return empty;
     }
   })().finally(() => {
-    inFlightClientTopicFetches.delete(topic);
+    inFlightClientTopicFetches.delete(cacheKey);
   });
 
-  inFlightClientTopicFetches.set(topic, task);
+  inFlightClientTopicFetches.set(cacheKey, task);
   return task;
+}
+
+export function refreshTopicGrounding(topic: SectorTopicKey) {
+  return fetchTopicGrounding(topic, { allowClientRequest: true, forceRefresh: true });
 }
 
 function buildSourceAttribution(sourceName?: string | null, isoDate?: string | null): string {
@@ -1873,8 +1888,10 @@ export function useDamIntelligence() {
  * yol çalışması, isale hattı arızası ve trafik gelişmelerini periyodik çeker.
  */
 export function useTransportTopicGrounding() {
+  const queryClient = useQueryClient();
+  const queryKey = ["topic-grounding", "transport_infra"];
   const { data, isLoading } = useQuery<TopicGroundingPayload>({
-    queryKey: ["topic-grounding", "transport_infra"],
+    queryKey,
     queryFn: () => fetchTopicGrounding("transport_infra"),
     staleTime: 20 * 60 * 1000,
     refetchInterval: 30 * 60 * 1000,
@@ -1889,10 +1906,17 @@ export function useTransportTopicGrounding() {
       .setTransportOverride(incidents, data?.fetchedAt ?? new Date().toISOString());
   }, [data?.transportIncidents, data?.fetchedAt]);
 
+  const refresh = useCallback(async () => {
+    const payload = await refreshTopicGrounding("transport_infra");
+    queryClient.setQueryData(["topic-grounding", "transport_infra"], payload);
+    return payload;
+  }, [queryClient]);
+
   return {
     incidents: data?.transportIncidents ?? [],
     fetchedAt: data?.fetchedAt ?? null,
     isLoading,
+    refresh,
   };
 }
 

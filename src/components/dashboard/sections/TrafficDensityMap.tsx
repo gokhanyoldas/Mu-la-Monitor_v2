@@ -16,6 +16,8 @@ type DistrictZone = {
   speed?: number;
   freeFlow?: number;
   confidence?: number;
+  stale?: boolean;
+  fetched_at?: string;
 };
 
 const fallbackZones: DistrictZone[] = DEFAULT_TRAFFIC_HOTSPOTS.map((h) => ({
@@ -114,9 +116,23 @@ export const TrafficDensityMap = () => {
           speed: z.speed != null ? Number(z.speed) : z.currentSpeed != null ? Number(z.currentSpeed) : undefined,
           freeFlow: z.freeFlow != null ? Number(z.freeFlow) : z.freeFlowSpeed != null ? Number(z.freeFlowSpeed) : undefined,
           confidence: z.confidence != null ? Number(z.confidence) : undefined,
+          stale: Boolean(z.stale),
+          fetched_at: typeof z.fetched_at === "string" ? z.fetched_at : undefined,
         }))
       : fallbackZones;
-  const isLive = Boolean((trafficData?.hotspots?.length || trafficData?.zones?.length) && !trafficData?.isReference);
+  const hasTrafficPayload = Boolean(trafficData?.hotspots?.length || trafficData?.zones?.length);
+  const trafficStatus = trafficData?.status === "partial" || trafficData?.partial || trafficData?.stale
+    ? "partial"
+    : trafficData?.cache_hit || trafficData?.isCached
+      ? "cached"
+      : hasTrafficPayload && !trafficData?.isReference ? "live" : "reference";
+  const trafficBadge = trafficStatus === "live"
+    ? (isEn ? "LIVE" : "CANLI")
+    : trafficStatus === "cached"
+      ? (isEn ? "CACHED" : "ÖNBELLEK")
+      : trafficStatus === "partial"
+        ? (isEn ? "PARTIAL DATA" : "KISMİ VERİ")
+        : (isEn ? "REFERENCE" : "REFERANS");
   const hub = useOptionalUnifiedIntelligence();
   const groundTruthPatches = hub?.groundTruthPatches ?? [];
   const selectedPatch = groundTruthPatches.find((p) => p.id === selectedPatchId) ?? null;
@@ -143,8 +159,8 @@ export const TrafficDensityMap = () => {
     <DashboardPanel
       title="Trafik Yoğunluk Haritası"
       icon={<Map size={14} />}
-      badge={isLive ? "CANLI" : "REFERANS VERİ"}
-      badgeVariant={isLive ? "live" : "info"}
+      badge={trafficBadge}
+      badgeVariant={trafficStatus === "live" ? "live" : trafficStatus === "partial" ? "warning" : "info"}
     >
       {isLoading && <Loader2 size={10} className="animate-spin text-muted-foreground mb-1" />}
       <div className="grid grid-cols-3 gap-2 mb-3">
@@ -329,7 +345,9 @@ export const TrafficDensityMap = () => {
                 </div>
                 {zone.speed != null && (
                   <div className="text-[10px] font-mono text-muted-foreground">
-                    {isEn ? "Live Speed" : "Anlık Hız"}:{" "}
+                    {zone.stale
+                      ? (isEn ? "Last known speed" : "Son bilinen hız")
+                      : (isEn ? "Live Speed" : "Anlık Hız")}:{" "}
                     <span className="font-bold">
                       {zone.speed} {isEn ? "km/h" : "km/s"}
                     </span>
@@ -367,15 +385,15 @@ export const TrafficDensityMap = () => {
         </div>
       </div>
 
-      {isLive && (
-        <div className="tech-meta-only text-[9px] font-mono text-muted-foreground mt-2 text-center">
-          {isEn ? "Last updated" : "Son güncelleme"}:{" "}
-          {new Date(trafficData?.updated_at ?? Date.now()).toLocaleTimeString(dateLocale, {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </div>
-      )}
+      <div className="tech-meta-only text-[9px] font-mono text-muted-foreground mt-2 text-center">
+        {isEn ? "Source" : "Kaynak"}: {String(trafficData?.source ?? (trafficStatus === "reference" ? "İlçe referans verisi" : "TomTom Traffic Flow"))}
+        {(typeof trafficData?.fetched_at === "string" || typeof trafficData?.updated_at === "string") && (() => {
+          const fetchedAt = trafficData.fetched_at ?? trafficData.updated_at;
+          return !Number.isNaN(new Date(fetchedAt).getTime())
+            ? ` · ${isEn ? "Fetched" : "Alındı"}: ${new Date(fetchedAt).toLocaleString(dateLocale)}`
+            : "";
+        })()}
+      </div>
     </DashboardPanel>
   );
 };
