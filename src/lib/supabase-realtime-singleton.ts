@@ -286,17 +286,17 @@ async function runHttpPollingTick() {
     if (tableListeners.monitor_data.size > 0) {
       const { data, error } = await supabase
         .from("monitor_data")
-        .select("id, tab_key, title, metrics, summary, source, updated_at")
-        .order("updated_at", { ascending: false })
+        .select("source, district_name, content, sentiment, category, created_at")
+        .order("created_at", { ascending: false })
         .limit(20);
       if (!error && Array.isArray(data)) {
         for (const row of data) {
           const rec = row as Record<string, unknown>;
-          if (sinceIso && typeof rec.updated_at === "string" && rec.updated_at <= sinceIso) {
+          if (sinceIso && typeof rec.created_at === "string" && rec.created_at <= sinceIso) {
             continue;
           }
           dispatchTableEvent("monitor_data", {
-            eventType: "UPDATE",
+            eventType: "INSERT",
             table: "monitor_data",
             schema: "public",
             new: rec,

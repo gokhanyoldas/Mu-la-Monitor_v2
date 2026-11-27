@@ -124,15 +124,17 @@ export interface MonitorTabRecord {
   metrics: Record<string, unknown>;
   summary?: string | null;
   source?: string | null;
+  districtName?: string | null;
+  sentiment?: string | null;
+  rawContent?: string | null;
   updatedAt: string;
 }
 
 export interface MonitorDistrictRecord {
-  id: string;
+  id: number | string;
   name: string;
   lat: number;
-  lon: number;
-  population: number | null;
+  lng: number;
 }
 
 export interface MonitorProtocolMemberRecord {
@@ -302,6 +304,84 @@ function quakesEqual(a: MonitorQuakeItem[], b: MonitorQuakeItem[]): boolean {
     }
   }
   return true;
+}
+
+/**
+ * Canlı `monitor_data` tablosu satırını (`source`, `district_name`, `content`,
+ * `sentiment`, `category`, `created_at`) güvenli biçimde `MonitorTabRecord` yapısına dönüştürür.
+ * `content` alanı JSON ise parse ederek metrik/özeti çıkarır; düz metin ise doğrudan özet olarak kullanır.
+ */
+export function parseMonitorDataRow(raw: Record<string, unknown> | null | undefined): MonitorTabRecord | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const rawContent = typeof raw.content === "string" ? raw.content.trim() : "";
+  let parsedContent: Record<string, unknown> | null = null;
+  if (rawContent.startsWith("{") && rawContent.endsWith("}")) {
+    try {
+      const candidate = JSON.parse(rawContent);
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+        parsedContent = candidate as Record<string, unknown>;
+      }
+    } catch {
+      parsedContent = null;
+    }
+  }
+
+  const tabKey = String(
+    raw.category ||
+      parsedContent?.tabKey ||
+      raw.tab_key ||
+      raw.id ||
+      ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (!tabKey) return null;
+
+  const metricsObj =
+    parsedContent?.metrics &&
+    typeof parsedContent.metrics === "object" &&
+    !Array.isArray(parsedContent.metrics)
+      ? (parsedContent.metrics as Record<string, unknown>)
+      : raw.metrics && typeof raw.metrics === "object" && !Array.isArray(raw.metrics)
+        ? (raw.metrics as Record<string, unknown>)
+        : {};
+
+  const summary =
+    typeof parsedContent?.summary === "string" && parsedContent.summary.trim()
+      ? parsedContent.summary.trim()
+      : typeof raw.summary === "string" && raw.summary.trim()
+        ? raw.summary.trim()
+        : !parsedContent && rawContent
+          ? rawContent
+          : null;
+
+  const title =
+    typeof parsedContent?.title === "string" && parsedContent.title.trim()
+      ? parsedContent.title.trim()
+      : typeof raw.title === "string" && raw.title.trim()
+        ? raw.title.trim()
+        : tabKey;
+
+  const updatedAt =
+    (typeof raw.created_at === "string" && raw.created_at) ||
+    (typeof parsedContent?.updatedAt === "string" && parsedContent.updatedAt) ||
+    (typeof raw.updated_at === "string" && raw.updated_at) ||
+    new Date().toISOString();
+
+  return {
+    id: String(raw.id ?? tabKey),
+    tabKey,
+    title,
+    metrics: metricsObj,
+    summary,
+    source: typeof raw.source === "string" ? raw.source : null,
+    districtName: typeof raw.district_name === "string" ? raw.district_name : null,
+    sentiment: typeof raw.sentiment === "string" ? raw.sentiment : null,
+    rawContent: rawContent || null,
+    updatedAt,
+  };
 }
 
 /**

@@ -96,7 +96,10 @@ export const FireRiskIndicator = () => {
     return () => clearInterval(iv);
   }, []);
 
-  const level = data ? LEVEL_CONFIG[data.danger_level] : null;
+  const normalizedDangerLevel = String(data?.danger_level ?? "")
+    .trim()
+    .toLocaleLowerCase("tr-TR") as FireRiskData["danger_level"];
+  const level = data ? (LEVEL_CONFIG[normalizedDangerLevel] ?? LEVEL_CONFIG["orta"]) : null;
 
   return (
     <DashboardPanel

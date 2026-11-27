@@ -1,32 +1,21 @@
--- Muğla Monitör v2: Merkezi canlı veri yazım köprüsü şeması ve Realtime yayını
--- Boş kalan monitor_data, districts, protocol_members, protocol_changes,
--- alert_events, ai_summaries ve live_data_cache tabloları için idempotent şema ve RLS.
+-- Muğla Monitör v2: Canlı Supabase şemasıyla uyumlu monitor_data RLS ve Realtime yayını
+-- Gerçek sütunlar: source, district_name, content, sentiment, category, created_at
 
--- 1. 11 ana sekmenin canlı metriklerini tutan monitor_data tablosu
 CREATE TABLE IF NOT EXISTS public.monitor_data (
-  id text PRIMARY KEY,
-  tab_key text NOT NULL UNIQUE,
-  title text NOT NULL DEFAULT '',
-  metrics jsonb NOT NULL DEFAULT '{}'::jsonb,
-  summary text,
-  source text,
-  updated_at timestamptz NOT NULL DEFAULT now()
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  source varchar(20),
+  district_name varchar(20),
+  content text NOT NULL DEFAULT '',
+  sentiment varchar(20) DEFAULT 'neutral',
+  category varchar(20),
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Önceden farklı kolonlarla oluşturulmuş boş bir monitor_data tablosu varsa eksik kolonları tamamla
-ALTER TABLE public.monitor_data ADD COLUMN IF NOT EXISTS tab_key text;
-ALTER TABLE public.monitor_data ADD COLUMN IF NOT EXISTS title text NOT NULL DEFAULT '';
-ALTER TABLE public.monitor_data ADD COLUMN IF NOT EXISTS metrics jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE public.monitor_data ADD COLUMN IF NOT EXISTS summary text;
-ALTER TABLE public.monitor_data ADD COLUMN IF NOT EXISTS source text;
-ALTER TABLE public.monitor_data ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS monitor_data_created_at_idx
+  ON public.monitor_data (created_at DESC);
 
-CREATE UNIQUE INDEX IF NOT EXISTS monitor_data_tab_key_uidx
-  ON public.monitor_data (tab_key)
-  WHERE tab_key IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS monitor_data_updated_at_idx
-  ON public.monitor_data (updated_at DESC);
+CREATE INDEX IF NOT EXISTS monitor_data_category_idx
+  ON public.monitor_data (category);
 
 ALTER TABLE public.monitor_data ENABLE ROW LEVEL SECURITY;
 
@@ -56,7 +45,7 @@ BEGIN
   END IF;
 END $$;
 
--- 2. Tüm çekirdek tabloların Realtime yayınına dahil edildiğinden emin ol (idempotent)
+-- Çekirdek tabloların Realtime yayınına dahil edildiğinden emin ol (idempotent)
 DO $$
 DECLARE
   tbl text;

@@ -285,15 +285,17 @@ describe("1. Ajan — 7/24 Free-Tier Otonom GitHub Actions İşçisi", () => {
     );
     expect(payloads.keywordRows.map((k: { keyword: string }) => k.keyword)).not.toContain("MUSKİ");
 
-    // Tekrarlı URL elenir, yalnızca yeni gönderi kalır
+    // Tekrarlı URL elenir, yalnızca yeni gönderi kalır (canlı şema: region + raw_metadata)
     expect(payloads.postRows).toHaveLength(1);
-    expect(payloads.postRows[0].district).toBe("Bodrum");
+    expect(payloads.postRows[0].region).toBe("Bodrum");
+    expect(payloads.postRows[0].raw_metadata.district).toBe("Bodrum");
     expect(payloads.postRows[0].platform).toBe("web_grounding");
 
-    // Yüksek öncelikli uyarı alert_events kaydı olarak oluşur
+    // Yüksek öncelikli uyarı alert_events kaydı olarak oluşur (9 canlı sütun)
     expect(payloads.alertRows).toHaveLength(1);
     expect(payloads.alertRows[0].severity).toBe("high");
     expect(payloads.alertRows[0].source).toBe("autonomous-intel-agent");
+    expect(payloads.alertRows[0].created_at).toBe("2026-10-01T00:00:00.000Z");
   });
 
   it("dry-run modunda ağ veya veritabanı yazımı yapmadan başarıyla tamamlanır ve CI workflow’larını korur", async () => {

@@ -32,7 +32,16 @@ export function useOverviewLayout() {
   const [metricOrder, setMetricOrder] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(METRIC_ORDER_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (
+          Array.isArray(parsed) &&
+          parsed.length > 0 &&
+          parsed.every((item): item is string => typeof item === "string")
+        ) {
+          return parsed;
+        }
+      }
     } catch {}
     return DEFAULT_METRIC_ORDER;
   });

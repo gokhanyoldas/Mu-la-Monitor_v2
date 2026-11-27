@@ -22,7 +22,7 @@ import {
   type SectorTopicKey,
   type TopicGroundingPayload,
 } from "@/services/topicGroundingService";
-import { useMonitorStore } from "@/store/useMonitorStore";
+import { useMonitorStore, parseMonitorDataRow } from "@/store/useMonitorStore";
 
 function mapCategoryToLexiconLayer(category?: string | null): LexiconLayer {
   const low = String(category || "").toLocaleLowerCase("tr-TR");
@@ -52,11 +52,12 @@ export function useSupabaseRealtimeSync(enabled = true) {
     const unsubscribers: Array<() => void> = [];
 
     const applyLiveCacheRow = (row: { data_type?: string; data?: unknown; fetched_at?: string }) => {
-      if (!row?.data_type || row.data == null) return;
-      if (row.data_type.startsWith("topic_grounding:")) {
-        const topicKey = row.data_type.slice("topic_grounding:".length);
-        if (isSectorTopicKey(topicKey)) {
-          const topicPayload = row.data as TopicGroundingPayload;
+      try {
+        if (!row || typeof row !== "object" || typeof row.data_type !== "string" || !row.data_type || row.data == null) return;
+        if (row.data_type.startsWith("topic_grounding:")) {
+          const topicKey = row.data_type.slice("topic_grounding:".length);
+          if (isSectorTopicKey(topicKey) && typeof row.data === "object") {
+            const topicPayload = row.data as TopicGroundingPayload;
           writeLocalTopicCache(topicKey, topicPayload);
           queryClientRef.current.setQueryData(["topic-grounding", topicKey], topicPayload);
           if (topicKey === "environment_dams" && Array.isArray(topicPayload.damUpdates)) {
@@ -179,7 +180,10 @@ export function useSupabaseRealtimeSync(enabled = true) {
           useMonitorStore.getState().setEnergyOverride(energy, row.fetched_at || new Date().toISOString());
         }
       }
-      useMonitorStore.getState().touchLastSynced(row.fetched_at || new Date().toISOString());
+        useMonitorStore.getState().touchLastSynced(row.fetched_at || new Date().toISOString());
+      } catch (err) {
+        console.warn("[RealtimeSync] live_data_cache satırı işlenemedi:", row?.data_type, err);
+      }
     };
 
     // Başlangıç senkronizasyonu: Supabase çekirdek tablolarından (monitor_data, districts,
@@ -221,12 +225,12 @@ export function useSupabaseRealtimeSync(enabled = true) {
         const results = await Promise.allSettled([
           safeSelect(
             "monitor_data",
-            "id, tab_key, title, metrics, summary, source, updated_at",
-            "updated_at",
+            "source, district_name, content, sentiment, category, created_at",
+            "created_at",
             false,
-            20
+            40
           ),
-          safeSelect("districts", "id, name, lat, lon, population", "name", true, 20),
+          safeSelect("districts", "id, name, lat, lng", "name", true, 20),
           safeSelect(
             "protocol_members",
             "id, isim, unvan, kategori, telefon, faks, district, updated_at",
@@ -245,99 +249,132 @@ export function useSupabaseRealtimeSync(enabled = true) {
         const [monitorRes, districtsRes, membersRes, changesRes, summariesRes, cacheRes] = results;
 
         if (monitorRes.status === "fulfilled" && !monitorRes.value.error && Array.isArray(monitorRes.value.data)) {
-          const tabRows = monitorRes.value.data
-            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
-            .map((r) => ({
-              id: String(r.id || r.tab_key || ""),
-              tabKey: String(r.tab_key || r.id || ""),
-              title: String(r.title || ""),
-              metrics:
-                r.metrics && typeof r.metrics === "object" && !Array.isArray(r.metrics)
-                  ? (r.metrics as Record<string, unknown>)
-                  : {},
-              summary: typeof r.summary === "string" ? r.summary : null,
-              source: typeof r.source === "string" ? r.source : null,
-              updatedAt: typeof r.updated_at === "string" ? r.updated_at : new Date().toISOString(),
-            }))
-            .filter((r) => Boolean(r.tabKey));
-          if (tabRows.length > 0) {
-            store.setMonitorTabs(tabRows);
+          try {
+            // En güncel kayıtlar önce geldiği için her kategori için ilk (en yeni) satırı koru
+            const seenTabKeys = new Set<string>();
+            const tabRows = [];
+            for (const raw of monitorRes.value.data) {
+              try {
+                if (!raw || typeof raw !== "object") continue;
+                const parsed = parseMonitorDataRow(raw as Record<string, unknown>);
+                if (!parsed || seenTabKeys.has(parsed.tabKey)) continue;
+                seenTabKeys.add(parsed.tabKey);
+                tabRows.push(parsed);
+              } catch {
+                // Hatalı monitor_data satırını atla
+              }
+            }
+            if (tabRows.length > 0) {
+              store.setMonitorTabs(tabRows);
+            }
+          } catch (err) {
+            console.warn("[RealtimeSync] monitor_data yüklenemedi:", err);
           }
         }
 
         if (districtsRes.status === "fulfilled" && !districtsRes.value.error && Array.isArray(districtsRes.value.data)) {
-          const districtRows = districtsRes.value.data
-            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
-            .map((r) => ({
-              id: String(r.id || ""),
-              name: String(r.name || ""),
-              lat: Number(r.lat ?? 0),
-              lon: Number(r.lon ?? 0),
-              population: r.population !== null && r.population !== undefined ? Number(r.population) : null,
-            }))
-            .filter((r) => Boolean(r.id && r.name));
-          if (districtRows.length > 0) {
-            store.setDistrictsRegistry(districtRows);
+          try {
+            const districtRows = districtsRes.value.data
+              .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
+              .map((r) => {
+                const numericId = Number(r.id);
+                const lat = Number(r.lat ?? 0);
+                const lng = Number(r.lng ?? r.lon ?? 0);
+                return {
+                  id:
+                    Number.isInteger(numericId) && numericId > 0
+                      ? numericId
+                      : String(r.id ?? ""),
+                  name: String(r.name || "").trim(),
+                  lat: Number.isFinite(lat) ? lat : 0,
+                  lng: Number.isFinite(lng) ? lng : 0,
+                };
+              })
+              .filter((r) => Boolean(r.id !== "" && r.name));
+            if (districtRows.length > 0) {
+              store.setDistrictsRegistry(districtRows);
+            }
+          } catch (err) {
+            console.warn("[RealtimeSync] districts yüklenemedi:", err);
           }
         }
 
         if (membersRes.status === "fulfilled" && !membersRes.value.error && Array.isArray(membersRes.value.data)) {
-          const memberRows = membersRes.value.data
-            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
-            .map((r) => ({
-              id: String(r.id || ""),
-              isim: String(r.isim || ""),
-              unvan: String(r.unvan || ""),
-              kategori: String(r.kategori || ""),
-              telefon: String(r.telefon || ""),
-              faks: String(r.faks || ""),
-              district: typeof r.district === "string" ? r.district : null,
-              updatedAt: typeof r.updated_at === "string" ? r.updated_at : new Date().toISOString(),
-            }))
-            .filter((r) => Boolean(r.isim && r.unvan));
-          if (memberRows.length > 0) {
-            store.setProtocolMembers(memberRows);
+          try {
+            const memberRows = membersRes.value.data
+              .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
+              .map((r) => ({
+                id: String(r.id ?? ""),
+                isim: String(r.isim ?? "").trim(),
+                unvan: String(r.unvan ?? "").trim(),
+                kategori: String(r.kategori ?? "").trim(),
+                telefon: String(r.telefon ?? ""),
+                faks: String(r.faks ?? ""),
+                district: typeof r.district === "string" ? r.district : null,
+                updatedAt: typeof r.updated_at === "string" ? r.updated_at : new Date().toISOString(),
+              }))
+              .filter((r) => Boolean(r.isim && r.unvan));
+            if (memberRows.length > 0) {
+              store.setProtocolMembers(memberRows);
+            }
+          } catch (err) {
+            console.warn("[RealtimeSync] protocol_members yüklenemedi:", err);
           }
         }
 
         if (changesRes.status === "fulfilled" && !changesRes.value.error && Array.isArray(changesRes.value.data)) {
-          for (const row of changesRes.value.data as Array<Record<string, unknown>>) {
-            const titleMatch = String(row.unvan || "");
-            const newName = String(row.isim_new || "");
-            if (titleMatch && newName) {
-              store.upsertProtocolRoleOverride({
-                titleMatch,
-                newName,
-                sourceName: "Resmî Protokol Kaydı",
-                updatedAt: typeof row.scraped_at === "string" ? row.scraped_at : new Date().toISOString(),
-              });
+          for (const row of changesRes.value.data) {
+            try {
+              if (!row || typeof row !== "object") continue;
+              const rec = row as Record<string, unknown>;
+              const titleMatch = String(rec.unvan || "").trim();
+              const newName = String(rec.isim_new || "").trim();
+              if (titleMatch && newName) {
+                store.upsertProtocolRoleOverride({
+                  titleMatch,
+                  newName,
+                  sourceName: "Resmî Protokol Kaydı",
+                  updatedAt: typeof rec.scraped_at === "string" ? rec.scraped_at : new Date().toISOString(),
+                });
+              }
+            } catch {
+              // Hatalı protocol_changes satırını atla
             }
           }
         }
 
         if (summariesRes.status === "fulfilled" && !summariesRes.value.error && Array.isArray(summariesRes.value.data)) {
-          for (const row of summariesRes.value.data as Array<Record<string, unknown>>) {
-            const type = String(row.type || "");
-            const summary = String(row.summary || "");
-            if (type && summary) {
-              store.upsertAiSummary({
-                type,
-                date: String(row.date || ""),
-                summary,
-                generatedAt:
-                  typeof row.generated_at === "string" ? row.generated_at : new Date().toISOString(),
-              });
+          for (const row of summariesRes.value.data) {
+            try {
+              if (!row || typeof row !== "object") continue;
+              const rec = row as Record<string, unknown>;
+              const type = String(rec.type || "").trim();
+              const summary = String(rec.summary || "").trim();
+              if (type && summary) {
+                store.upsertAiSummary({
+                  type,
+                  date: String(rec.date || ""),
+                  summary,
+                  generatedAt:
+                    typeof rec.generated_at === "string" ? rec.generated_at : new Date().toISOString(),
+                });
+              }
+            } catch {
+              // Hatalı ai_summaries satırını atla
             }
           }
         }
 
         if (cacheRes.status === "fulfilled" && !cacheRes.value.error && Array.isArray(cacheRes.value.data)) {
-          for (const row of cacheRes.value.data as Array<{
-            data_type?: string;
-            data?: unknown;
-            fetched_at?: string;
-          }>) {
-            applyLiveCacheRow(row);
+          for (const row of cacheRes.value.data) {
+            if (!row || typeof row !== "object") continue;
+            applyLiveCacheRow(
+              row as {
+                data_type?: string;
+                data?: unknown;
+                fetched_at?: string;
+              }
+            );
           }
         }
       })();
@@ -473,42 +510,28 @@ export function useSupabaseRealtimeSync(enabled = true) {
       })
     );
 
-    // 6. 11 ana sekme metrikleri (public.monitor_data)
+    // 6. 11 ana sekme metrikleri (public.monitor_data — content JSON veya düz metin)
     unsubscribers.push(
       subscribeToRealtimeTable("monitor_data", (payload) => {
-        const row = payload.new as
-          | {
-              id?: string;
-              tab_key?: string;
-              title?: string;
-              metrics?: Record<string, unknown>;
-              summary?: string | null;
-              source?: string | null;
-              updated_at?: string;
-            }
-          | undefined;
-        const tabKey = row?.tab_key || row?.id || "";
-        if (tabKey) {
-          useMonitorStore.getState().upsertMonitorTab({
-            id: String(row?.id || tabKey),
-            tabKey: String(tabKey),
-            title: String(row?.title || ""),
-            metrics:
-              row?.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics)
-                ? row.metrics
-                : {},
-            summary: row?.summary ?? null,
-            source: row?.source ?? null,
-            updatedAt: row?.updated_at || new Date().toISOString(),
-          });
-        }
-        queryClientRef.current.invalidateQueries({ queryKey: ["monitor-data"] });
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent(REALTIME_SYNC_EVENT, {
-              detail: { table: "monitor_data", tabKey, eventType: payload.eventType },
-            })
-          );
+        try {
+          const parsed = parseMonitorDataRow(payload.new as Record<string, unknown> | undefined);
+          if (parsed) {
+            useMonitorStore.getState().upsertMonitorTab(parsed);
+          }
+          queryClientRef.current.invalidateQueries({ queryKey: ["monitor-data"] });
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent(REALTIME_SYNC_EVENT, {
+                detail: {
+                  table: "monitor_data",
+                  tabKey: parsed?.tabKey || "",
+                  eventType: payload.eventType,
+                },
+              })
+            );
+          }
+        } catch (err) {
+          console.warn("[RealtimeSync] monitor_data olayı işlenemedi:", err);
         }
       })
     );

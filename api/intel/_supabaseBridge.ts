@@ -70,6 +70,92 @@ async function postgrestUpsert(
   return { ok: true, status: res.status, message: "ok" };
 }
 
+const MONITOR_DATA_BRIDGE_SOURCE = "konu-dogrulama";
+const DEFAULT_PROVINCIAL_DISTRICT_NAME = "Menteşe";
+const OFFICIAL_MUGLA_DISTRICT_NAMES = [
+  "Menteşe",
+  "Bodrum",
+  "Fethiye",
+  "Marmaris",
+  "Milas",
+  "Dalaman",
+  "Ortaca",
+  "Köyceğiz",
+  "Datça",
+  "Ula",
+  "Yatağan",
+  "Seydikemer",
+  "Kavaklıdere",
+] as const;
+
+function clampVarchar20(value: unknown, fallback = ""): string {
+  const cleaned = String(value ?? "").trim() || fallback.trim();
+  return cleaned.slice(0, 20);
+}
+
+function normalizeDistrictKey(raw: unknown): string {
+  return String(raw ?? "")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function resolveValidDistrictName(candidate: unknown, validDistrictNames: string[]): string {
+  const pool =
+    validDistrictNames.length > 0 ? validDistrictNames : [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+  const byNorm = new Map<string, string>();
+  for (const name of pool) {
+    const norm = normalizeDistrictKey(name);
+    if (norm && !byNorm.has(norm)) byNorm.set(norm, name);
+  }
+  const fallback =
+    byNorm.get(normalizeDistrictKey(DEFAULT_PROVINCIAL_DISTRICT_NAME)) ||
+    pool[0] ||
+    DEFAULT_PROVINCIAL_DISTRICT_NAME;
+
+  const normCand = normalizeDistrictKey(candidate);
+  if (!normCand || normCand === "mugla" || normCand === "mugla geneli") {
+    return clampVarchar20(fallback, DEFAULT_PROVINCIAL_DISTRICT_NAME);
+  }
+  const exact = byNorm.get(normCand);
+  if (exact) return clampVarchar20(exact, fallback);
+  for (const [norm, realName] of byNorm.entries()) {
+    if (normCand.includes(norm)) return clampVarchar20(realName, fallback);
+  }
+  return clampVarchar20(fallback, DEFAULT_PROVINCIAL_DISTRICT_NAME);
+}
+
+async function fetchLiveDistrictNames(
+  config: { url: string; serviceRoleKey: string },
+  fetchImpl: typeof fetch
+): Promise<string[]> {
+  try {
+    const endpoint = `${config.url}/rest/v1/districts?select=name&limit=100`;
+    const res = await fetchImpl(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: config.serviceRoleKey,
+        Authorization: `Bearer ${config.serviceRoleKey}`,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) return [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+    const rows = (await res.json()) as Array<{ name?: unknown }>;
+    const names = Array.isArray(rows)
+      ? rows.map((r) => String(r?.name ?? "").trim()).filter(Boolean)
+      : [];
+    return names.length > 0 ? names : [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+  } catch {
+    return [...OFFICIAL_MUGLA_DISTRICT_NAMES];
+  }
+}
+
 const TOPIC_TO_TAB_MAP: Record<string, { tabKey: string; title: string; cacheType: string }> = {
   environment_dams: { tabKey: "cevre", title: "Çevre & Barajlar", cacheType: "dams" },
   transport_infra: { tabKey: "ulasim", title: "Ulaşım & Altyapı", cacheType: "transport" },
@@ -138,13 +224,19 @@ export async function persistTopicGroundingToSupabase(
     console.error(`[api/intel/_supabaseBridge] live_data_cache ağ hatası:`, msg);
   }
 
-  // 2. monitor_data (ilgili sekmenin canlı metrik kaydı)
+  // 2. monitor_data — canlı sütunlar: (source, district_name, content, sentiment, category, created_at)
+  // `district_name` FK -> `districts.name`: ASLA "Muğla" gönderilmez, canlı ilçe listesiyle (il geneli -> "Menteşe") eşleştirilir.
   if (meta) {
     try {
-      const monitorRow = {
-        id: meta.tabKey,
-        tab_key: meta.tabKey,
+      const liveDistrictNames = await fetchLiveDistrictNames(config, fetchImpl);
+      const validDistrictName = resolveValidDistrictName(
+        typeof payload.district === "string" ? payload.district : DEFAULT_PROVINCIAL_DISTRICT_NAME,
+        liveDistrictNames
+      );
+      const structuredPayload = {
+        tabKey: meta.tabKey,
         title: meta.title,
+        summary: `${meta.title} canlı web doğrulaması güncellendi (${nowIso.slice(0, 16).replace("T", " ")}).`,
         metrics: {
           topic,
           fetchedAt: nowIso,
@@ -164,11 +256,17 @@ export async function persistTopicGroundingToSupabase(
             ? { protocolActivitiesCount: payload.protocolActivities.length }
             : {}),
         },
-        summary: `${meta.title} canlı web doğrulaması güncellendi (${nowIso.slice(0, 16).replace("T", " ")}).`,
-        source: "api-intel-topic-grounding",
-        updated_at: nowIso,
+        updatedAt: nowIso,
       };
-      const out = await postgrestUpsert(config, "monitor_data", monitorRow, "id", fetchImpl);
+      const monitorRow = {
+        source: clampVarchar20(MONITOR_DATA_BRIDGE_SOURCE, "konu-dogrulama"),
+        district_name: validDistrictName,
+        category: clampVarchar20(meta.tabKey, "genel"),
+        sentiment: clampVarchar20("neutral", "neutral"),
+        content: JSON.stringify(structuredPayload),
+        created_at: nowIso,
+      };
+      const out = await postgrestUpsert(config, "monitor_data", monitorRow, undefined, fetchImpl);
       recordWrite("monitor_data", 1, out);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -219,6 +317,8 @@ export async function persistTopicGroundingToSupabase(
         title: `[${String(e.district || "Muğla")}] ${String(e.title || "").slice(0, 120)}`,
         body: String(e.summary || e.title || "").slice(0, 280),
         source: "api-intel-topic-grounding",
+        lat: typeof e.lat === "number" ? e.lat : 37.2153,
+        lon: typeof e.lon === "number" ? e.lon : 28.3636,
         metadata: {
           district: e.district || "Muğla",
           source_url: e.sourceUrl || null,

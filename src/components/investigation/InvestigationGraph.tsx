@@ -527,7 +527,9 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
             /* Bir Düğümün Üzerindeyken */
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm">{NODE_TYPE_CONFIG[activeFocusedNodeData.type].icon}</span>
+                <span className="text-sm">
+                  {(NODE_TYPE_CONFIG[activeFocusedNodeData.type] ?? NODE_TYPE_CONFIG.kulis_dedikodu)?.icon ?? "🔍"}
+                </span>
                 <span className="font-bold text-white tracking-wide">{activeFocusedNodeData.title}</span>
                 <span className={`text-[10px] px-1.5 py-0.2 rounded font-bold ${
                   activeFocusedNodeData.status === "dogrulandi" 
@@ -536,7 +538,7 @@ export const InvestigationGraph: React.FC<InvestigationGraphProps> = ({
                     ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
                     : "bg-amber-500/20 text-amber-300 border border-amber-500/40"
                 }`}>
-                  {activeFocusedNodeData.status.toUpperCase()}
+                  {String(activeFocusedNodeData.status ?? "inceleniyor").toUpperCase()}
                 </span>
                 <span className="text-[10px] text-slate-400">{t("Kaynak")}: {activeFocusedNodeData.source}</span>
               </div>

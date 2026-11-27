@@ -120,12 +120,13 @@ function ScanLine() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.error;
+function StatusBadge({ status }: { status?: string | null }) {
+  const normalized = String(status ?? "").trim().toLowerCase();
+  const cfg = STATUS_CONFIG[normalized] ?? STATUS_CONFIG.error;
   return (
     <span className={`inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border ${cfg.color}`}>
-      {cfg.icon}
-      {cfg.label}
+      {cfg?.icon ?? <HelpCircle size={12} />}
+      {cfg?.label ?? "Bilinmiyor"}
     </span>
   );
 }
@@ -393,8 +394,8 @@ function GeoMonitor() {
               <div key={p.id} className="rounded border border-slate-800 bg-slate-900/40 hover:bg-slate-900/60 transition-colors p-2.5 group">
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${PLATFORM_COLORS[p.platform] ?? "bg-slate-500/20 text-slate-300"}`}>
-                      {p.platform}
+                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${PLATFORM_COLORS[String(p.platform ?? "").toLowerCase()] ?? "bg-slate-500/20 text-slate-300"}`}>
+                      {p.platform || "bilinmiyor"}
                     </span>
                     {p.region && (
                       <span className="text-[9px] font-mono text-purple-400 flex items-center gap-0.5">
@@ -402,8 +403,8 @@ function GeoMonitor() {
                       </span>
                     )}
                     {p.sentiment && (
-                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${SENTIMENT_COLORS[p.sentiment] ?? SENTIMENT_COLORS.neutral}`}>
-                        {p.sentiment === "positive" ? "+" : p.sentiment === "negative" ? "−" : "○"}
+                      <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${SENTIMENT_COLORS[String(p.sentiment).toLowerCase()] ?? SENTIMENT_COLORS.neutral}`}>
+                        {String(p.sentiment).toLowerCase() === "positive" ? "+" : String(p.sentiment).toLowerCase() === "negative" ? "−" : "○"}
                       </span>
                     )}
                   </div>
@@ -552,8 +553,8 @@ const CRISIS_LABELS: Record<string, string> = {
   kalabalık: "👥 Kalabalık", izdiham: "👥 İzdiham",
 };
 
-function detectCrisisLabels(content: string): string[] {
-  const lower = content.toLowerCase();
+function detectCrisisLabels(content: string | null | undefined): string[] {
+  const lower = String(content ?? "").toLowerCase();
   const found = new Set<string>();
   for (const kw of CRISIS_KW) {
     if (lower.includes(kw) && CRISIS_LABELS[kw]) found.add(CRISIS_LABELS[kw]);
@@ -561,13 +562,14 @@ function detectCrisisLabels(content: string): string[] {
   return Array.from(found);
 }
 
-function extractImageUrls(content: string): string[] {
+function extractImageUrls(content: string | null | undefined): string[] {
+  const safeContent = String(content ?? "");
   const urls: string[] = [];
   // Markdown images: ![alt](url)
-  const mdImages = content.matchAll(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|png|gif|webp)[^)]*)\)/gi);
+  const mdImages = safeContent.matchAll(/!\[.*?\]\((https?:\/\/[^)]+\.(?:jpg|jpeg|png|gif|webp)[^)]*)\)/gi);
   for (const m of mdImages) urls.push(m[1]);
   // Plain http image links
-  const plainImages = content.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s"'<>]*)?/gi);
+  const plainImages = safeContent.matchAll(/https?:\/\/[^\s"'<>]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s"'<>]*)?/gi);
   for (const m of plainImages) if (!urls.includes(m[0])) urls.push(m[0]);
   return urls.slice(0, 2);
 }
@@ -691,8 +693,8 @@ function ImageIntel() {
                         {label}
                       </span>
                     ))}
-                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${PLATFORM_COLORS[p.platform] ?? "bg-slate-500/20 text-slate-300"}`}>
-                      {p.platform}
+                    <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${PLATFORM_COLORS[String(p.platform ?? "").toLowerCase()] ?? "bg-slate-500/20 text-slate-300"}`}>
+                      {p.platform || "bilinmiyor"}
                     </span>
                   </div>
                   <span className="text-[9px] font-mono text-slate-600 flex-shrink-0">

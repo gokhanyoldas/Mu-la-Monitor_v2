@@ -129,9 +129,9 @@ class CrossTabIntelligenceService {
 
     // Build status objects
     return (Object.keys(DOMAIN_META) as CityDomainKey[]).map((domain) => {
-      const signals = domainSignals[domain];
+      const signals = domainSignals[domain] ?? [];
       const count = signals.length;
-      const meta = DOMAIN_META[domain];
+      const meta = DOMAIN_META[domain] ?? { title: "Genel", icon: "Activity", tab: "genel" };
 
       const pos = signals.filter((s) => s.sentiment === "positive").length;
       const neg = signals.filter((s) => s.sentiment === "negative").length;
@@ -197,9 +197,9 @@ class CrossTabIntelligenceService {
 
       return {
         domain,
-        title: meta.title,
-        iconName: meta.icon,
-        tabKey: meta.tab,
+        title: meta?.title ?? "Genel",
+        iconName: meta?.icon ?? "Activity",
+        tabKey: meta?.tab ?? "genel",
         status,
         statusLabel,
         verificationScore,
