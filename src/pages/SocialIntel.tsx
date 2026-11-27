@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { socialIntelService } from "@/services/social-intel-service";
@@ -298,34 +299,29 @@ const SocialIntel = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Real-time subscription — new posts appear without refresh
+  const mapPostToItemRef = useRef(mapPostToItem);
+  mapPostToItemRef.current = mapPostToItem;
+
+  // Tekil singleton kanal üzerinden yeni paylaşımları dinle (bağımlılık dizisi sabit: [])
   useEffect(() => {
-    const channel = supabase
-      .channel("social_posts_live")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "social_posts" },
-        (payload) => {
-          const newPost = payload.new as Record<string, unknown>;
-          const mapped = mapPostToItem(newPost);
-          const nowIso = new Date().toISOString();
-          setAnalyses((prev) => [mapped, ...prev]);
-          setLastUpdate(new Date(nowIso));
-          useMonitorStore.getState().prependSocialPost({
-            id: mapped.id || `rt-${Date.now()}`,
-            platform: mapped.platform,
-            content: mapped.content,
-            sentiment: mapped.sentiment,
-            districtName: mapped.region,
-            author: mapped.source_author,
-            url: mapped.source_url,
-            publishedAt: mapped.collected_at || nowIso,
-          });
-        }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [mapPostToItem]);
+    return subscribeToRealtimeTable("social_posts", (payload) => {
+      const newPost = (payload.new ?? {}) as Record<string, unknown>;
+      const mapped = mapPostToItemRef.current(newPost);
+      const nowIso = new Date().toISOString();
+      setAnalyses((prev) => [mapped, ...prev]);
+      setLastUpdate(new Date(nowIso));
+      useMonitorStore.getState().prependSocialPost({
+        id: mapped.id || `rt-${Date.now()}`,
+        platform: mapped.platform,
+        content: mapped.content,
+        sentiment: mapped.sentiment,
+        districtName: mapped.region,
+        author: mapped.source_author,
+        url: mapped.source_url,
+        publishedAt: mapped.collected_at || nowIso,
+      });
+    });
+  }, []);
 
   // Auto-refresh
   useEffect(() => {

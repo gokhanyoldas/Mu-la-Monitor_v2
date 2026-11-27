@@ -42,6 +42,11 @@ export const supabase = createClient<Database>(effectiveUrl, effectiveKey, {
     persistSession: isSupabaseClientConfigured,
     autoRefreshToken: isSupabaseClientConfigured,
   },
+  realtime: {
+    params: {
+      eventsPerSecond: 5,
+    },
+  },
 });
 
 export default supabase;

@@ -6,6 +6,7 @@
 
 import { useMemo, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 import { Loader2 } from "lucide-react";
 
 // ─── Crisis keywords ──────────────────────────────────────────────────────────
@@ -127,19 +128,12 @@ export const SocialRegionMap = ({ data: staticData }: SocialRegionMapProps) => {
         setLoading(false);
       });
 
-    // Real-time subscription
-    const channel = supabase
-      .channel("region_map_live")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "social_posts" },
-        (payload) => {
-          setPosts((prev) => [payload.new as PostRow, ...prev.slice(0, 499)]);
-        }
-      )
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    // Tekil singleton kanal üzerinden canlı sosyal akışı dinle
+    return subscribeToRealtimeTable("social_posts", (payload) => {
+      if (payload.new) {
+        setPosts((prev) => [payload.new as unknown as PostRow, ...prev.slice(0, 499)]);
+      }
+    });
   }, []);
 
   // ── Aggregate by district ──────────────────────────────────────────────────

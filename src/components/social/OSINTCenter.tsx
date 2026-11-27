@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 import {
   Search, Eye, MapPin, Clock, ExternalLink, Loader2,
   AlertCircle, CheckCircle2, XCircle, HelpCircle,
@@ -626,14 +627,13 @@ function ImageIntel() {
   useEffect(() => {
     loadCrisisPosts();
 
-    // Real-time subscription for new crisis posts
-    const channel = supabase
-      .channel("crisis_intel_live")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "social_posts" }, (payload) => {
-        const p = payload.new as Record<string, unknown>;
-        const labels = detectCrisisLabels(p.content as string);
-        if (labels.length === 0) return; // not a crisis post
-        setPosts(prev => [{
+    // Tekil singleton kanal üzerinden yeni kriz paylaşımlarını dinle
+    return subscribeToRealtimeTable("social_posts", (payload) => {
+      const p = (payload.new ?? {}) as Record<string, unknown>;
+      const labels = detectCrisisLabels(p.content as string);
+      if (labels.length === 0) return; // not a crisis post
+      setPosts((prev) => [
+        {
           id: p.id as string,
           platform: p.platform as string,
           content: p.content as string,
@@ -642,12 +642,11 @@ function ImageIntel() {
           published_at: p.published_at as string | null,
           crisis_labels: labels,
           image_urls: extractImageUrls(p.content as string),
-        }, ...prev.slice(0, 29)]);
-        setTotal(t => t + 1);
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+        },
+        ...prev.slice(0, 29),
+      ]);
+      setTotal((t) => t + 1);
+    });
   }, [loadCrisisPosts]);
 
   return (

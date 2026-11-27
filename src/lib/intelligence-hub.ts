@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { notificationService } from "@/services/notification-service";
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 
 export type DataCategory =
   | "weather" | "economy" | "tourism" | "environment"
@@ -140,8 +140,8 @@ class IntelligenceHub {
   private subscribers: Map<DataCategory, Set<Function>> = new Map();
   private anomalySubscribers: Set<Function> = new Set();
   private refreshIntervals: Map<DataCategory, NodeJS.Timeout> = new Map();
-  private anomalyChannel: RealtimeChannel | null = null;
-  private socialRealtimeChannel: RealtimeChannel | null = null;
+  private anomalyUnsubscribe: (() => void) | null = null;
+  private socialRealtimeUnsubscribe: (() => void) | null = null;
   private sensitivityMode: SensitivityMode = "balanced";
   private isSocialRealtimeActive = false;
   private fireProtocolAutomationActive = false;
@@ -176,9 +176,13 @@ class IntelligenceHub {
     this.isRunning = false;
     this.refreshIntervals.forEach(interval => clearInterval(interval));
     this.refreshIntervals.clear();
-    if (this.anomalyChannel) {
-      supabase.removeChannel(this.anomalyChannel);
-      this.anomalyChannel = null;
+    if (this.anomalyUnsubscribe) {
+      this.anomalyUnsubscribe();
+      this.anomalyUnsubscribe = null;
+    }
+    if (this.socialRealtimeUnsubscribe) {
+      this.socialRealtimeUnsubscribe();
+      this.socialRealtimeUnsubscribe = null;
     }
     console.log("Intelligence Hub stopped");
   }
@@ -218,29 +222,29 @@ class IntelligenceHub {
         data?.forEach(row => ingest(toAlert(row)));
       });
 
-    this.anomalyChannel = supabase
-      .channel("ih-server-anomalies")
-      .on("postgres_changes", { event: "*", schema: "public", table: "anomaly_alerts" }, (payload) => {
-        const row = payload.new as any;
-        if (!row?.id) return;
-        if (row.is_active === false) {
-          this.anomalyAlerts = this.anomalyAlerts.filter(a => a.id !== `db_${row.id}`);
-          return;
-        }
-        const alert = toAlert(row);
-        const isNew = !this.anomalyAlerts.some(a => a.id === alert.id);
-        ingest(alert);
-        // Critical server-side anomalies trigger a native notification (once)
-        if (isNew && alert.severity === "critical") {
-          notificationService.sendAlert({
-            title: alert.title,
-            body: alert.description,
-            severity: "critical",
-            tag: alert.id,
-          });
-        }
-      })
-      .subscribe();
+    if (this.anomalyUnsubscribe) {
+      this.anomalyUnsubscribe();
+    }
+    this.anomalyUnsubscribe = subscribeToRealtimeTable("anomaly_alerts", (payload) => {
+      const row = payload.new as any;
+      if (!row?.id) return;
+      if (row.is_active === false) {
+        this.anomalyAlerts = this.anomalyAlerts.filter(a => a.id !== `db_${row.id}`);
+        return;
+      }
+      const alert = toAlert(row);
+      const isNew = !this.anomalyAlerts.some(a => a.id === alert.id);
+      ingest(alert);
+      // Critical server-side anomalies trigger a native notification (once)
+      if (isNew && alert.severity === "critical") {
+        notificationService.sendAlert({
+          title: alert.title,
+          body: alert.description,
+          severity: "critical",
+          tag: alert.id,
+        });
+      }
+    });
   }
 
   private loadFromCache() {
@@ -791,35 +795,28 @@ class IntelligenceHub {
     const keywords = customKeywords && customKeywords.length > 0 ? customKeywords : dynamicKeywords;
 
     if (active) {
-      if (!this.socialRealtimeChannel) {
-        this.socialRealtimeChannel = supabase
-          .channel("ih-social-realtime-stream")
-          .on(
-            "postgres_changes",
-            { event: "INSERT", schema: "public", table: "social_posts" },
-            (payload) => {
-              const newPost = payload.new as any;
-              if (newPost?.content) {
-                const alert = notificationService.checkAndAlert(newPost.content, newPost.platform || "social");
-                if (alert && alert.severity === "critical") {
-                  this.addAnomalyAlert({
-                    id: `social_rt_${Date.now()}`,
-                    severity: "critical",
-                    category: "social",
-                    title: alert.title,
-                    description: alert.body,
-                    timestamp: Date.now(),
-                    metadata: newPost,
-                  });
-                }
-              }
+      if (!this.socialRealtimeUnsubscribe) {
+        this.socialRealtimeUnsubscribe = subscribeToRealtimeTable("social_posts", (payload) => {
+          const newPost = payload.new as any;
+          if (newPost?.content) {
+            const alert = notificationService.checkAndAlert(newPost.content, newPost.platform || "social");
+            if (alert && alert.severity === "critical") {
+              this.addAnomalyAlert({
+                id: `social_rt_${Date.now()}`,
+                severity: "critical",
+                category: "social",
+                title: alert.title,
+                description: alert.body,
+                timestamp: Date.now(),
+                metadata: newPost,
+              });
             }
-          )
-          .subscribe();
+          }
+        });
       }
-    } else if (this.socialRealtimeChannel) {
-      supabase.removeChannel(this.socialRealtimeChannel);
-      this.socialRealtimeChannel = null;
+    } else if (this.socialRealtimeUnsubscribe) {
+      this.socialRealtimeUnsubscribe();
+      this.socialRealtimeUnsubscribe = null;
     }
 
     const status: RealtimeSocialStatus = {

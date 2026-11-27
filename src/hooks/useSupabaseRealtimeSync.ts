@@ -7,8 +7,9 @@
 
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
+import { isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
+import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 import type { LexiconLayer } from "@/services/livingLexiconService";
 import {
   TOPIC_GROUNDING_QUERIES,
@@ -38,31 +39,23 @@ export const REALTIME_SYNC_EVENT = "mugla-supabase-realtime-sync";
 
 export function useSupabaseRealtimeSync(enabled = true) {
   const queryClient = useQueryClient();
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
   const hub = useOptionalUnifiedIntelligence();
   const addLexiconTermRef = useRef(hub?.addLexiconTerm);
   addLexiconTermRef.current = hub?.addLexiconTerm;
 
   useEffect(() => {
     if (!enabled || !isSupabaseClientConfigured) return;
-    if (typeof supabase?.channel !== "function") return;
 
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const unsubscribers: Array<() => void> = [];
 
-    try {
-      channel = supabase
-        .channel("mugla-ecosystem-realtime-sync")
-        // 1. Yeni takip kelimeleri (public.social_keywords) -> LivingLexicon + cache anında güncellenir
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "social_keywords",
-          },
-          (payload) => {
-            const row = payload.new as
-              | { keyword?: string; category?: string; region?: string; is_active?: boolean }
-              | undefined;
+    // 1. Yeni takip kelimeleri (public.social_keywords) -> LivingLexicon + cache anında güncellenir
+    unsubscribers.push(
+      subscribeToRealtimeTable("social_keywords", (payload) => {
+        const row = payload.new as
+          | { keyword?: string; category?: string; region?: string; is_active?: boolean }
+          | undefined;
             if (row?.keyword && row.is_active !== false && addLexiconTermRef.current) {
               addLexiconTermRef.current(
                 row.keyword.trim(),
@@ -70,26 +63,21 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 row.region || undefined
               );
             }
-            queryClient.invalidateQueries({ queryKey: ["social-keywords"] });
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent(REALTIME_SYNC_EVENT, {
-                  detail: { table: "social_keywords", eventType: payload.eventType },
-                })
-              );
-            }
-          }
-        )
-        // 2. Yeni sosyal/haber kayıtları (public.social_posts) -> Sosyal & Baraj basın önbelleği sessizce yenilenir
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "social_posts",
-          },
-          (payload) => {
-            const row = payload.new as
+        queryClientRef.current.invalidateQueries({ queryKey: ["social-keywords"] });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(REALTIME_SYNC_EVENT, {
+              detail: { table: "social_keywords", eventType: payload.eventType },
+            })
+          );
+        }
+      })
+    );
+
+    // 2. Yeni sosyal/haber kayıtları (public.social_posts) -> Sosyal & Baraj basın önbelleği sessizce yenilenir
+    unsubscribers.push(
+      subscribeToRealtimeTable("social_posts", (payload) => {
+        const row = payload.new as
               | {
                   id?: string;
                   platform?: string;
@@ -113,58 +101,48 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 publishedAt: row.published_at || new Date().toISOString(),
               });
             }
-            queryClient.invalidateQueries({ queryKey: ["social-posts"] });
-            queryClient.invalidateQueries({ queryKey: ["social-intel"] });
-            queryClient.invalidateQueries({ queryKey: ["dam-press-observations"] });
-            queryClient.invalidateQueries({ queryKey: ["district-pulse"] });
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent(REALTIME_SYNC_EVENT, {
-                  detail: { table: "social_posts", eventType: payload.eventType },
-                })
-              );
-            }
-          }
-        )
-        // 3. Yeni kritik olay/uyarı kayıtları (public.alert_events)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "alert_events",
-          },
-          (payload) => {
-            queryClient.invalidateQueries({ queryKey: ["alert-events"] });
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent(REALTIME_SYNC_EVENT, {
-                  detail: { table: "alert_events", eventType: payload.eventType },
-                })
-              );
-            }
-          }
-        )
-        // 4. Canlı veri & konu tarama önbelleği (public.live_data_cache) -> sıfır ek Gemini çağrısıyla UI güncellenir
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: "live_data_cache",
-          },
-          (payload) => {
-            const row = payload.new as
-              | { data_type?: string; data?: unknown; fetched_at?: string }
-              | undefined;
-            if (!row?.data_type || row.data == null) return;
+        queryClientRef.current.invalidateQueries({ queryKey: ["social-posts"] });
+        queryClientRef.current.invalidateQueries({ queryKey: ["social-intel"] });
+        queryClientRef.current.invalidateQueries({ queryKey: ["dam-press-observations"] });
+        queryClientRef.current.invalidateQueries({ queryKey: ["district-pulse"] });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(REALTIME_SYNC_EVENT, {
+              detail: { table: "social_posts", eventType: payload.eventType },
+            })
+          );
+        }
+      })
+    );
+
+    // 3. Yeni kritik olay/uyarı kayıtları (public.alert_events)
+    unsubscribers.push(
+      subscribeToRealtimeTable("alert_events", (payload) => {
+        queryClientRef.current.invalidateQueries({ queryKey: ["alert-events"] });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(REALTIME_SYNC_EVENT, {
+              detail: { table: "alert_events", eventType: payload.eventType },
+            })
+          );
+        }
+      })
+    );
+
+    // 4. Canlı veri & konu tarama önbelleği (public.live_data_cache) -> sıfır ek Gemini çağrısıyla UI güncellenir
+    unsubscribers.push(
+      subscribeToRealtimeTable("live_data_cache", (payload) => {
+        const row = payload.new as
+          | { data_type?: string; data?: unknown; fetched_at?: string }
+          | undefined;
+        if (!row?.data_type || row.data == null) return;
 
             if (row.data_type.startsWith("topic_grounding:")) {
               const topicKey = row.data_type.slice("topic_grounding:".length);
               if (isSectorTopicKey(topicKey)) {
                 const topicPayload = row.data as TopicGroundingPayload;
                 writeLocalTopicCache(topicKey, topicPayload);
-                queryClient.setQueryData(["topic-grounding", topicKey], topicPayload);
+                queryClientRef.current.setQueryData(["topic-grounding", topicKey], topicPayload);
                 if (topicKey === "environment_dams" && Array.isArray(topicPayload.damUpdates)) {
                   const merged = mergeDamIntelligence({
                     groundedUpdates: topicPayload.damUpdates,
@@ -255,7 +233,7 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 }
               }
             } else {
-              queryClient.setQueriesData(
+              queryClientRef.current.setQueriesData(
                 { queryKey: ["live-data", row.data_type] },
                 row.data
               );
@@ -319,43 +297,33 @@ export function useSupabaseRealtimeSync(enabled = true) {
                 })
               );
             }
-          }
-        )
-        // 5. Protokol değişiklikleri (public.protocol_changes) -> Aktif protokol listesi canlı güncellenir
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "protocol_changes",
-          },
-          (payload) => {
-            const row = payload.new as
-              | { title?: string; unvan?: string; new_name?: string; isim?: string; created_at?: string }
-              | undefined;
-            const titleMatch = row?.title || row?.unvan || "";
-            const newName = row?.new_name || row?.isim || "";
-            if (titleMatch && newName) {
-              useMonitorStore.getState().upsertProtocolRoleOverride({
-                titleMatch,
-                newName,
-                sourceName: "Resmî Protokol Kaydı",
-                updatedAt: row?.created_at || new Date().toISOString(),
-              });
-            }
-            queryClient.invalidateQueries({ queryKey: ["protocol-members"] });
-          }
-        )
-        .subscribe();
-    } catch {
-      // Realtime desteklenmeyen ortamlarda sessizce polling ile devam et
-      return;
-    }
+      })
+    );
+
+    // 5. Protokol değişiklikleri (public.protocol_changes) -> Aktif protokol listesi canlı güncellenir
+    unsubscribers.push(
+      subscribeToRealtimeTable("protocol_changes", (payload) => {
+        const row = payload.new as
+          | { title?: string; unvan?: string; new_name?: string; isim?: string; created_at?: string }
+          | undefined;
+        const titleMatch = row?.title || row?.unvan || "";
+        const newName = row?.new_name || row?.isim || "";
+        if (titleMatch && newName) {
+          useMonitorStore.getState().upsertProtocolRoleOverride({
+            titleMatch,
+            newName,
+            sourceName: "Resmî Protokol Kaydı",
+            updatedAt: row?.created_at || new Date().toISOString(),
+          });
+        }
+        queryClientRef.current.invalidateQueries({ queryKey: ["protocol-members"] });
+      })
+    );
 
     return () => {
-      if (channel && typeof supabase?.removeChannel === "function") {
-        supabase.removeChannel(channel);
+      for (const unsubscribe of unsubscribers) {
+        unsubscribe();
       }
     };
-  }, [enabled, queryClient]);
+  }, [enabled]);
 }

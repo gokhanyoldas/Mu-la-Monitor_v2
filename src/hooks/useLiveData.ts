@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import {
   isSupabaseRuntimeAvailable,
   markSupabaseUnavailableIfFatal,
 } from "@/lib/supabase-runtime-guard";
+import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 
 export type DataType =
   | "weather" | "air_quality" | "dams" | "protocol" | "news"
@@ -44,39 +45,26 @@ export function useLiveData<T = any>(type: DataType, options?: {
 }) {
   const queryClient = useQueryClient();
   const functionName = REFERENCE_TYPES.has(type) ? "reference-data" : "data-scrape";
+  const isEnabled = options?.enabled !== false;
+  const extraBodyRef = useRef(options?.extraBody);
+  extraBodyRef.current = options?.extraBody;
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
 
-  // Push channel: cron jobs refresh live_data_cache in the background;
-  // Realtime streams the new row straight into the query cache so the UI
-  // updates without waiting for the next poll.
+  // Tekil singleton Realtime kanalı üzerinden `live_data_cache` değişikliklerini dinle;
+  // her kart için ayrı WebSocket kanalı açılmaz ve state değişiminde kanal yeniden kurulmaz.
   useEffect(() => {
-    if (options?.enabled === false || !isSupabaseClientConfigured) return;
-    if (typeof supabase?.channel !== "function") return;
-    // Guard: register all listeners BEFORE subscribe. If Realtime is already
-    // subscribed (e.g. reused channel instance) a post-subscribe .on() throws
-    // synchronously — that error crashed the app via RootErrorBoundary.
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    try {
-      channel = supabase
-        .channel(`live-data:${type}`)
-        .on("postgres_changes", {
-          event: "*",
-          schema: "public",
-          table: "live_data_cache",
-          filter: `data_type=eq.${type}`,
-        }, (payload) => {
-          const row = payload.new as { data?: T };
-          if (row?.data == null) return;
-          // setQueryData (exact key) — prior version used setQueriesData with an
-          // exact match, which never resolved once extraBody joined the key.
-          queryClient.setQueryData(["live-data", type, options?.extraBody], row.data);
-        })
-        .subscribe();
-    } catch (err) {
-      console.warn(`[useLiveData] Realtime aboneliği kurulamadı (${type}) — polling ile devam:`, err);
-      return;
-    }
-    return () => { supabase.removeChannel(channel!); };
-  }, [type, options?.enabled, options?.extraBody, queryClient]);
+    if (!isEnabled || !isSupabaseClientConfigured) return;
+
+    return subscribeToRealtimeTable("live_data_cache", (payload) => {
+      const row = payload.new as { data_type?: string; data?: T } | undefined;
+      if (!row || row.data_type !== type || row.data == null) return;
+      queryClientRef.current.setQueryData(
+        ["live-data", type, extraBodyRef.current],
+        row.data
+      );
+    });
+  }, [type, isEnabled]);
 
   return useQuery<T | null>({
     queryKey: ["live-data", type, options?.extraBody],
