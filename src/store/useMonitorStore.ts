@@ -117,12 +117,52 @@ export interface MonitorLiveOverrides {
   diagramEvents: LiveDiagramEvent[];
 }
 
+export interface MonitorTabRecord {
+  id: string;
+  tabKey: string;
+  title: string;
+  metrics: Record<string, unknown>;
+  summary?: string | null;
+  source?: string | null;
+  updatedAt: string;
+}
+
+export interface MonitorDistrictRecord {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  population: number | null;
+}
+
+export interface MonitorProtocolMemberRecord {
+  id: string;
+  isim: string;
+  unvan: string;
+  kategori: string;
+  telefon: string;
+  faks: string;
+  district: string | null;
+  updatedAt: string;
+}
+
+export interface MonitorAiSummaryRecord {
+  type: string;
+  date: string;
+  summary: string;
+  generatedAt: string;
+}
+
 export interface MonitorStoreState {
   activeDistrict: string | null;
   dams: MonitorDamSlice;
   earthquakes: MonitorEarthquakesSlice;
   socialFeed: MonitorSocialFeedSlice;
   liveOverrides: MonitorLiveOverrides;
+  monitorTabs: Record<string, MonitorTabRecord>;
+  districtsRegistry: MonitorDistrictRecord[];
+  protocolMembers: MonitorProtocolMemberRecord[];
+  aiSummaries: Record<string, MonitorAiSummaryRecord>;
   lastSyncedAt: string | null;
 
   setActiveDistrict: (slug: string | null) => void;
@@ -148,6 +188,13 @@ export interface MonitorStoreState {
     updatedAt?: string | null
   ) => void;
   recordDiagramEvents: (events: LiveDiagramEvent[]) => void;
+
+  // Direct Supabase table slices (monitor_data, districts, protocol_members, ai_summaries)
+  upsertMonitorTab: (record: MonitorTabRecord) => void;
+  setMonitorTabs: (records: MonitorTabRecord[]) => void;
+  setDistrictsRegistry: (records: MonitorDistrictRecord[]) => void;
+  setProtocolMembers: (records: MonitorProtocolMemberRecord[]) => void;
+  upsertAiSummary: (record: MonitorAiSummaryRecord) => void;
 
   touchLastSynced: (iso?: string) => void;
   resetStore: () => void;
@@ -296,6 +343,10 @@ export const useMonitorStore = create<MonitorStoreState>((set) => ({
   earthquakes: INITIAL_EARTHQUAKES,
   socialFeed: INITIAL_SOCIAL_FEED,
   liveOverrides: INITIAL_LIVE_OVERRIDES,
+  monitorTabs: {},
+  districtsRegistry: [],
+  protocolMembers: [],
+  aiSummaries: {},
   lastSyncedAt: null,
 
   setActiveDistrict: (slug) =>
@@ -695,6 +746,106 @@ export const useMonitorStore = create<MonitorStoreState>((set) => ({
       };
     }),
 
+  upsertMonitorTab: (record) =>
+    set((state) => {
+      const key = (record.tabKey || record.id || "").trim().toLowerCase();
+      if (!key) return state;
+      const prev = state.monitorTabs[key];
+      if (
+        prev &&
+        prev.updatedAt === record.updatedAt &&
+        prev.summary === record.summary &&
+        JSON.stringify(prev.metrics) === JSON.stringify(record.metrics)
+      ) {
+        return state;
+      }
+      return {
+        monitorTabs: {
+          ...state.monitorTabs,
+          [key]: { ...record, tabKey: key },
+        },
+        lastSyncedAt: record.updatedAt || state.lastSyncedAt,
+      };
+    }),
+
+  setMonitorTabs: (records) =>
+    set((state) => {
+      if (!Array.isArray(records) || records.length === 0) return state;
+      const next = { ...state.monitorTabs };
+      let latestIso = state.lastSyncedAt;
+      for (const rec of records) {
+        const key = (rec.tabKey || rec.id || "").trim().toLowerCase();
+        if (!key) continue;
+        next[key] = { ...rec, tabKey: key };
+        if (rec.updatedAt && (!latestIso || rec.updatedAt > latestIso)) {
+          latestIso = rec.updatedAt;
+        }
+      }
+      return { monitorTabs: next, lastSyncedAt: latestIso };
+    }),
+
+  setDistrictsRegistry: (records) =>
+    set((state) => {
+      if (!Array.isArray(records) || records.length === 0) return state;
+      return {
+        districtsRegistry: records,
+        lastSyncedAt: state.lastSyncedAt || new Date().toISOString(),
+      };
+    }),
+
+  setProtocolMembers: (records) =>
+    set((state) => {
+      if (!Array.isArray(records) || records.length === 0) return state;
+      // Sync live Vali / key roles into roleOverrides automatically
+      const nextRoleOverrides = { ...state.liveOverrides.protocol.roleOverrides };
+      for (const member of records) {
+        if (!member.unvan || !member.isim) continue;
+        const rKey = normKey(member.unvan);
+        if (
+          rKey === "muğla valisi" ||
+          rKey === "vali" ||
+          rKey.includes("kaymakamı") ||
+          rKey.includes("belediye başkanı")
+        ) {
+          nextRoleOverrides[rKey] = {
+            titleMatch: member.unvan,
+            newName: member.isim,
+            sourceName: "Supabase Protokol Kaydı",
+            updatedAt: member.updatedAt || new Date().toISOString(),
+          };
+        }
+      }
+      return {
+        protocolMembers: records,
+        liveOverrides: {
+          ...state.liveOverrides,
+          protocol: {
+            ...state.liveOverrides.protocol,
+            roleOverrides: nextRoleOverrides,
+            updatedAt: records[0]?.updatedAt || state.liveOverrides.protocol.updatedAt,
+          },
+        },
+        lastSyncedAt: records[0]?.updatedAt || state.lastSyncedAt,
+      };
+    }),
+
+  upsertAiSummary: (record) =>
+    set((state) => {
+      const key = (record.type || "").trim().toLowerCase();
+      if (!key || !record.summary) return state;
+      const prev = state.aiSummaries[key];
+      if (prev && prev.generatedAt === record.generatedAt && prev.summary === record.summary) {
+        return state;
+      }
+      return {
+        aiSummaries: {
+          ...state.aiSummaries,
+          [key]: { ...record, type: key },
+        },
+        lastSyncedAt: record.generatedAt || state.lastSyncedAt,
+      };
+    }),
+
   touchLastSynced: (iso) =>
     set({
       lastSyncedAt: iso || new Date().toISOString(),
@@ -707,6 +858,10 @@ export const useMonitorStore = create<MonitorStoreState>((set) => ({
       earthquakes: INITIAL_EARTHQUAKES,
       socialFeed: INITIAL_SOCIAL_FEED,
       liveOverrides: INITIAL_LIVE_OVERRIDES,
+      monitorTabs: {},
+      districtsRegistry: [],
+      protocolMembers: [],
+      aiSummaries: {},
       lastSyncedAt: null,
     }),
 }));
@@ -725,4 +880,8 @@ export const selectTransportOverride = (s: MonitorStoreState) => s.liveOverrides
 export const selectProtocolOverride = (s: MonitorStoreState) => s.liveOverrides.protocol;
 export const selectDistrictOverrides = (s: MonitorStoreState) => s.liveOverrides.districts;
 export const selectDiagramEvents = (s: MonitorStoreState) => s.liveOverrides.diagramEvents;
+export const selectMonitorTabs = (s: MonitorStoreState) => s.monitorTabs;
+export const selectDistrictsRegistry = (s: MonitorStoreState) => s.districtsRegistry;
+export const selectProtocolMembers = (s: MonitorStoreState) => s.protocolMembers;
+export const selectAiSummaries = (s: MonitorStoreState) => s.aiSummaries;
 export const selectLastSyncedAt = (s: MonitorStoreState) => s.lastSyncedAt;

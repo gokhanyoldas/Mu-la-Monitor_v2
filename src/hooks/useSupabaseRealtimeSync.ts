@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { isSupabaseClientConfigured } from "@/integrations/supabase/client";
+import { supabase, isSupabaseClientConfigured } from "@/integrations/supabase/client";
 import { useOptionalUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 import type { LexiconLayer } from "@/services/livingLexiconService";
@@ -48,7 +48,300 @@ export function useSupabaseRealtimeSync(enabled = true) {
   useEffect(() => {
     if (!enabled || !isSupabaseClientConfigured) return;
 
+    let cancelled = false;
     const unsubscribers: Array<() => void> = [];
+
+    const applyLiveCacheRow = (row: { data_type?: string; data?: unknown; fetched_at?: string }) => {
+      if (!row?.data_type || row.data == null) return;
+      if (row.data_type.startsWith("topic_grounding:")) {
+        const topicKey = row.data_type.slice("topic_grounding:".length);
+        if (isSectorTopicKey(topicKey)) {
+          const topicPayload = row.data as TopicGroundingPayload;
+          writeLocalTopicCache(topicKey, topicPayload);
+          queryClientRef.current.setQueryData(["topic-grounding", topicKey], topicPayload);
+          if (topicKey === "environment_dams" && Array.isArray(topicPayload.damUpdates)) {
+            const merged = mergeDamIntelligence({ groundedUpdates: topicPayload.damUpdates });
+            useMonitorStore.getState().setDamsSnapshot({
+              records: merged.dams,
+              avgOccupancy: merged.avgOccupancy,
+              verifiedCount: merged.verifiedCount,
+              hasVerifiedLiveData: merged.hasVerifiedLiveData,
+              latestSourceSummary: merged.latestSourceSummary,
+              latestMeasuredAt: merged.latestMeasuredAt,
+              updatedAt: topicPayload.fetchedAt || row.fetched_at || new Date().toISOString(),
+            });
+          }
+          if (topicKey === "transport_infra" && Array.isArray(topicPayload.transportIncidents)) {
+            useMonitorStore
+              .getState()
+              .setTransportOverride(
+                topicPayload.transportIncidents,
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+          }
+          if (topicKey === "energy_outages" && Array.isArray(topicPayload.energyOutages)) {
+            const energy = mergeEnergyIntelligence({ groundedOutages: topicPayload.energyOutages });
+            useMonitorStore
+              .getState()
+              .setEnergyOverride(
+                energy,
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+          }
+          if (topicKey === "security_quakes" && Array.isArray(topicPayload.securityEvents)) {
+            const sec = mergeSecurityIntelligence({ groundedEvents: topicPayload.securityEvents });
+            if (sec.quakes.length > 0) {
+              useMonitorStore.getState().setEarthquakes(
+                sec.quakes.map((q) => ({
+                  id: q.id,
+                  magnitude: q.magnitude,
+                  location: q.location,
+                  depthKm: q.depthKm,
+                  occurredAt: q.occurredAt,
+                  url: q.sourceUrl,
+                  sourceName: q.sourceName,
+                })),
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+            }
+            useMonitorStore
+              .getState()
+              .setSecurityOverride(
+                sec,
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+          }
+          if (topicKey === "tourism_occupancy" && topicPayload.tourismMetrics) {
+            const tour = mergeTourismIntelligence({ groundedTourism: topicPayload.tourismMetrics });
+            useMonitorStore
+              .getState()
+              .setTourismOverride(
+                tour,
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+          }
+          if (topicKey === "economy_budget" && topicPayload.economyUpdates) {
+            const eco = mergeEconomyIntelligence({ groundedEconomy: topicPayload.economyUpdates });
+            useMonitorStore
+              .getState()
+              .setEconomyOverride(
+                eco,
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+          }
+          if (topicKey === "protocol_activity" && Array.isArray(topicPayload.protocolActivities)) {
+            useMonitorStore
+              .getState()
+              .setProtocolActivitiesOverride(
+                topicPayload.protocolActivities,
+                topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
+              );
+          }
+        }
+      } else {
+        queryClientRef.current.setQueriesData({ queryKey: ["live-data", row.data_type] }, row.data);
+        if (row.data_type === "earthquakes") {
+          const sec = mergeSecurityIntelligence({ earthquakeCache: row.data });
+          if (sec.quakes.length > 0) {
+            useMonitorStore.getState().setEarthquakes(
+              sec.quakes.map((q) => ({
+                id: q.id,
+                magnitude: q.magnitude,
+                location: q.location,
+                depthKm: q.depthKm,
+                occurredAt: q.occurredAt,
+                url: q.sourceUrl,
+                sourceName: q.sourceName,
+              })),
+              row.fetched_at || new Date().toISOString()
+            );
+          }
+          useMonitorStore.getState().setSecurityOverride(sec, row.fetched_at || new Date().toISOString());
+        } else if (row.data_type === "dams") {
+          const merged = mergeDamIntelligence({ cacheData: row.data });
+          useMonitorStore.getState().setDamsSnapshot({
+            records: merged.dams,
+            avgOccupancy: merged.avgOccupancy,
+            verifiedCount: merged.verifiedCount,
+            hasVerifiedLiveData: merged.hasVerifiedLiveData,
+            latestSourceSummary: merged.latestSourceSummary,
+            latestMeasuredAt: merged.latestMeasuredAt,
+            updatedAt: row.fetched_at || new Date().toISOString(),
+          });
+        } else if (row.data_type === "economy") {
+          const eco = mergeEconomyIntelligence({ economyCache: row.data });
+          useMonitorStore.getState().setEconomyOverride(eco, row.fetched_at || new Date().toISOString());
+        } else if (row.data_type === "tourism") {
+          const tour = mergeTourismIntelligence({ tourismCache: row.data });
+          useMonitorStore.getState().setTourismOverride(tour, row.fetched_at || new Date().toISOString());
+        } else if (row.data_type === "energy") {
+          const energy = mergeEnergyIntelligence({ energyCache: row.data });
+          useMonitorStore.getState().setEnergyOverride(energy, row.fetched_at || new Date().toISOString());
+        }
+      }
+      useMonitorStore.getState().touchLastSynced(row.fetched_at || new Date().toISOString());
+    };
+
+    // Başlangıç senkronizasyonu: Supabase çekirdek tablolarından (monitor_data, districts,
+    // protocol_members, protocol_changes, ai_summaries, live_data_cache) store'u besle
+    if (typeof supabase?.from === "function") {
+      const safeSelect = async (
+        table:
+          | "monitor_data"
+          | "districts"
+          | "protocol_members"
+          | "protocol_changes"
+          | "ai_summaries"
+          | "live_data_cache",
+        columns: string,
+        orderCol: string,
+        ascending: boolean,
+        limitCount: number
+      ): Promise<{ data: unknown[] | null; error: unknown }> => {
+        try {
+          const qb = supabase.from(table) as unknown as {
+            select?: (cols: string) => {
+              order?: (
+                col: string,
+                opts: { ascending: boolean }
+              ) => { limit?: (n: number) => Promise<{ data: unknown[] | null; error: unknown }> };
+            };
+          };
+          const ordered = qb?.select?.(columns)?.order?.(orderCol, { ascending });
+          if (ordered && typeof ordered.limit === "function") {
+            return await ordered.limit(limitCount);
+          }
+          return { data: null, error: null };
+        } catch {
+          return { data: null, error: null };
+        }
+      };
+
+      void (async () => {
+        const results = await Promise.allSettled([
+          safeSelect(
+            "monitor_data",
+            "id, tab_key, title, metrics, summary, source, updated_at",
+            "updated_at",
+            false,
+            20
+          ),
+          safeSelect("districts", "id, name, lat, lon, population", "name", true, 20),
+          safeSelect(
+            "protocol_members",
+            "id, isim, unvan, kategori, telefon, faks, district, updated_at",
+            "updated_at",
+            false,
+            100
+          ),
+          safeSelect("protocol_changes", "unvan, isim_new, scraped_at", "scraped_at", false, 20),
+          safeSelect("ai_summaries", "type, date, summary, generated_at", "generated_at", false, 6),
+          safeSelect("live_data_cache", "data_type, data, fetched_at", "fetched_at", false, 30),
+        ]);
+
+        if (cancelled) return;
+        const store = useMonitorStore.getState();
+
+        const [monitorRes, districtsRes, membersRes, changesRes, summariesRes, cacheRes] = results;
+
+        if (monitorRes.status === "fulfilled" && !monitorRes.value.error && Array.isArray(monitorRes.value.data)) {
+          const tabRows = monitorRes.value.data
+            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
+            .map((r) => ({
+              id: String(r.id || r.tab_key || ""),
+              tabKey: String(r.tab_key || r.id || ""),
+              title: String(r.title || ""),
+              metrics:
+                r.metrics && typeof r.metrics === "object" && !Array.isArray(r.metrics)
+                  ? (r.metrics as Record<string, unknown>)
+                  : {},
+              summary: typeof r.summary === "string" ? r.summary : null,
+              source: typeof r.source === "string" ? r.source : null,
+              updatedAt: typeof r.updated_at === "string" ? r.updated_at : new Date().toISOString(),
+            }))
+            .filter((r) => Boolean(r.tabKey));
+          if (tabRows.length > 0) {
+            store.setMonitorTabs(tabRows);
+          }
+        }
+
+        if (districtsRes.status === "fulfilled" && !districtsRes.value.error && Array.isArray(districtsRes.value.data)) {
+          const districtRows = districtsRes.value.data
+            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
+            .map((r) => ({
+              id: String(r.id || ""),
+              name: String(r.name || ""),
+              lat: Number(r.lat ?? 0),
+              lon: Number(r.lon ?? 0),
+              population: r.population !== null && r.population !== undefined ? Number(r.population) : null,
+            }))
+            .filter((r) => Boolean(r.id && r.name));
+          if (districtRows.length > 0) {
+            store.setDistrictsRegistry(districtRows);
+          }
+        }
+
+        if (membersRes.status === "fulfilled" && !membersRes.value.error && Array.isArray(membersRes.value.data)) {
+          const memberRows = membersRes.value.data
+            .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
+            .map((r) => ({
+              id: String(r.id || ""),
+              isim: String(r.isim || ""),
+              unvan: String(r.unvan || ""),
+              kategori: String(r.kategori || ""),
+              telefon: String(r.telefon || ""),
+              faks: String(r.faks || ""),
+              district: typeof r.district === "string" ? r.district : null,
+              updatedAt: typeof r.updated_at === "string" ? r.updated_at : new Date().toISOString(),
+            }))
+            .filter((r) => Boolean(r.isim && r.unvan));
+          if (memberRows.length > 0) {
+            store.setProtocolMembers(memberRows);
+          }
+        }
+
+        if (changesRes.status === "fulfilled" && !changesRes.value.error && Array.isArray(changesRes.value.data)) {
+          for (const row of changesRes.value.data as Array<Record<string, unknown>>) {
+            const titleMatch = String(row.unvan || "");
+            const newName = String(row.isim_new || "");
+            if (titleMatch && newName) {
+              store.upsertProtocolRoleOverride({
+                titleMatch,
+                newName,
+                sourceName: "Resmî Protokol Kaydı",
+                updatedAt: typeof row.scraped_at === "string" ? row.scraped_at : new Date().toISOString(),
+              });
+            }
+          }
+        }
+
+        if (summariesRes.status === "fulfilled" && !summariesRes.value.error && Array.isArray(summariesRes.value.data)) {
+          for (const row of summariesRes.value.data as Array<Record<string, unknown>>) {
+            const type = String(row.type || "");
+            const summary = String(row.summary || "");
+            if (type && summary) {
+              store.upsertAiSummary({
+                type,
+                date: String(row.date || ""),
+                summary,
+                generatedAt:
+                  typeof row.generated_at === "string" ? row.generated_at : new Date().toISOString(),
+              });
+            }
+          }
+        }
+
+        if (cacheRes.status === "fulfilled" && !cacheRes.value.error && Array.isArray(cacheRes.value.data)) {
+          for (const row of cacheRes.value.data as Array<{
+            data_type?: string;
+            data?: unknown;
+            fetched_at?: string;
+          }>) {
+            applyLiveCacheRow(row);
+          }
+        }
+      })();
+    }
 
     // 1. Yeni takip kelimeleri (public.social_keywords) -> LivingLexicon + cache anında güncellenir
     unsubscribers.push(
@@ -136,167 +429,19 @@ export function useSupabaseRealtimeSync(enabled = true) {
           | { data_type?: string; data?: unknown; fetched_at?: string }
           | undefined;
         if (!row?.data_type || row.data == null) return;
+        applyLiveCacheRow(row);
 
-            if (row.data_type.startsWith("topic_grounding:")) {
-              const topicKey = row.data_type.slice("topic_grounding:".length);
-              if (isSectorTopicKey(topicKey)) {
-                const topicPayload = row.data as TopicGroundingPayload;
-                writeLocalTopicCache(topicKey, topicPayload);
-                queryClientRef.current.setQueryData(["topic-grounding", topicKey], topicPayload);
-                if (topicKey === "environment_dams" && Array.isArray(topicPayload.damUpdates)) {
-                  const merged = mergeDamIntelligence({
-                    groundedUpdates: topicPayload.damUpdates,
-                  });
-                  useMonitorStore.getState().setDamsSnapshot({
-                    records: merged.dams,
-                    avgOccupancy: merged.avgOccupancy,
-                    verifiedCount: merged.verifiedCount,
-                    hasVerifiedLiveData: merged.hasVerifiedLiveData,
-                    latestSourceSummary: merged.latestSourceSummary,
-                    latestMeasuredAt: merged.latestMeasuredAt,
-                    updatedAt: topicPayload.fetchedAt || row.fetched_at || new Date().toISOString(),
-                  });
-                }
-                if (topicKey === "transport_infra" && Array.isArray(topicPayload.transportIncidents)) {
-                  useMonitorStore
-                    .getState()
-                    .setTransportOverride(
-                      topicPayload.transportIncidents,
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                }
-                if (topicKey === "energy_outages" && Array.isArray(topicPayload.energyOutages)) {
-                  const energy = mergeEnergyIntelligence({
-                    groundedOutages: topicPayload.energyOutages,
-                  });
-                  useMonitorStore
-                    .getState()
-                    .setEnergyOverride(
-                      energy,
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                }
-                if (topicKey === "security_quakes" && Array.isArray(topicPayload.securityEvents)) {
-                  const sec = mergeSecurityIntelligence({
-                    groundedEvents: topicPayload.securityEvents,
-                  });
-                  if (sec.quakes.length > 0) {
-                    useMonitorStore.getState().setEarthquakes(
-                      sec.quakes.map((q) => ({
-                        id: q.id,
-                        magnitude: q.magnitude,
-                        location: q.location,
-                        depthKm: q.depthKm,
-                        occurredAt: q.occurredAt,
-                        url: q.sourceUrl,
-                        sourceName: q.sourceName,
-                      })),
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                  }
-                  useMonitorStore
-                    .getState()
-                    .setSecurityOverride(
-                      sec,
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                }
-                if (topicKey === "tourism_occupancy" && topicPayload.tourismMetrics) {
-                  const tour = mergeTourismIntelligence({
-                    groundedTourism: topicPayload.tourismMetrics,
-                  });
-                  useMonitorStore
-                    .getState()
-                    .setTourismOverride(
-                      tour,
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                }
-                if (topicKey === "economy_budget" && topicPayload.economyUpdates) {
-                  const eco = mergeEconomyIntelligence({
-                    groundedEconomy: topicPayload.economyUpdates,
-                  });
-                  useMonitorStore
-                    .getState()
-                    .setEconomyOverride(
-                      eco,
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                }
-                if (topicKey === "protocol_activity" && Array.isArray(topicPayload.protocolActivities)) {
-                  useMonitorStore
-                    .getState()
-                    .setProtocolActivitiesOverride(
-                      topicPayload.protocolActivities,
-                      topicPayload.fetchedAt || row.fetched_at || new Date().toISOString()
-                    );
-                }
-              }
-            } else {
-              queryClientRef.current.setQueriesData(
-                { queryKey: ["live-data", row.data_type] },
-                row.data
-              );
-              if (row.data_type === "earthquakes") {
-                const sec = mergeSecurityIntelligence({ earthquakeCache: row.data });
-                if (sec.quakes.length > 0) {
-                  useMonitorStore.getState().setEarthquakes(
-                    sec.quakes.map((q) => ({
-                      id: q.id,
-                      magnitude: q.magnitude,
-                      location: q.location,
-                      depthKm: q.depthKm,
-                      occurredAt: q.occurredAt,
-                      url: q.sourceUrl,
-                      sourceName: q.sourceName,
-                    })),
-                    row.fetched_at || new Date().toISOString()
-                  );
-                }
-                useMonitorStore
-                  .getState()
-                  .setSecurityOverride(sec, row.fetched_at || new Date().toISOString());
-              } else if (row.data_type === "dams") {
-                const merged = mergeDamIntelligence({ cacheData: row.data });
-                useMonitorStore.getState().setDamsSnapshot({
-                  records: merged.dams,
-                  avgOccupancy: merged.avgOccupancy,
-                  verifiedCount: merged.verifiedCount,
-                  hasVerifiedLiveData: merged.hasVerifiedLiveData,
-                  latestSourceSummary: merged.latestSourceSummary,
-                  latestMeasuredAt: merged.latestMeasuredAt,
-                  updatedAt: row.fetched_at || new Date().toISOString(),
-                });
-              } else if (row.data_type === "economy") {
-                const eco = mergeEconomyIntelligence({ economyCache: row.data });
-                useMonitorStore
-                  .getState()
-                  .setEconomyOverride(eco, row.fetched_at || new Date().toISOString());
-              } else if (row.data_type === "tourism") {
-                const tour = mergeTourismIntelligence({ tourismCache: row.data });
-                useMonitorStore
-                  .getState()
-                  .setTourismOverride(tour, row.fetched_at || new Date().toISOString());
-              } else if (row.data_type === "energy") {
-                const energy = mergeEnergyIntelligence({ energyCache: row.data });
-                useMonitorStore
-                  .getState()
-                  .setEnergyOverride(energy, row.fetched_at || new Date().toISOString());
-              }
-            }
-            useMonitorStore.getState().touchLastSynced(row.fetched_at || new Date().toISOString());
-
-            if (typeof window !== "undefined") {
-              window.dispatchEvent(
-                new CustomEvent(REALTIME_SYNC_EVENT, {
-                  detail: {
-                    table: "live_data_cache",
-                    dataType: row.data_type,
-                    eventType: payload.eventType,
-                  },
-                })
-              );
-            }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(REALTIME_SYNC_EVENT, {
+              detail: {
+                table: "live_data_cache",
+                dataType: row.data_type,
+                eventType: payload.eventType,
+              },
+            })
+          );
+        }
       })
     );
 
@@ -304,23 +449,114 @@ export function useSupabaseRealtimeSync(enabled = true) {
     unsubscribers.push(
       subscribeToRealtimeTable("protocol_changes", (payload) => {
         const row = payload.new as
-          | { title?: string; unvan?: string; new_name?: string; isim?: string; created_at?: string }
+          | {
+              title?: string;
+              unvan?: string;
+              isim_new?: string;
+              new_name?: string;
+              isim?: string;
+              scraped_at?: string;
+              created_at?: string;
+            }
           | undefined;
         const titleMatch = row?.title || row?.unvan || "";
-        const newName = row?.new_name || row?.isim || "";
+        const newName = row?.isim_new || row?.new_name || row?.isim || "";
         if (titleMatch && newName) {
           useMonitorStore.getState().upsertProtocolRoleOverride({
             titleMatch,
             newName,
             sourceName: "Resmî Protokol Kaydı",
-            updatedAt: row?.created_at || new Date().toISOString(),
+            updatedAt: row?.scraped_at || row?.created_at || new Date().toISOString(),
           });
         }
         queryClientRef.current.invalidateQueries({ queryKey: ["protocol-members"] });
       })
     );
 
+    // 6. 11 ana sekme metrikleri (public.monitor_data)
+    unsubscribers.push(
+      subscribeToRealtimeTable("monitor_data", (payload) => {
+        const row = payload.new as
+          | {
+              id?: string;
+              tab_key?: string;
+              title?: string;
+              metrics?: Record<string, unknown>;
+              summary?: string | null;
+              source?: string | null;
+              updated_at?: string;
+            }
+          | undefined;
+        const tabKey = row?.tab_key || row?.id || "";
+        if (tabKey) {
+          useMonitorStore.getState().upsertMonitorTab({
+            id: String(row?.id || tabKey),
+            tabKey: String(tabKey),
+            title: String(row?.title || ""),
+            metrics:
+              row?.metrics && typeof row.metrics === "object" && !Array.isArray(row.metrics)
+                ? row.metrics
+                : {},
+            summary: row?.summary ?? null,
+            source: row?.source ?? null,
+            updatedAt: row?.updated_at || new Date().toISOString(),
+          });
+        }
+        queryClientRef.current.invalidateQueries({ queryKey: ["monitor-data"] });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent(REALTIME_SYNC_EVENT, {
+              detail: { table: "monitor_data", tabKey, eventType: payload.eventType },
+            })
+          );
+        }
+      })
+    );
+
+    // 7. İlçeler (public.districts) ve Protokol üyeleri (public.protocol_members)
+    unsubscribers.push(
+      subscribeToRealtimeTable("districts", () => {
+        queryClientRef.current.invalidateQueries({ queryKey: ["districts"] });
+      })
+    );
+
+    unsubscribers.push(
+      subscribeToRealtimeTable("protocol_members", (payload) => {
+        const row = payload.new as
+          | { isim?: string; unvan?: string; updated_at?: string }
+          | undefined;
+        if (row?.isim && row?.unvan) {
+          useMonitorStore.getState().upsertProtocolRoleOverride({
+            titleMatch: row.unvan,
+            newName: row.isim,
+            sourceName: "Supabase Protokol Kaydı",
+            updatedAt: row.updated_at || new Date().toISOString(),
+          });
+        }
+        queryClientRef.current.invalidateQueries({ queryKey: ["protocol-members"] });
+      })
+    );
+
+    // 8. Günlük özet & şehir nabzı (public.ai_summaries)
+    unsubscribers.push(
+      subscribeToRealtimeTable("ai_summaries", (payload) => {
+        const row = payload.new as
+          | { type?: string; date?: string; summary?: string; generated_at?: string }
+          | undefined;
+        if (row?.type && row?.summary) {
+          useMonitorStore.getState().upsertAiSummary({
+            type: row.type,
+            date: row.date || "",
+            summary: row.summary,
+            generatedAt: row.generated_at || new Date().toISOString(),
+          });
+        }
+        queryClientRef.current.invalidateQueries({ queryKey: ["ai-summaries"] });
+      })
+    );
+
     return () => {
+      cancelled = true;
       for (const unsubscribe of unsubscribers) {
         unsubscribe();
       }

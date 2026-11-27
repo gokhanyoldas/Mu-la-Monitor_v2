@@ -5,6 +5,7 @@ import {
   getGeminiRateLimitState,
   markGeminiRateLimited,
 } from "./topic-grounding";
+import { persistDistrictGroundingToSupabase } from "./_supabaseBridge";
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -141,10 +142,18 @@ Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında 
       }>;
     }>(response.text ?? "");
 
+    const resolvedPosts = Array.isArray(parsed?.posts) ? parsed!.posts : [];
+    if (resolvedPosts.length > 0) {
+      await persistDistrictGroundingToSupabase(
+        districtName,
+        resolvedPosts as Array<Record<string, unknown>>
+      );
+    }
+
     return sendJson(res, 200, {
       ok: true,
       model: GEMINI_MODEL,
-      posts: Array.isArray(parsed?.posts) ? parsed!.posts : [],
+      posts: resolvedPosts,
       groundingSources,
     });
   } catch (err) {

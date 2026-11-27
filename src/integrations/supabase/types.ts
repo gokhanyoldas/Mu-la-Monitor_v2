@@ -645,6 +645,123 @@ export type Database = {
         }
         Relationships: []
       }
+      monitor_data: {
+        Row: {
+          id: string
+          metrics: Json
+          source: string | null
+          summary: string | null
+          tab_key: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          metrics?: Json
+          source?: string | null
+          summary?: string | null
+          tab_key: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          metrics?: Json
+          source?: string | null
+          summary?: string | null
+          tab_key?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      districts: {
+        Row: {
+          id: string
+          lat: number
+          lon: number
+          name: string
+          population: number | null
+        }
+        Insert: {
+          id: string
+          lat: number
+          lon: number
+          name: string
+          population?: number | null
+        }
+        Update: {
+          id?: string
+          lat?: number
+          lon?: number
+          name?: string
+          population?: number | null
+        }
+        Relationships: []
+      }
+      protocol_members: {
+        Row: {
+          district: string | null
+          faks: string
+          id: string
+          isim: string
+          kategori: string
+          telefon: string
+          unvan: string
+          updated_at: string
+        }
+        Insert: {
+          district?: string | null
+          faks?: string
+          id?: string
+          isim: string
+          kategori?: string
+          telefon?: string
+          unvan: string
+          updated_at?: string
+        }
+        Update: {
+          district?: string | null
+          faks?: string
+          id?: string
+          isim?: string
+          kategori?: string
+          telefon?: string
+          unvan?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      protocol_changes: {
+        Row: {
+          change_type: string
+          detail: string
+          id: string
+          isim_new: string | null
+          isim_old: string | null
+          scraped_at: string
+          unvan: string
+        }
+        Insert: {
+          change_type: string
+          detail: string
+          id?: string
+          isim_new?: string | null
+          isim_old?: string | null
+          scraped_at?: string
+          unvan: string
+        }
+        Update: {
+          change_type?: string
+          detail?: string
+          id?: string
+          isim_new?: string | null
+          isim_old?: string | null
+          scraped_at?: string
+          unvan?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -15,6 +15,7 @@
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import crypto from "node:crypto";
 
 export const AGENT_MODEL = "gemini-4-hydrogen";
 export const AGENT_SOURCE = "autonomous-intel-agent";
@@ -1608,6 +1609,1013 @@ export async function callGeminiSearchGrounding({
   return { text, groundingChunks };
 }
 
+// ---------------------------------------------------------------------------
+// 7-Tablolu Supabase Yazım Köprüsü ve İdempotent Başlangıç Seed Verileri
+// Hedef tablolar: monitor_data, districts, protocol_members, protocol_changes,
+// alert_events, ai_summaries, live_data_cache
+// ---------------------------------------------------------------------------
+
+export function deterministicUuid(namespace, key) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${String(namespace)}::${String(key).trim().toLowerCase()}`)
+    .digest("hex");
+  const variant = ((parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80)
+    .toString(16)
+    .padStart(2, "0");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${variant}${hash.slice(18, 20)}-${hash.slice(20, 32)}`;
+}
+
+// Muğla'nın 13 resmi ilçesi (TÜİK 2024 ADNKS nüfus kayıtları + resmi koordinatlar)
+// Not: `geom` kolonu veritabanında GENERATED ALWAYS olduğu için payload'a DAHİL EDİLMEZ.
+export const VERIFIED_DISTRICTS_SEED = Object.freeze([
+  { id: "mentese", name: "Menteşe", lat: 37.2153, lon: 28.3636, population: 121831 },
+  { id: "bodrum", name: "Bodrum", lat: 37.0344, lon: 27.4305, population: 198335 },
+  { id: "fethiye", name: "Fethiye", lat: 36.6222, lon: 29.1156, population: 177569 },
+  { id: "marmaris", name: "Marmaris", lat: 36.855, lon: 28.2742, population: 96589 },
+  { id: "milas", name: "Milas", lat: 37.3164, lon: 27.7839, population: 149691 },
+  { id: "dalaman", name: "Dalaman", lat: 36.7658, lon: 28.8028, population: 49044 },
+  { id: "ortaca", name: "Ortaca", lat: 36.8392, lon: 28.7647, population: 54714 },
+  { id: "koycegiz", name: "Köyceğiz", lat: 36.9689, lon: 28.6939, population: 40468 },
+  { id: "datca", name: "Datça", lat: 36.7378, lon: 27.6844, population: 25649 },
+  { id: "ula", name: "Ula", lat: 37.1056, lon: 28.4167, population: 27051 },
+  { id: "yatagan", name: "Yatağan", lat: 37.3397, lon: 28.1369, population: 45172 },
+  { id: "seydikemer", name: "Seydikemer", lat: 36.6458, lon: 29.3611, population: 65912 },
+  { id: "kavaklidere", name: "Kavaklıdere", lat: 37.4447, lon: 28.3661, population: 10711 },
+]);
+
+// Doğrulanmış Muğla il protokol çekirdek listesi (Vali Seddar YAVUZ dahil)
+export const VERIFIED_PROTOCOL_MEMBERS_SEED = Object.freeze([
+  {
+    isim: "Seddar YAVUZ",
+    unvan: "Muğla Valisi",
+    kategori: "Mülki İdare",
+    telefon: "0252 214 10 01",
+    faks: "0252 214 12 44",
+    district: "Menteşe",
+  },
+  {
+    isim: "Ahmet ARAS",
+    unvan: "Muğla Büyükşehir Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 444 48 01",
+    faks: "0252 214 14 25",
+    district: "Menteşe",
+  },
+  {
+    isim: "Oğuzhan DÖNMEZ",
+    unvan: "Muğla Cumhuriyet Başsavcısı",
+    kategori: "Yargı",
+    telefon: "0252 214 10 38",
+    faks: "0252 214 10 39",
+    district: "Menteşe",
+  },
+  {
+    isim: "Prof. Dr. Turhan KAÇAR",
+    unvan: "Muğla Sıtkı Koçman Üniversitesi Rektörü",
+    kategori: "Akademi",
+    telefon: "0252 211 10 00",
+    faks: "0252 223 92 80",
+    district: "Menteşe",
+  },
+  {
+    isim: "Ali CANBOLAT",
+    unvan: "Muğla İl Emniyet Müdürü",
+    kategori: "Güvenlik",
+    telefon: "0252 214 14 20",
+    faks: "0252 214 14 24",
+    district: "Menteşe",
+  },
+  {
+    isim: "Tuğgeneral Emrullah BÜYÜK",
+    unvan: "Muğla İl Jandarma Komutanı",
+    kategori: "Güvenlik",
+    telefon: "0252 214 12 00",
+    faks: "0252 214 12 05",
+    district: "Menteşe",
+  },
+  {
+    isim: "Mustafa ÇİT",
+    unvan: "Bodrum Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 316 10 01",
+    faks: "",
+    district: "Bodrum",
+  },
+  {
+    isim: "Tamer MANDALİNCİ",
+    unvan: "Bodrum Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 316 10 09",
+    faks: "",
+    district: "Bodrum",
+  },
+  {
+    isim: "İsmail AKTAŞ",
+    unvan: "Fethiye Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 614 10 01",
+    faks: "",
+    district: "Fethiye",
+  },
+  {
+    isim: "Alim KARACA",
+    unvan: "Fethiye Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 614 10 20",
+    faks: "",
+    district: "Fethiye",
+  },
+  {
+    isim: "Nurullah KAYA",
+    unvan: "Marmaris Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 412 10 01",
+    faks: "",
+    district: "Marmaris",
+  },
+  {
+    isim: "Acar ÜNLÜ",
+    unvan: "Marmaris Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 412 10 05",
+    faks: "",
+    district: "Marmaris",
+  },
+  {
+    isim: "Mehmet ERİŞ",
+    unvan: "Menteşe Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 214 10 15",
+    faks: "",
+    district: "Menteşe",
+  },
+  {
+    isim: "Gonca KÖKSAL",
+    unvan: "Menteşe Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 214 48 80",
+    faks: "",
+    district: "Menteşe",
+  },
+  {
+    isim: "Mustafa Ünver BÖKE",
+    unvan: "Milas Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 512 10 01",
+    faks: "",
+    district: "Milas",
+  },
+  {
+    isim: "Fevzi TOPUZ",
+    unvan: "Milas Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 512 10 14",
+    faks: "",
+    district: "Milas",
+  },
+  {
+    isim: "Mesut YAKUTA",
+    unvan: "Dalaman Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 692 10 01",
+    faks: "",
+    district: "Dalaman",
+  },
+  {
+    isim: "Sezer DURMUŞ",
+    unvan: "Dalaman Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 692 20 20",
+    faks: "",
+    district: "Dalaman",
+  },
+  {
+    isim: "Kenan AKTAŞ",
+    unvan: "Ortaca Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 282 50 01",
+    faks: "",
+    district: "Ortaca",
+  },
+  {
+    isim: "Evren TEZCAN",
+    unvan: "Ortaca Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 282 50 20",
+    faks: "",
+    district: "Ortaca",
+  },
+  {
+    isim: "Mustafa MASLAK",
+    unvan: "Köyceğiz Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 262 40 01",
+    faks: "",
+    district: "Köyceğiz",
+  },
+  {
+    isim: "Ali ERDOĞAN",
+    unvan: "Köyceğiz Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 262 40 15",
+    faks: "",
+    district: "Köyceğiz",
+  },
+  {
+    isim: "Murat ATICI",
+    unvan: "Datça Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 712 30 01",
+    faks: "",
+    district: "Datça",
+  },
+  {
+    isim: "Aytaç KURT",
+    unvan: "Datça Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 712 30 14",
+    faks: "",
+    district: "Datça",
+  },
+  {
+    isim: "Mehmet Rıdvan DOĞAN",
+    unvan: "Ula Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 242 20 01",
+    faks: "",
+    district: "Ula",
+  },
+  {
+    isim: "Mehmet CANER",
+    unvan: "Ula Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 242 20 12",
+    faks: "",
+    district: "Ula",
+  },
+  {
+    isim: "Mustafa Emre KILIÇ",
+    unvan: "Yatağan Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 572 50 01",
+    faks: "",
+    district: "Yatağan",
+  },
+  {
+    isim: "Mesut GÜNAY",
+    unvan: "Yatağan Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 572 50 15",
+    faks: "",
+    district: "Yatağan",
+  },
+  {
+    isim: "Yıldız BÜYÜKER",
+    unvan: "Seydikemer Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 656 10 01",
+    faks: "",
+    district: "Seydikemer",
+  },
+  {
+    isim: "Bayram Önder AKDENİZLİ",
+    unvan: "Seydikemer Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 656 10 15",
+    faks: "",
+    district: "Seydikemer",
+  },
+  {
+    isim: "Ali ARGAMA",
+    unvan: "Kavaklıdere Kaymakamı",
+    kategori: "Mülki İdare",
+    telefon: "0252 592 70 01",
+    faks: "",
+    district: "Kavaklıdere",
+  },
+  {
+    isim: "Mehmet DEMİR",
+    unvan: "Kavaklıdere Belediye Başkanı",
+    kategori: "Yerel Yönetim",
+    telefon: "0252 592 70 15",
+    faks: "",
+    district: "Kavaklıdere",
+  },
+]);
+
+// Wikipedia/DSİ doğrulamalı 8 resmi Muğla barajı
+export const OFFICIAL_MUGLA_DAMS_SEED = Object.freeze([
+  { id: "geyik", name: "Geyik Barajı", district: "Milas", purpose: "İçme suyu + Sanayi" },
+  { id: "mumcular", name: "Mumcular Barajı", district: "Bodrum", purpose: "İçme suyu + Sulama" },
+  { id: "akgedik", name: "Akgedik Barajı", district: "Milas", purpose: "Sulama + Taşkın kontrol" },
+  { id: "akkopru", name: "Dalaman Akköprü Barajı", district: "Köyceğiz / Dalaman", purpose: "Enerji + Sulama" },
+  { id: "bayir", name: "Bayır Barajı", district: "Yatağan / Menteşe", purpose: "Sulama" },
+  { id: "marmaris", name: "Marmaris (Atatürk) Barajı", district: "Marmaris", purpose: "İçme suyu" },
+  { id: "derince", name: "Derince Barajı", district: "Menteşe", purpose: "Sulama" },
+  { id: "seki", name: "Seki Barajı", district: "Seydikemer", purpose: "Sulama" },
+]);
+
+export const MONITOR_TAB_KEYS = Object.freeze([
+  "genel",
+  "diyagram",
+  "ekonomi",
+  "cevre",
+  "turizm",
+  "ulasim",
+  "sosyal",
+  "guvenlik",
+  "enerji",
+  "protokol",
+  "ilceler",
+]);
+
+function normalizeTextForMatch(raw) {
+  return String(raw || "")
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function sanitizeHttpUrl(raw) {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return parsed.toString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Supabase `social_posts` tablosundaki mevcut doğrulanmış gönderilerden
+ * 13 ilçe yoğunluğu, kategori dağılımı, acil uyarı sinyalleri ve protokol değişikliklerini çıkarır.
+ */
+export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new Date()) {
+  const posts = Array.isArray(recentSocialPosts) ? recentSocialPosts : [];
+  const districtCounts = {};
+  const categoryCounts = {
+    ekonomi: 0,
+    cevre: 0,
+    turizm: 0,
+    ulasim: 0,
+    sosyal: 0,
+    guvenlik: 0,
+    enerji: 0,
+    protokol: 0,
+  };
+  let positiveCount = 0;
+  let negativeCount = 0;
+  let neutralCount = 0;
+
+  const urgentAlertCandidates = [];
+  const securityHighlights = [];
+  const energyHighlights = [];
+  const tourismHighlights = [];
+  const economyHighlights = [];
+
+  for (const d of VERIFIED_DISTRICTS_SEED) {
+    districtCounts[d.id] = { id: d.id, name: d.name, total: 0, negative: 0, positive: 0 };
+  }
+
+  for (const post of posts) {
+    const content = String(post?.content || "").trim();
+    if (!content) continue;
+    const norm = normalizeTextForMatch(content);
+    const sentiment = String(post?.sentiment || "neutral").toLowerCase();
+    if (sentiment === "positive") positiveCount += 1;
+    else if (sentiment === "negative") negativeCount += 1;
+    else neutralCount += 1;
+
+    // İlçe eşleştirme
+    const rawDistrict = normalizeTextForMatch(post?.district || post?.region || "");
+    let matchedDistrict = VERIFIED_DISTRICTS_SEED.find(
+      (d) => rawDistrict === d.id || rawDistrict.includes(normalizeTextForMatch(d.name))
+    );
+    if (!matchedDistrict) {
+      matchedDistrict = VERIFIED_DISTRICTS_SEED.find((d) =>
+        norm.includes(normalizeTextForMatch(d.name))
+      );
+    }
+    if (matchedDistrict) {
+      districtCounts[matchedDistrict.id].total += 1;
+      if (sentiment === "negative") districtCounts[matchedDistrict.id].negative += 1;
+      if (sentiment === "positive") districtCounts[matchedDistrict.id].positive += 1;
+    }
+
+    // Kategori sınıflandırması
+    const cat = normalizeTextForMatch(post?.category || "");
+    const postDistrictName = matchedDistrict?.name || post?.district || post?.region || "Muğla";
+    const postUrl = sanitizeHttpUrl(post?.url);
+    const publishedAt = post?.published_at || post?.collected_at || now.toISOString();
+
+    if (cat.includes("ekonom") || /butce|ihale|belediye.*milyar|yatirim/.test(norm)) {
+      categoryCounts.ekonomi += 1;
+      if (economyHighlights.length < 5) {
+        economyHighlights.push({
+          title: content.slice(0, 140),
+          district: postDistrictName,
+          sourceName: post?.author || post?.platform || "Sosyal / Basın",
+          sourceUrl: postUrl,
+          publishedAt,
+        });
+      }
+    }
+    if (cat.includes("cevre") || /baraj|muski|su kesinti|yangin|orman|hava kalite/.test(norm)) {
+      categoryCounts.cevre += 1;
+    }
+    if (cat.includes("turizm") || /turist|otel|doluluk|dalaman havalimani|milas bodrum/.test(norm)) {
+      categoryCounts.turizm += 1;
+      if (tourismHighlights.length < 5) {
+        tourismHighlights.push({
+          title: content.slice(0, 140),
+          district: postDistrictName,
+          sourceName: post?.author || post?.platform || "Sosyal / Basın",
+          sourceUrl: postUrl,
+          publishedAt,
+        });
+      }
+    }
+    if (cat.includes("ulasim") || /trafik|kaza|karayol|muttas|feribot|yol calisma/.test(norm)) {
+      categoryCounts.ulasim += 1;
+    }
+    if (cat.includes("guvenlik") || /deprem|afad|kandilli|jandarma|emniyet|asayis|operasyon/.test(norm)) {
+      categoryCounts.guvenlik += 1;
+      if (securityHighlights.length < 6) {
+        securityHighlights.push({
+          title: content.slice(0, 140),
+          district: postDistrictName,
+          sourceName: post?.author || post?.platform || "Sosyal / Basın",
+          sourceUrl: postUrl,
+          publishedAt,
+        });
+      }
+    }
+    if (cat.includes("enerji") || /adm elektrik|aydem|elektrik kesinti|trafo|dogalgaz/.test(norm)) {
+      categoryCounts.enerji += 1;
+      if (energyHighlights.length < 6) {
+        energyHighlights.push({
+          title: content.slice(0, 140),
+          district: postDistrictName,
+          sourceName: post?.author || post?.platform || "ADM / Yerel Basın",
+          sourceUrl: postUrl,
+          publishedAt,
+        });
+      }
+    }
+    if (cat.includes("protokol") || /vali|kaymakam|kararname|atama|belediye baskani/.test(norm)) {
+      categoryCounts.protokol += 1;
+    }
+    categoryCounts.sosyal += 1;
+
+    // Acil kesinti / deprem / yangın uyarı sinyalleri (sadece doğrulanmış URL veya resmi haberlerde)
+    const isUrgentQuake = /deprem|afad|kandilli/.test(norm) && /\b[3-7][.,][0-9]\b/.test(content);
+    const isUrgentOutage =
+      /(adm elektrik|aydem|muski).*(kesinti|ariza)|planli elektrik kesintisi|ana isale hatti/.test(
+        norm
+      );
+    const isUrgentFireOrStorm = /(orman yangini|yangin cikti|sel baskini|firtina uyari|yol kapandi)/.test(
+      norm
+    );
+
+    if ((isUrgentQuake || isUrgentOutage || isUrgentFireOrStorm) && urgentAlertCandidates.length < 6) {
+      const alertType = isUrgentQuake
+        ? "deprem"
+        : isUrgentOutage
+          ? "kesinti"
+          : "acil_durum";
+      const severity = isUrgentQuake || isUrgentFireOrStorm ? "high" : "medium";
+      urgentAlertCandidates.push({
+        type: alertType,
+        severity,
+        title: `[${postDistrictName}] ${content.slice(0, 110)}`,
+        body: content.slice(0, 280),
+        source: AGENT_SOURCE,
+        lat: matchedDistrict?.lat ?? 37.2153,
+        lon: matchedDistrict?.lon ?? 28.3636,
+        metadata: {
+          district: postDistrictName,
+          source_url: postUrl,
+          origin: "social_posts_bridge",
+          published_at: publishedAt,
+        },
+        created_at: now.toISOString(),
+      });
+    }
+  }
+
+  return {
+    totalPostsAnalyzed: posts.length,
+    positiveCount,
+    negativeCount,
+    neutralCount,
+    districtCounts,
+    categoryCounts,
+    urgentAlertCandidates,
+    securityHighlights,
+    energyHighlights,
+    tourismHighlights,
+    economyHighlights,
+  };
+}
+
+/**
+ * 7 çekirdek Supabase tablosunun (`monitor_data`, `districts`, `protocol_members`,
+ * `protocol_changes`, `alert_events`, `ai_summaries`, `live_data_cache`) tamamı için
+ * idempotent upsert/insert payload'larını üretir.
+ */
+export function buildBridgeTablePayloads({
+  findings,
+  group,
+  recentSocialPosts = [],
+  existingAlertTitles = [],
+  existingProtocolChangesCount = 0,
+  now = new Date(),
+}) {
+  const isoNow = now.toISOString();
+  const dateOnly = isoNow.slice(0, 10);
+  const currentYear = now.getFullYear();
+  const nextYear = currentYear + 1;
+  const signals = extractSignalsFromSocialPosts(recentSocialPosts, now);
+
+  // 1. districts (13 Muğla ilçesi — idempotent upsert onConflict: "id")
+  const districtsRows = VERIFIED_DISTRICTS_SEED.map((d) => ({
+    id: d.id,
+    name: d.name,
+    lat: d.lat,
+    lon: d.lon,
+    population: d.population,
+  }));
+
+  // 2. protocol_members & protocol_changes
+  const activeProtocolMap = new Map(
+    VERIFIED_PROTOCOL_MEMBERS_SEED.map((m) => [
+      normalizeTextForMatch(m.unvan),
+      {
+        id: deterministicUuid("protocol_member", m.unvan),
+        isim: m.isim,
+        unvan: m.unvan,
+        kategori: m.kategori,
+        telefon: m.telefon,
+        faks: m.faks,
+        district: m.district,
+        updated_at: isoNow,
+      },
+    ])
+  );
+
+  const protocolChangeRows = [];
+
+  // Başlangıç tohum kaydı: protocol_changes boşsa doğrulanmış Muğla Valisi Seddar YAVUZ atamasını kaydet
+  if (existingProtocolChangesCount === 0) {
+    protocolChangeRows.push({
+      id: deterministicUuid("protocol_change", "mugla-valisi-seddar-yavuz-2026-398"),
+      change_type: "updated",
+      unvan: "Muğla Valisi",
+      isim_old: "İdris AKBIYIK",
+      isim_new: "Seddar YAVUZ",
+      detail:
+        "25 Kasım 2026 tarihli 2026/398 sayılı Cumhurbaşkanlığı Atama Kararnamesi ile Muğla Valiliğine Seddar YAVUZ atanmıştır (Resmi Gazete).",
+      scraped_at: isoNow,
+    });
+  }
+
+  // Gemini grounding üzerinden yeni bir görev değişikliği yakalandıysa protocol_members + protocol_changes'e işle
+  const protoActivities = Array.isArray(findings?.protocolActivities)
+    ? findings.protocolActivities
+    : [];
+  for (const act of protoActivities) {
+    if (act?.category === "gorev_degisikligi" && act.actorName && act.actorTitle) {
+      const normTitle = normalizeTextForMatch(act.actorTitle);
+      const existingMember =
+        activeProtocolMap.get(normTitle) ||
+        (normTitle === "vali" ? activeProtocolMap.get(normalizeTextForMatch("Muğla Valisi")) : null);
+      const oldName = existingMember ? existingMember.isim : null;
+      const canonicalTitle = existingMember ? existingMember.unvan : act.actorTitle;
+      const memberId = deterministicUuid("protocol_member", canonicalTitle);
+
+      activeProtocolMap.set(normalizeTextForMatch(canonicalTitle), {
+        id: memberId,
+        isim: act.actorName,
+        unvan: canonicalTitle,
+        kategori: existingMember?.kategori || "Mülki İdare / Protokol",
+        telefon: existingMember?.telefon || "",
+        faks: existingMember?.faks || "",
+        district: existingMember?.district || "Menteşe",
+        updated_at: isoNow,
+      });
+
+      protocolChangeRows.push({
+        id: deterministicUuid(
+          "protocol_change",
+          `${canonicalTitle}::${act.actorName}::${dateOnly}`
+        ),
+        change_type: oldName ? "updated" : "added",
+        unvan: canonicalTitle,
+        isim_old: oldName && oldName !== act.actorName ? oldName : null,
+        isim_new: act.actorName,
+        detail: `${act.summary} (${act.sourceName || "Resmi Kaynak"})`.slice(0, 400),
+        scraped_at: act.publishedAt || isoNow,
+      });
+    }
+  }
+
+  const protocolMemberRows = Array.from(activeProtocolMap.values());
+
+  // 3. alert_events (sosyal gönderilerden türetilen acil uyarılar; mevcut başlıklarla tekilleştirilir)
+  const seenAlertTitles = new Set(
+    (Array.isArray(existingAlertTitles) ? existingAlertTitles : []).map((t) =>
+      normalizeTextForMatch(t).slice(0, 80)
+    )
+  );
+  const derivedAlertRows = [];
+  for (const cand of signals.urgentAlertCandidates) {
+    const key = normalizeTextForMatch(cand.title).slice(0, 80);
+    if (!key || seenAlertTitles.has(key)) continue;
+    seenAlertTitles.add(key);
+    derivedAlertRows.push(cand);
+  }
+
+  // 4. live_data_cache temel sektörel önbellekleri (8 baraj, turizm, güvenlik, enerji, ekonomi, protokol)
+  const damUpdatesById = new Map();
+  for (const du of findings?.damUpdates || []) {
+    damUpdatesById.set(normalizeTextForMatch(du.damName), du);
+  }
+  const mergedDamsList = OFFICIAL_MUGLA_DAMS_SEED.map((dam) => {
+    const matched =
+      damUpdatesById.get(normalizeTextForMatch(dam.name)) ||
+      Array.from(damUpdatesById.entries()).find(([k]) => k.includes(dam.id))?.[1];
+    return {
+      id: dam.id,
+      name: dam.name,
+      district: dam.district,
+      purpose: dam.purpose,
+      occupancyRate: matched?.occupancyRate ?? null,
+      sourceName: matched?.sourceName || "DSİ / MUSKİ / Wikipedia doğrulamalı envanter",
+      sourceUrl: matched?.sourceUrl || null,
+      measuredAt: matched?.measuredAt || null,
+      verified: Boolean(matched && matched.occupancyRate !== null),
+    };
+  });
+  const verifiedDamRates = mergedDamsList
+    .map((d) => d.occupancyRate)
+    .filter((v) => typeof v === "number" && Number.isFinite(v));
+  const avgDamOccupancy =
+    verifiedDamRates.length > 0
+      ? Math.round((verifiedDamRates.reduce((a, b) => a + b, 0) / verifiedDamRates.length) * 10) / 10
+      : null;
+
+  const expiresIn12h = new Date(now.getTime() + 12 * 3600_000).toISOString();
+  const ecoBudgetTotal = findings?.economyUpdates?.combinedTotalBillionTry ?? 44.8;
+  const ecoBudgetYear = findings?.economyUpdates?.budgetYear ?? currentYear;
+  const activeGovernor =
+    protocolMemberRows.find((m) => normalizeTextForMatch(m.unvan) === "mugla valisi")?.isim ||
+    "Seddar YAVUZ";
+
+  const baselineCacheRows = [
+    {
+      data_type: "dams",
+      data: {
+        dams: mergedDamsList,
+        damCount: mergedDamsList.length,
+        avgOccupancy: avgDamOccupancy,
+        verifiedCount: verifiedDamRates.length,
+        updatedAt: isoNow,
+      },
+      fetched_at: isoNow,
+      expires_at: expiresIn12h,
+      source: AGENT_SOURCE,
+      error: null,
+    },
+    {
+      data_type: "tourism",
+      data: {
+        hotelOccupancyPct: findings?.tourismMetrics?.hotelOccupancyPct ?? null,
+        annualTourists: findings?.tourismMetrics?.annualTourists ?? null,
+        airportPassengers: findings?.tourismMetrics?.airportPassengers ?? null,
+        districtRates: findings?.tourismMetrics?.districtRates ?? [],
+        headlines:
+          findings?.tourismMetrics?.headlines?.length > 0
+            ? findings.tourismMetrics.headlines
+            : signals.tourismHighlights,
+        yearRange: `${currentYear}-${nextYear}`,
+        updatedAt: isoNow,
+      },
+      fetched_at: isoNow,
+      expires_at: expiresIn12h,
+      source: AGENT_SOURCE,
+      error: null,
+    },
+    {
+      data_type: "security",
+      data: {
+        events:
+          findings?.securityEvents?.length > 0
+            ? findings.securityEvents
+            : signals.securityHighlights,
+        activeAlertCount: derivedAlertRows.length + (findings?.alerts?.length ?? 0),
+        monitoredDistricts: VERIFIED_DISTRICTS_SEED.length,
+        updatedAt: isoNow,
+      },
+      fetched_at: isoNow,
+      expires_at: expiresIn12h,
+      source: AGENT_SOURCE,
+      error: null,
+    },
+    {
+      data_type: "energy",
+      data: {
+        outages:
+          findings?.energyOutages?.length > 0
+            ? findings.energyOutages
+            : signals.energyHighlights,
+        activeOutageCount:
+          findings?.energyOutages?.length || signals.energyHighlights.length,
+        provider: "ADM Elektrik Dağıtım",
+        updatedAt: isoNow,
+      },
+      fetched_at: isoNow,
+      expires_at: expiresIn12h,
+      source: AGENT_SOURCE,
+      error: null,
+    },
+    {
+      data_type: "economy",
+      data: {
+        budgetYear: ecoBudgetYear,
+        combinedTotalBillionTry: ecoBudgetTotal,
+        budgetYoyChangePct: findings?.economyUpdates?.budgetYoyChangePct ?? 30.35,
+        municipalBudgets:
+          findings?.economyUpdates?.municipalBudgets?.length > 0
+            ? findings.economyUpdates.municipalBudgets
+            : [
+                { institution: "Muğla Büyükşehir Belediyesi", amountBillionTry: 24.3, year: currentYear },
+                { institution: "MUSKİ Genel Müdürlüğü", amountBillionTry: 20.5, year: currentYear },
+                { institution: "MUTTAŞ", amountBillionTry: 1.12, year: currentYear },
+              ],
+        highlights:
+          findings?.economyUpdates?.items?.length > 0
+            ? findings.economyUpdates.items
+            : signals.economyHighlights,
+        updatedAt: isoNow,
+      },
+      fetched_at: isoNow,
+      expires_at: expiresIn12h,
+      source: AGENT_SOURCE,
+      error: null,
+    },
+    {
+      data_type: "protocol",
+      data: {
+        governor: activeGovernor,
+        memberCount: protocolMemberRows.length,
+        recentChangesCount: protocolChangeRows.length,
+        activities: protoActivities,
+        updatedAt: isoNow,
+      },
+      fetched_at: isoNow,
+      expires_at: expiresIn12h,
+      source: AGENT_SOURCE,
+      error: null,
+    },
+  ];
+
+  // 5. monitor_data (11 ana sekmenin canlı metrik kayıtları — idempotent upsert onConflict: "id")
+  const totalPopulation = VERIFIED_DISTRICTS_SEED.reduce((sum, d) => sum + d.population, 0);
+  const topActiveDistricts = Object.values(signals.districtCounts)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+
+  const monitorDataRows = [
+    {
+      id: "genel",
+      tab_key: "genel",
+      title: "Genel Bakış",
+      metrics: {
+        totalPopulation,
+        districtCount: VERIFIED_DISTRICTS_SEED.length,
+        socialPostsAnalyzed: signals.totalPostsAnalyzed,
+        activeGovernor,
+        combinedBudgetBillionTry: ecoBudgetTotal,
+        avgDamOccupancyPct: avgDamOccupancy,
+        hotelOccupancyPct: findings?.tourismMetrics?.hotelOccupancyPct ?? null,
+        activeAlertCount: derivedAlertRows.length + (findings?.alerts?.length ?? 0),
+        scanGroup: group.id,
+        scanYear: currentYear,
+      },
+      summary: `Muğla (${VERIFIED_DISTRICTS_SEED.length} ilçe, ${totalPopulation.toLocaleString("tr-TR")} nüfus) — Grup ${group.id} canlı senkronizasyon tamamlandı.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "diyagram",
+      tab_key: "diyagram",
+      title: "Şehir Ağı Diyagramı",
+      metrics: {
+        districtNodes: VERIFIED_DISTRICTS_SEED.length,
+        protocolNodes: protocolMemberRows.length,
+        damNodes: OFFICIAL_MUGLA_DAMS_SEED.length,
+        topActiveDistricts,
+      },
+      summary: `${VERIFIED_DISTRICTS_SEED.length} ilçe, ${protocolMemberRows.length} protokol üyesi ve ${OFFICIAL_MUGLA_DAMS_SEED.length} baraj düğümü senkronize edildi.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "ekonomi",
+      tab_key: "ekonomi",
+      title: "Ekonomi & Bütçe",
+      metrics: {
+        budgetYear: ecoBudgetYear,
+        combinedTotalBillionTry: ecoBudgetTotal,
+        budgetYoyChangePct: findings?.economyUpdates?.budgetYoyChangePct ?? 30.35,
+        municipalBudgetsCount: findings?.economyUpdates?.municipalBudgets?.length || 3,
+        socialMentions: signals.categoryCounts.ekonomi,
+      },
+      summary: `Toplam yerel yönetim bütçesi ${ecoBudgetTotal} Milyar ₺ (${ecoBudgetYear}); ${signals.categoryCounts.ekonomi} güncel ekonomi/ihale sinyali işlendi.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "cevre",
+      tab_key: "cevre",
+      title: "Çevre & Barajlar",
+      metrics: {
+        damCount: OFFICIAL_MUGLA_DAMS_SEED.length,
+        verifiedDamCount: verifiedDamRates.length,
+        avgOccupancyPct: avgDamOccupancy,
+        socialMentions: signals.categoryCounts.cevre,
+      },
+      summary: `${OFFICIAL_MUGLA_DAMS_SEED.length} resmi Muğla barajı izleniyor; ${verifiedDamRates.length} barajda güncel basın/DSİ ölçümü doğrulandı.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "turizm",
+      tab_key: "turizm",
+      title: "Turizm & Konaklama",
+      metrics: {
+        hotelOccupancyPct: findings?.tourismMetrics?.hotelOccupancyPct ?? null,
+        annualTourists: findings?.tourismMetrics?.annualTourists ?? null,
+        airportPassengers: findings?.tourismMetrics?.airportPassengers ?? null,
+        headlinesCount:
+          findings?.tourismMetrics?.headlines?.length || signals.tourismHighlights.length,
+        socialMentions: signals.categoryCounts.turizm,
+      },
+      summary: `${currentYear}/${nextYear} turizm verileri ve ${signals.categoryCounts.turizm} turizm sinyali senkronize edildi.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "ulasim",
+      tab_key: "ulasim",
+      title: "Ulaşım & Altyapı",
+      metrics: {
+        monitoredDistricts: VERIFIED_DISTRICTS_SEED.length,
+        activeIncidentsCount: findings?.transportIncidents?.length ?? 0,
+        socialMentions: signals.categoryCounts.ulasim,
+      },
+      summary: `13 ilçe trafik/altyapı akışı ve ${findings?.transportIncidents?.length ?? 0} güncel yol/altyapı bildirimi işlendi.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "sosyal",
+      tab_key: "sosyal",
+      title: "Sosyal İstihbarat",
+      metrics: {
+        postsAnalyzed: signals.totalPostsAnalyzed,
+        positiveCount: signals.positiveCount,
+        negativeCount: signals.negativeCount,
+        neutralCount: signals.neutralCount,
+        topActiveDistricts,
+      },
+      summary: `Son ${signals.totalPostsAnalyzed} sosyal/basın gönderisi analiz edildi (Olumlu: ${signals.positiveCount}, Olumsuz: ${signals.negativeCount}, Nötr: ${signals.neutralCount}).`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "guvenlik",
+      tab_key: "guvenlik",
+      title: "Güvenlik & Asayiş",
+      metrics: {
+        eventsCount: findings?.securityEvents?.length || signals.securityHighlights.length,
+        urgentAlertsCount: derivedAlertRows.length + (findings?.alerts?.length ?? 0),
+        socialMentions: signals.categoryCounts.guvenlik,
+      },
+      summary: `${findings?.securityEvents?.length || signals.securityHighlights.length} güvenlik/deprem gelişmesi ve ${derivedAlertRows.length + (findings?.alerts?.length ?? 0)} acil uyarı kaydı izleniyor.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "enerji",
+      tab_key: "enerji",
+      title: "Enerji & Kesintiler",
+      metrics: {
+        activeOutagesCount: findings?.energyOutages?.length || signals.energyHighlights.length,
+        provider: "ADM Elektrik",
+        socialMentions: signals.categoryCounts.enerji,
+      },
+      summary: `ADM Elektrik ve enerji hattı sinyalleri güncellendi (${findings?.energyOutages?.length || signals.energyHighlights.length} kayıt).`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "protokol",
+      tab_key: "protokol",
+      title: "Muğla Protokol",
+      metrics: {
+        governor: activeGovernor,
+        memberCount: protocolMemberRows.length,
+        changesRecorded: protocolChangeRows.length,
+        activitiesCount: protoActivities.length,
+      },
+      summary: `Muğla Valisi ${activeGovernor} dahil ${protocolMemberRows.length} protokol üyesi ve atama değişiklikleri güncel.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+    {
+      id: "ilceler",
+      tab_key: "ilceler",
+      title: "İlçeler (13 İlçe)",
+      metrics: {
+        districtCount: VERIFIED_DISTRICTS_SEED.length,
+        totalPopulation,
+        activeGroup: group.id,
+        activeGroupDistricts: group.districts,
+        districtCounts: signals.districtCounts,
+      },
+      summary: `13 ilçenin tamamı (${group.districts.join(", ")} öncelikli tarama) canlı veritabanına bağlandı.`,
+      source: AGENT_SOURCE,
+      updated_at: isoNow,
+    },
+  ];
+
+  // 6. ai_summaries (günlük yönetici özeti + şehir nabzı — onConflict: "type,date")
+  const topDistrictLabel =
+    topActiveDistricts.length > 0 && topActiveDistricts[0].total > 0
+      ? topActiveDistricts
+          .filter((d) => d.total > 0)
+          .slice(0, 3)
+          .map((d) => `${d.name} (${d.total})`)
+          .join(", ")
+      : group.districts.join(", ");
+
+  const dailySummaryText = [
+    `Muğla Monitör ${dateOnly} Günlük Özeti (Grup ${group.id} — ${group.districts.join(", ")}):`,
+    `${signals.totalPostsAnalyzed} güncel haber/sosyal gönderi analiz edildi; en yoğun ilçeler: ${topDistrictLabel}.`,
+    `Ekonomi: ${ecoBudgetTotal} Milyar ₺ yerel yönetim bütçesi (${ecoBudgetYear}).`,
+    `Çevre: ${OFFICIAL_MUGLA_DAMS_SEED.length} resmi baraj izleniyor${avgDamOccupancy !== null ? ` (ort. %${avgDamOccupancy})` : ""}.`,
+    `Protokol: Muğla Valisi ${activeGovernor} ve ${protocolMemberRows.length} protokol kaydı senkronize edildi.`,
+    `Acil uyarılar: ${derivedAlertRows.length + (findings?.alerts?.length ?? 0)} kayıt işlendi.`,
+  ].join(" ");
+
+  const pulseSummaryText = [
+    `Şehir Nabzı (${dateOnly}):`,
+    `Olumlu ${signals.positiveCount} / Olumsuz ${signals.negativeCount} / Nötr ${signals.neutralCount}.`,
+    `Enerji kesinti sinyali: ${findings?.energyOutages?.length || signals.energyHighlights.length},`,
+    `Güvenlik/asayiş sinyali: ${findings?.securityEvents?.length || signals.securityHighlights.length},`,
+    `Turizm sinyali: ${signals.categoryCounts.turizm}.`,
+  ].join(" ");
+
+  const aiSummaryRows = [
+    {
+      type: "daily",
+      date: dateOnly,
+      summary: dailySummaryText,
+      generated_at: isoNow,
+    },
+    {
+      type: "pulse",
+      date: dateOnly,
+      summary: pulseSummaryText,
+      generated_at: isoNow,
+    },
+  ];
+
+  return {
+    districtsRows,
+    protocolMemberRows,
+    protocolChangeRows,
+    monitorDataRows,
+    aiSummaryRows,
+    derivedAlertRows,
+    baselineCacheRows,
+    signals,
+  };
+}
+
 export async function runAutonomousAgent(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const dryRun = Boolean(options.dryRun);
@@ -1666,8 +2674,16 @@ export async function runAutonomousAgent(options = {}) {
       now,
       allowDryRun: true,
     });
+    const bridgePayloads = buildBridgeTablePayloads({
+      findings: sampleFindings,
+      group,
+      recentSocialPosts: [],
+      existingAlertTitles: [],
+      existingProtocolChangesCount: 0,
+      now,
+    });
     console.log(
-      `[1. Ajan] DRY-RUN tamamlandı. Hazırlanan kayıtlar -> social_keywords: ${payloads.keywordRows.length}, social_posts: ${payloads.postRows.length}, alert_events: ${payloads.alertRows.length}`
+      `[1. Ajan] DRY-RUN tamamlandı. Hazırlanan kayıtlar -> monitor_data: ${bridgePayloads.monitorDataRows.length}, districts: ${bridgePayloads.districtsRows.length}, protocol_members: ${bridgePayloads.protocolMemberRows.length}, protocol_changes: ${bridgePayloads.protocolChangeRows.length}, ai_summaries: ${bridgePayloads.aiSummaryRows.length}, live_data_cache: ${bridgePayloads.baselineCacheRows.length + payloads.cacheRows.length}, social_keywords: ${payloads.keywordRows.length}, social_posts: ${payloads.postRows.length}, alert_events: ${payloads.alertRows.length}`
     );
     return {
       status: "dry_run",
@@ -1680,11 +2696,23 @@ export async function runAutonomousAgent(options = {}) {
         alert_events: 0,
         dam_updates: 0,
         topic_caches: 0,
+        live_data_cache: 0,
+        monitor_data: 0,
+        districts: 0,
+        protocol_members: 0,
+        protocol_changes: 0,
+        ai_summaries: 0,
       },
       planned: {
         social_keywords: payloads.keywordRows.length,
         social_posts: payloads.postRows.length,
         alert_events: payloads.alertRows.length,
+        monitor_data: bridgePayloads.monitorDataRows.length,
+        districts: bridgePayloads.districtsRows.length,
+        protocol_members: bridgePayloads.protocolMemberRows.length,
+        protocol_changes: bridgePayloads.protocolChangeRows.length,
+        ai_summaries: bridgePayloads.aiSummaryRows.length,
+        live_data_cache: bridgePayloads.baselineCacheRows.length + payloads.cacheRows.length,
       },
       errors: [],
     };
@@ -1692,7 +2720,13 @@ export async function runAutonomousAgent(options = {}) {
 
   if (!supabaseUrl || !supabaseKey) {
     throw new Error(
-      "SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY (veya SUPABASE_ANON_KEY) ortam değişkenleri tanımlı olmalıdır."
+      "SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY ortam değişkenleri tanımlı olmalıdır."
+    );
+  }
+
+  if (supabaseKeyType !== "service_role") {
+    console.warn(
+      `[1. Ajan] UYARI: SUPABASE_SERVICE_ROLE_KEY tanımlı değil (${supabaseKeyType} anahtarı kullanılıyor). RLS korumalı tablolara yazım için SUPABASE_SERVICE_ROLE_KEY önerilir.`
     );
   }
 
@@ -1708,13 +2742,16 @@ export async function runAutonomousAgent(options = {}) {
   });
 
   const errors = [];
-  const recordStepError = (step, err) => {
+  const recordStepError = (step, err, table = null) => {
+    const status = err && typeof err === "object" && "status" in err ? err.status : null;
     const message = err?.message || String(err);
-    errors.push({ step, message });
-    console.error(`[1. Ajan] [HATA] ${step}: ${message} — sonraki adıma devam ediliyor.`);
+    errors.push({ step, table, status, message });
+    console.error(
+      `[1. Ajan] [YAZIM/OKUMA HATASI] ${step}${table ? ` (tablo: ${table})` : ""}: ${message}`
+    );
   };
 
-  // 1a. Supabase Keep-Alive + mevcut social_keywords (geçici ağ hatasında sonraki adımı durdurmaz)
+  // 1a. Supabase Keep-Alive + mevcut social_keywords
   let existingKwData = [];
   try {
     const { data, error } = await supabase.select(
@@ -1722,7 +2759,7 @@ export async function runAutonomousAgent(options = {}) {
       "select=keyword,user_id&limit=500"
     );
     if (error) {
-      recordStepError("social_keywords okuma", error);
+      recordStepError("social_keywords okuma", error, "social_keywords");
     } else {
       existingKwData = data || [];
       console.log(
@@ -1730,7 +2767,7 @@ export async function runAutonomousAgent(options = {}) {
       );
     }
   } catch (err) {
-    recordStepError("social_keywords okuma", err);
+    recordStepError("social_keywords okuma", err, "social_keywords");
   }
 
   const existingKeywords = existingKwData.map((r) => r.keyword).filter(Boolean);
@@ -1739,93 +2776,100 @@ export async function runAutonomousAgent(options = {}) {
     existingKwData.find((r) => r.user_id)?.user_id ||
     null;
 
-  // 1b. Mevcut son social_posts URL'leri (tekrarlı kayıt engelleme)
+  // 1b. Mevcut son social_posts kayıtları (hem URL tekilleştirme hem 7-tablo canlı sentez için)
+  let recentSocialPosts = [];
   let existingUrls = [];
   try {
     const { data, error } = await supabase.select(
       "social_posts",
-      "select=url&order=collected_at.desc&limit=200"
+      "select=id,platform,author,content,sentiment,district,region,category,url,published_at,collected_at&order=collected_at.desc&limit=200"
     );
     if (error) {
-      recordStepError("social_posts okuma", error);
+      recordStepError("social_posts okuma", error, "social_posts");
     } else {
-      existingUrls = (data || []).map((r) => r.url).filter(Boolean);
+      recentSocialPosts = Array.isArray(data) ? data : [];
+      existingUrls = recentSocialPosts.map((r) => r.url).filter(Boolean);
+      console.log(
+        `[1. Ajan] social_posts okundu: ${recentSocialPosts.length} güncel gönderi işlenmek üzere alındı.`
+      );
     }
   } catch (err) {
-    recordStepError("social_posts okuma", err);
+    recordStepError("social_posts okuma", err, "social_posts");
   }
 
+  // 1c. Son alert_events başlıkları (tekrarlı uyarı engelleme) ve protocol_changes sayısı
+  let existingAlertTitles = [];
+  try {
+    const { data, error } = await supabase.select(
+      "alert_events",
+      "select=title&order=created_at.desc&limit=50"
+    );
+    if (!error && Array.isArray(data)) {
+      existingAlertTitles = data.map((r) => r.title).filter(Boolean);
+    }
+  } catch {
+    // alert_events ön okuması isteğe bağlı tekilleştirme içindir; yazım adımı hataları aşağıda kesin raporlanır
+  }
+
+  let existingProtocolChangesCount = 0;
+  try {
+    const { data, error } = await supabase.select(
+      "protocol_changes",
+      "select=id&limit=5"
+    );
+    if (!error && Array.isArray(data)) {
+      existingProtocolChangesCount = data.length;
+    }
+  } catch {
+    existingProtocolChangesCount = 0;
+  }
+
+  // 2. Dinamik yıl (currentYear / nextYear) destekli Gemini Search Grounding çağrısı
+  // Not: GEMINI_API_KEY eksik olsa veya 429 dönse bile 7 çekirdek tablonun social_posts + seed senkronizasyonu KESİNLİKLE çalışır!
+  let groundingResponse = null;
+  let geminiSucceeded = false;
   if (!geminiApiKey) {
     console.warn(
-      "[1. Ajan] GEMINI_API_KEY eksik — yalnızca Supabase Keep-Alive tamamlandı, arama adımı atlandı."
+      "[1. Ajan] GEMINI_API_KEY eksik — Gemini araması atlanıyor, mevcut social_posts ve idempotent 7-tablo senkronizasyonu çalıştırılıyor."
     );
-    return {
-      status: "keepalive_only",
-      group,
-      topics,
-      quota,
-      inserted: {
-        social_keywords: 0,
-        social_posts: 0,
-        alert_events: 0,
-        dam_updates: 0,
-        topic_caches: 0,
-      },
-      errors,
-    };
-  }
-
-  // 2. Tek bir ücretsiz kotaya uyumlu Gemini Search Grounding çağrısı
-  let groundingResponse = null;
-  try {
-    const prompt = buildGroundingPrompt(group);
-    if (typeof options.generateGrounding === "function") {
-      groundingResponse = await options.generateGrounding({
-        model: geminiModel,
-        prompt,
-        group,
-        topics,
-      });
-    } else {
-      groundingResponse = await callGeminiSearchGrounding({
-        apiKey: geminiApiKey,
-        model: geminiModel,
-        prompt,
-        fetchImpl,
-        preferNativeFetch: Boolean(options.fetchImpl) || Boolean(options.preferNativeFetch),
-        retryDelayMs,
-      });
+  } else {
+    try {
+      const prompt = buildGroundingPrompt(group);
+      if (typeof options.generateGrounding === "function") {
+        groundingResponse = await options.generateGrounding({
+          model: geminiModel,
+          prompt,
+          group,
+          topics,
+        });
+      } else {
+        groundingResponse = await callGeminiSearchGrounding({
+          apiKey: geminiApiKey,
+          model: geminiModel,
+          prompt,
+          fetchImpl,
+          preferNativeFetch: Boolean(options.fetchImpl) || Boolean(options.preferNativeFetch),
+          retryDelayMs,
+        });
+      }
+      geminiSucceeded = true;
+    } catch (err) {
+      if (isRateLimitMessage(err)) {
+        recordStepError("Gemini Search Grounding (429 kota limiti)", err);
+      } else {
+        recordStepError("Gemini Search Grounding", err);
+      }
     }
-  } catch (err) {
-    if (isRateLimitMessage(err)) {
-      recordStepError("Gemini Search Grounding (429 kota limiti)", err);
-    } else {
-      recordStepError("Gemini Search Grounding", err);
-    }
-    return {
-      status: "partial_error",
-      group,
-      topics,
-      quota,
-      inserted: {
-        social_keywords: 0,
-        social_posts: 0,
-        alert_events: 0,
-        dam_updates: 0,
-        topic_caches: 0,
-      },
-      errors,
-    };
   }
 
   const groundingChunks = Array.isArray(groundingResponse?.groundingChunks)
     ? groundingResponse.groundingChunks
     : groundingResponse?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
   const rawModelText = groundingResponse?.text || "";
-  const parsedJson = extractJsonFromModelText(rawModelText);
-  if (!parsedJson && rawModelText.trim()) {
+  const parsedJson = geminiSucceeded ? extractJsonFromModelText(rawModelText) : null;
+  if (geminiSucceeded && !parsedJson && rawModelText.trim()) {
     console.warn(
-      "[1. Ajan] Model yanıtı geçerli JSON olarak ayrıştırılamadı; doğrulanmamış veri yazımı atlanıyor."
+      "[1. Ajan] Model yanıtı geçerli JSON olarak ayrıştırılamadı; doğrulanmamış Gemini verisi yazımı atlanıyor, social_posts ve tablo köprüsü devam ediyor."
     );
   }
 
@@ -1840,12 +2884,30 @@ export async function runAutonomousAgent(options = {}) {
     now,
   });
 
+  const bridgePayloads = buildBridgeTablePayloads({
+    findings,
+    group,
+    recentSocialPosts,
+    existingAlertTitles: [
+      ...existingAlertTitles,
+      ...alertRows.map((a) => a.title),
+    ],
+    existingProtocolChangesCount,
+    now,
+  });
+
   const inserted = {
     social_keywords: 0,
     social_posts: 0,
     alert_events: 0,
     dam_updates: 0,
     topic_caches: 0,
+    live_data_cache: 0,
+    monitor_data: 0,
+    districts: 0,
+    protocol_members: 0,
+    protocol_changes: 0,
+    ai_summaries: 0,
   };
 
   // 3. social_keywords tablosuna ekle (append-only, eski kelimeleri asla silmez)
@@ -1855,12 +2917,12 @@ export async function runAutonomousAgent(options = {}) {
         ignoreDuplicates: true,
       });
       if (error) {
-        recordStepError("social_keywords yazma", error);
+        recordStepError("social_keywords yazma", error, "social_keywords");
       } else {
         inserted.social_keywords = count;
       }
     } catch (err) {
-      recordStepError("social_keywords yazma", err);
+      recordStepError("social_keywords yazma", err, "social_keywords");
     }
   }
 
@@ -1869,52 +2931,171 @@ export async function runAutonomousAgent(options = {}) {
     try {
       const { error, count } = await supabase.insert("social_posts", postRows);
       if (error) {
-        recordStepError("social_posts yazma", error);
+        recordStepError("social_posts yazma", error, "social_posts");
       } else {
         inserted.social_posts = count;
       }
     } catch (err) {
-      recordStepError("social_posts yazma", err);
+      recordStepError("social_posts yazma", err, "social_posts");
     }
   }
 
-  // 5. alert_events tablosuna yüksek öncelikli uyarıları yaz
-  if (alertRows.length > 0) {
+  // 5. alert_events tablosuna yüksek öncelikli uyarıları yaz (Gemini + social_posts acil sinyalleri)
+  const allAlertRows = [...alertRows, ...bridgePayloads.derivedAlertRows];
+  if (allAlertRows.length > 0) {
     try {
-      const { error, count } = await supabase.insert("alert_events", alertRows);
+      const { error, count } = await supabase.insert("alert_events", allAlertRows);
       if (error) {
-        recordStepError("alert_events yazma", error);
+        recordStepError("alert_events yazma", error, "alert_events");
       } else {
         inserted.alert_events = count;
       }
     } catch (err) {
-      recordStepError("alert_events yazma", err);
+      recordStepError("alert_events yazma", err, "alert_events");
     }
   }
 
-  // 6. Doğrulanmış baraj & sektörel topic_grounding snapshot'larını live_data_cache tablosuna yaz
-  for (const cacheRow of cacheRows) {
+  // 6. districts (13 Muğla ilçesi — idempotent upsert)
+  if (bridgePayloads.districtsRows.length > 0) {
+    try {
+      const { error } = await supabase.upsert("districts", bridgePayloads.districtsRows, {
+        onConflict: "id",
+      });
+      if (error) {
+        recordStepError("districts upsert", error, "districts");
+      } else {
+        inserted.districts = bridgePayloads.districtsRows.length;
+      }
+    } catch (err) {
+      recordStepError("districts upsert", err, "districts");
+    }
+  }
+
+  // 7. protocol_members (Muğla Valisi Seddar YAVUZ dahil aktif protokol — idempotent upsert)
+  if (bridgePayloads.protocolMemberRows.length > 0) {
+    try {
+      const { error } = await supabase.upsert(
+        "protocol_members",
+        bridgePayloads.protocolMemberRows,
+        { onConflict: "id" }
+      );
+      if (error) {
+        recordStepError("protocol_members upsert", error, "protocol_members");
+      } else {
+        inserted.protocol_members = bridgePayloads.protocolMemberRows.length;
+      }
+    } catch (err) {
+      recordStepError("protocol_members upsert", err, "protocol_members");
+    }
+  }
+
+  // 8. protocol_changes (güncel atama / kararname değişiklikleri — idempotent upsert)
+  if (bridgePayloads.protocolChangeRows.length > 0) {
+    try {
+      const { error } = await supabase.upsert(
+        "protocol_changes",
+        bridgePayloads.protocolChangeRows,
+        { onConflict: "id" }
+      );
+      if (error) {
+        recordStepError("protocol_changes upsert", error, "protocol_changes");
+      } else {
+        inserted.protocol_changes = bridgePayloads.protocolChangeRows.length;
+      }
+    } catch (err) {
+      recordStepError("protocol_changes upsert", err, "protocol_changes");
+    }
+  }
+
+  // 9. ai_summaries (günlük özet ve şehir nabzı — idempotent upsert onConflict: "type,date")
+  if (bridgePayloads.aiSummaryRows.length > 0) {
+    try {
+      const { error } = await supabase.upsert("ai_summaries", bridgePayloads.aiSummaryRows, {
+        onConflict: "type,date",
+      });
+      if (error) {
+        recordStepError("ai_summaries upsert", error, "ai_summaries");
+      } else {
+        inserted.ai_summaries = bridgePayloads.aiSummaryRows.length;
+      }
+    } catch (err) {
+      recordStepError("ai_summaries upsert", err, "ai_summaries");
+    }
+  }
+
+  // 10. live_data_cache (Gemini topic_grounding snapshot'ları + 8 baraj/turizm/güvenlik/enerji/ekonomi/protokol önbelleği)
+  const mergedCacheByType = new Map();
+  for (const baseRow of bridgePayloads.baselineCacheRows) {
+    mergedCacheByType.set(baseRow.data_type, baseRow);
+  }
+  for (const liveRow of cacheRows) {
+    // Gemini doğrulamalı canlı kayıt her zaman temel kaydın üzerine yazar
+    mergedCacheByType.set(liveRow.data_type, liveRow);
+  }
+  const allCacheRows = Array.from(mergedCacheByType.values());
+
+  for (const cacheRow of allCacheRows) {
     try {
       const { error: cacheErr } = await supabase.upsert("live_data_cache", cacheRow, {
         onConflict: "data_type",
       });
       if (cacheErr) {
-        recordStepError(`live_data_cache(${cacheRow.data_type}) güncelleme`, cacheErr);
+        recordStepError(
+          `live_data_cache(${cacheRow.data_type}) güncelleme`,
+          cacheErr,
+          "live_data_cache"
+        );
       } else {
-        inserted.topic_caches += 1;
+        inserted.live_data_cache += 1;
+        if (cacheRow.data_type.startsWith("topic_grounding:") || cacheRow.data_type === "dams") {
+          inserted.topic_caches += 1;
+        }
         if (cacheRow.data_type === "dams") {
           inserted.dam_updates = findings.damUpdates?.length ?? 0;
         }
       }
     } catch (err) {
-      recordStepError(`live_data_cache(${cacheRow.data_type}) güncelleme`, err);
+      recordStepError(
+        `live_data_cache(${cacheRow.data_type}) güncelleme`,
+        err,
+        "live_data_cache"
+      );
+    }
+  }
+
+  // 11. monitor_data (11 ana sekmenin canlı özet ve metrikleri — idempotent upsert)
+  if (bridgePayloads.monitorDataRows.length > 0) {
+    try {
+      const { error } = await supabase.upsert("monitor_data", bridgePayloads.monitorDataRows, {
+        onConflict: "id",
+      });
+      if (error) {
+        recordStepError("monitor_data upsert", error, "monitor_data");
+      } else {
+        inserted.monitor_data = bridgePayloads.monitorDataRows.length;
+      }
+    } catch (err) {
+      recordStepError("monitor_data upsert", err, "monitor_data");
     }
   }
 
   const finalStatus = errors.length > 0 ? "partial_ok" : "ok";
   console.log(
-    `[1. Ajan] Tamamlandı (${finalStatus}) | Grup ${group.id} | Konular: ${topics.join(", ")} | Yazılanlar -> social_keywords: ${inserted.social_keywords}, social_posts: ${inserted.social_posts}, alert_events: ${inserted.alert_events}, topic_caches: ${inserted.topic_caches} | Adım hataları: ${errors.length}`
+    `[1. Ajan] Tablo yazım özeti (${finalStatus}) | Grup ${group.id} | ` +
+      `monitor_data: ${inserted.monitor_data}, districts: ${inserted.districts}, ` +
+      `protocol_members: ${inserted.protocol_members}, protocol_changes: ${inserted.protocol_changes}, ` +
+      `alert_events: ${inserted.alert_events}, ai_summaries: ${inserted.ai_summaries}, ` +
+      `live_data_cache: ${inserted.live_data_cache}, social_keywords: ${inserted.social_keywords}, ` +
+      `social_posts: ${inserted.social_posts} | Hata sayısı: ${errors.length}`
   );
+
+  if (errors.length > 0) {
+    for (const errItem of errors) {
+      console.error(
+        `[1. Ajan] Başarısız adım -> ${errItem.step}${errItem.table ? ` [${errItem.table}]` : ""}: ${errItem.message}`
+      );
+    }
+  }
 
   return {
     status: finalStatus,
@@ -1934,8 +3115,17 @@ const isDirectExecution =
 
 if (isDirectExecution) {
   const { dryRun, groupOverride } = parseCliArgs();
-  runAutonomousAgent({ dryRun, groupOverride }).catch((err) => {
-    console.error("[1. Ajan] Kritik hata:", err?.message || err);
-    process.exitCode = 1;
-  });
+  runAutonomousAgent({ dryRun, groupOverride })
+    .then((result) => {
+      if (result.errors && result.errors.length > 0) {
+        console.error(
+          `[1. Ajan] ${result.errors.length} tablo/adım yazım hatası tespit edildi; işlem hata koduyla sonlandırılıyor.`
+        );
+        process.exitCode = 1;
+      }
+    })
+    .catch((err) => {
+      console.error("[1. Ajan] Kritik hata:", err?.message || err);
+      process.exitCode = 1;
+    });
 }

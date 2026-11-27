@@ -18,7 +18,11 @@ export type RealtimeTableName =
   | "social_keywords"
   | "alert_events"
   | "anomaly_alerts"
-  | "protocol_changes";
+  | "protocol_changes"
+  | "monitor_data"
+  | "districts"
+  | "protocol_members"
+  | "ai_summaries";
 
 export type RealtimeBroadcastEvent = "earthquake_alert" | "fire_alert";
 
@@ -59,6 +63,10 @@ const tableListeners: Record<RealtimeTableName, Set<TableChangeHandler>> = {
   alert_events: new Set(),
   anomaly_alerts: new Set(),
   protocol_changes: new Set(),
+  monitor_data: new Set(),
+  districts: new Set(),
+  protocol_members: new Set(),
+  ai_summaries: new Set(),
 };
 
 const broadcastListeners: Record<RealtimeBroadcastEvent, Set<BroadcastHandler>> = {
@@ -275,6 +283,50 @@ async function runHttpPollingTick() {
       }
     }
 
+    if (tableListeners.monitor_data.size > 0) {
+      const { data, error } = await supabase
+        .from("monitor_data")
+        .select("id, tab_key, title, metrics, summary, source, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(20);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rec = row as Record<string, unknown>;
+          if (sinceIso && typeof rec.updated_at === "string" && rec.updated_at <= sinceIso) {
+            continue;
+          }
+          dispatchTableEvent("monitor_data", {
+            eventType: "UPDATE",
+            table: "monitor_data",
+            schema: "public",
+            new: rec,
+          });
+        }
+      }
+    }
+
+    if (tableListeners.ai_summaries.size > 0) {
+      const { data, error } = await supabase
+        .from("ai_summaries")
+        .select("id, type, date, summary, generated_at")
+        .order("generated_at", { ascending: false })
+        .limit(5);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rec = row as Record<string, unknown>;
+          if (sinceIso && typeof rec.generated_at === "string" && rec.generated_at <= sinceIso) {
+            continue;
+          }
+          dispatchTableEvent("ai_summaries", {
+            eventType: "UPDATE",
+            table: "ai_summaries",
+            schema: "public",
+            new: rec,
+          });
+        }
+      }
+    }
+
     lastHttpPollIso = pollStartedIso;
   } catch {
     // HTTP polling hatası arayüzü kesmez; bir sonraki 60sn periyodunda tekrar dener
@@ -420,6 +472,26 @@ function ensureChannelConnected() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "protocol_changes" },
         (payload) => dispatchTableEvent("protocol_changes", payload as PostgresChangePayload)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "monitor_data" },
+        (payload) => dispatchTableEvent("monitor_data", payload as PostgresChangePayload)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "districts" },
+        (payload) => dispatchTableEvent("districts", payload as PostgresChangePayload)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "protocol_members" },
+        (payload) => dispatchTableEvent("protocol_members", payload as PostgresChangePayload)
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ai_summaries" },
+        (payload) => dispatchTableEvent("ai_summaries", payload as PostgresChangePayload)
       )
       .on("broadcast", { event: "earthquake_alert" }, (msg) =>
         dispatchBroadcastEvent("earthquake_alert", msg as { payload: Record<string, unknown> })

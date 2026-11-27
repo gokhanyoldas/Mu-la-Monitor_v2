@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+import { persistTopicGroundingToSupabase } from "./_supabaseBridge";
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -998,6 +999,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const payload = await executeTopicGrounding(body.topic, apiKey);
+    if (payload && typeof payload === "object" && "ok" in payload && payload.ok === true) {
+      const normalizedTopic = normalizeTopicKey(body.topic);
+      await persistTopicGroundingToSupabase(
+        normalizedTopic,
+        payload as unknown as Record<string, unknown>
+      );
+    }
     return sendJson(res, 200, payload);
   } catch (err) {
     if (isGeminiRateLimitError(err)) {
