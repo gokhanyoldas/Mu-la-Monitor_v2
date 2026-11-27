@@ -10,6 +10,7 @@ import {
   extractDamUpdatesFromNewsText,
   mergeDamIntelligence,
   formatShortTurkishDate,
+  writeLocalTopicCache,
 } from "@/services/topicGroundingService";
 import { WaterDamsPanel } from "@/components/dashboard/sections/EnvironmentSection";
 import { UnifiedIntelligenceProvider } from "@/contexts/UnifiedIntelligenceContext";
@@ -154,26 +155,23 @@ describe("Konu Bazlı Grounding ve Gerçek Baraj Verileri", () => {
   });
 
   it("renders WaterDamsPanel with verified 18.6 hm³ capacity, live grounded percentage, and honest source/date note (never 70.2 hm³ or fake hourly DSİ)", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        ok: true,
-        topic: "environment_dams",
-        fetchedAt: "2026-11-18T12:00:00Z",
-        damUpdates: [
-          {
-            damId: "mumcular",
-            damName: "Mumcular Barajı",
-            occupancyRate: 80,
-            sourceName: "Anter Haber",
-            sourceUrl: "https://anterhaber.com/mumcular-baraji-doluluk-80",
-            measuredAt: "2026-11-18T10:00:00Z",
-            confidence: "high",
-          },
-        ],
-        groundingSources: [{ uri: "https://anterhaber.com/mumcular-baraji-doluluk-80", title: "Anter Haber" }],
-      }),
-    } as Response);
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    writeLocalTopicCache("environment_dams", {
+      topic: "environment_dams",
+      fetchedAt: new Date().toISOString(),
+      damUpdates: [
+        {
+          damId: "mumcular",
+          damName: "Mumcular Barajı",
+          occupancyRate: 80,
+          sourceName: "Anter Haber",
+          sourceUrl: "https://anterhaber.com/mumcular-baraji-doluluk-80",
+          measuredAt: "2026-11-18T10:00:00Z",
+          confidence: "high",
+        },
+      ],
+      groundingSources: [{ uri: "https://anterhaber.com/mumcular-baraji-doluluk-80", title: "Anter Haber" }],
+    });
 
     try {
       renderWithProviders(<WaterDamsPanel />);
@@ -186,6 +184,7 @@ describe("Konu Bazlı Grounding ve Gerçek Baraj Verileri", () => {
       expect(screen.getByTestId("dam-source-note").textContent).toBe("Kaynak: Anter Haber • 18 Kas");
       expect(screen.queryByText(/70\.2 hm³/i)).toBeNull();
       expect(screen.queryByText(/saatlik/i)).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
     }

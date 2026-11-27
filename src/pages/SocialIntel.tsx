@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
 import { DashboardPanel } from "@/components/dashboard/DashboardPanel";
@@ -21,34 +21,115 @@ import { NewsDataCorrelation } from "@/components/social/NewsDataCorrelation";
 import { SourceReliability, calculateReliability } from "@/components/social/SourceReliability";
 import { WeeklyComparison, generateComparisonData } from "@/components/social/WeeklyComparison";
 import { LiveFeedIndicator } from "@/components/social/LiveFeedIndicator";
-import { relativeTime, detectRegion } from "@/lib/time-utils";
-import { SocialRegionMap, generateRegionMapData } from "@/components/social/SocialRegionMap";
+import { relativeTime } from "@/lib/time-utils";
+import { SocialRegionMap } from "@/components/social/SocialRegionMap";
 import { ProtocolMentionPanel, mentionsMember } from "@/components/social/ProtocolMentionPanel";
 import { MonitoredAccountsPanel } from "@/components/social/MonitoredAccountsPanel";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useUnifiedIntelligence } from "@/contexts/UnifiedIntelligenceContext";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useMonitorStore } from "@/store/useMonitorStore";
 
-type AnalysisItem = {
+export type AnalysisItem = {
   id?: string;
   platform: string;
   content: string;
   sentiment: string;
   sentiment_score: number;
+  sentiment_confidence: number | null;
+  district?: string;
+  category?: string;
+  entities: unknown;
   source_author: string;
   engagement_count: number;
   summary?: string;
   source_url?: string;
   region?: string;
   collected_at?: string;
+  published_at?: string;
+  analyzed_at?: string;
+  timestamp?: number;
   source_type?: string;
   source_instance?: string;
   verification_status?: string;
   verification_score?: number;
   corroboration_count?: number;
 };
+
+export function normalizeSocialPost(post: Record<string, unknown>): AnalysisItem {
+  const asText = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const district = asText(post.district) || asText(post.region);
+  const publishedAt = asText(post.published_at);
+  const collectedAt = asText(post.collected_at);
+  const analyzedAt = asText(post.analyzed_at);
+
+  const eventTimestamp = publishedAt || collectedAt || analyzedAt;
+  const parsedTimestamp = eventTimestamp ? Date.parse(eventTimestamp) : Number.NaN;
+
+  return {
+    id: asText(post.id),
+    platform: asText(post.platform) || "unknown",
+    content: asText(post.content) || "",
+    sentiment: asText(post.sentiment) || "neutral",
+    sentiment_score: typeof post.sentiment_score === "number" ? post.sentiment_score : 0,
+    sentiment_confidence: typeof post.sentiment_confidence === "number" ? post.sentiment_confidence : null,
+    district,
+    category: asText(post.category),
+    entities: post.entities ?? [],
+    source_author: asText(post.author) || "",
+    engagement_count: 0,
+    source_url: asText(post.url),
+    region: district,
+    collected_at: collectedAt,
+    published_at: publishedAt,
+    analyzed_at: analyzedAt,
+    timestamp: Number.isFinite(parsedTimestamp) ? parsedTimestamp : undefined,
+    source_type: asText(post.source_type),
+    source_instance: asText(post.source_instance),
+    verification_status: asText(post.verification_status) || "unverified",
+    verification_score: typeof post.verification_score === "number" ? post.verification_score : 0,
+    corroboration_count: typeof post.corroboration_count === "number" ? post.corroboration_count : 0,
+  };
+}
+
+const dateRangeMs: Record<SocialFilters["dateRange"], number> = {
+  all: Number.POSITIVE_INFINITY,
+  "1h": 60 * 60 * 1000,
+  "6h": 6 * 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+};
+
+export function filterSocialAnalyses(
+  analyses: AnalysisItem[],
+  filters: SocialFilters,
+  protocolFilter: string | null,
+  now: Date | number = Date.now(),
+): AnalysisItem[] {
+  const nowMs = now instanceof Date ? now.getTime() : now;
+  const maxAge = dateRangeMs[filters.dateRange];
+  const keyword = filters.keyword.trim().toLocaleLowerCase("tr-TR");
+
+  return analyses.filter((item) => {
+    if (filters.platform !== "all" && item.platform !== filters.platform) return false;
+    if (filters.sentiment !== "all" && item.sentiment !== filters.sentiment) return false;
+    if (filters.region && item.region !== filters.region) return false;
+    if (maxAge !== Number.POSITIVE_INFINITY) {
+      const timestamp = item.timestamp ?? Number.NaN;
+      const age = nowMs - timestamp;
+      if (!Number.isFinite(timestamp) || age < 0 || age > maxAge) return false;
+    }
+    if (keyword) {
+      const searchable = `${item.content} ${item.category ?? ""} ${JSON.stringify(item.entities)}`
+        .toLocaleLowerCase("tr-TR");
+      if (!searchable.includes(keyword)) return false;
+    }
+    if (protocolFilter && !mentionsMember(item.content, protocolFilter)) return false;
+    return true;
+  });
+}
 
 type IntelSection = "feed" | "osint";
 
@@ -57,8 +138,12 @@ const platformLabels: Record<string, string> = {
   reddit: "Reddit",
   eksisozluk: "Ekşi Sözlük",
   news: "Haberler",
+  google_news: "Google News",
+  local_rss: "Yerel RSS",
+  email_alerts: "Haber Alarmı",
   bluesky: "Bluesky",
   mastodon: "Mastodon",
+  youtube: "YouTube",
   web: "Web",
   all: "Tümü",
 };
@@ -75,7 +160,6 @@ const platformIcons: Record<string, React.ReactNode> = {
 const SocialIntel = () => {
   const { lang } = useTranslation();
   const { isAuthenticated } = useAuth();
-  const { ingestedDistrictPosts } = useUnifiedIntelligence();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [activeSection, setActiveSection] = useState<IntelSection>("feed");
@@ -88,6 +172,8 @@ const SocialIntel = () => {
   }, [searchParams]);
   const [keywords, setKeywords] = useState<string[]>(["Muğla", "Bodrum", "Fethiye", "Marmaris"]);
   const [analyses, setAnalyses] = useState<AnalysisItem[]>([]);
+  const [dataState, setDataState] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const [dataError, setDataError] = useState<string | null>(null);
   const [isCollecting, setIsCollecting] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -101,152 +187,54 @@ const SocialIntel = () => {
   });
   const { toast } = useToast();
 
-  // Map social_posts row → AnalysisItem
-  const mapPostToItem = useCallback((p: Record<string, unknown>): AnalysisItem => ({
-    id: p.id as string,
-    platform: p.platform as string,
-    content: p.content as string,
-    sentiment: (p.sentiment as string) || "neutral",
-    sentiment_score: (p.sentiment_confidence as number) || 0,
-    source_author: (p.author as string) || "",
-    engagement_count: 0,
-    summary: undefined,
-    source_url: (p.url as string) || undefined,
-    region: detectRegion(p.content as string) || (p.region as string) || undefined,
-    collected_at: (p.published_at as string) || (p.collected_at as string) || undefined,
-    source_type: (p.source_type as string) || undefined,
-    source_instance: (p.source_instance as string) || undefined,
-    verification_status: (p.verification_status as string) || "unverified",
-    verification_score: (p.verification_score as number) ?? 0,
-    corroboration_count: (p.corroboration_count as number) ?? 0,
-  }), []);
-
-  // Load existing posts directly from social_posts table
+  // Load the canonical social_posts dataset once for all Social UI panels.
   const loadFromDB = useCallback(async () => {
+    setDataState("loading");
+    setDataError(null);
     try {
       const { data, error } = await supabase
         .from("social_posts")
-        .select("id,platform,content,author,url,published_at,collected_at,sentiment,sentiment_confidence,keywords_matched,region,source_type,source_instance,verification_status,verification_score,corroboration_count")
+        .select("id,platform,content,author,url,published_at,collected_at,analyzed_at,sentiment,sentiment_score,sentiment_confidence,district,category,entities,region,keywords_matched,source_type,source_instance,verification_status,verification_score,corroboration_count")
         .order("published_at", { ascending: false })
         .limit(200);
-      if (!error && data && data.length > 0) {
-        const mapped = data.map(mapPostToItem);
-        const nowIso = new Date().toISOString();
-        setAnalyses(mapped);
-        setLastUpdate(new Date(nowIso));
-        const pos = mapped.filter((m) => m.sentiment === "positive").length;
-        const neg = mapped.filter((m) => m.sentiment === "negative").length;
-        useMonitorStore.getState().setSocialFeed({
-          items: mapped.slice(0, 60).map((m, idx) => ({
-            id: m.id || `social-${idx}`,
-            platform: m.platform,
-            content: m.content,
-            sentiment: m.sentiment,
-            districtName: m.region,
-            author: m.source_author,
-            url: m.source_url,
-            publishedAt: m.collected_at || nowIso,
-          })),
-          totalMentions: mapped.length,
-          positiveRatio: mapped.length > 0 ? Math.round((pos / mapped.length) * 100) : 0,
-          negativeRatio: mapped.length > 0 ? Math.round((neg / mapped.length) * 100) : 0,
-          lastUpdatedAt: nowIso,
-        });
+      if (error) throw error;
+
+      const mapped = (data ?? []).map((post) => normalizeSocialPost(post as Record<string, unknown>));
+      setAnalyses(mapped);
+      if (mapped.length === 0) {
+        setDataState("empty");
+        setLastUpdate(null);
         return;
       }
-    } catch {
-      // fallback to verified feed below
+
+      const nowIso = new Date().toISOString();
+      setDataState("ready");
+      setLastUpdate(new Date(nowIso));
+      const pos = mapped.filter((item) => item.sentiment === "positive").length;
+      const neg = mapped.filter((item) => item.sentiment === "negative").length;
+      useMonitorStore.getState().setSocialFeed({
+        items: mapped.slice(0, 60).map((item, idx) => ({
+          id: item.id || `social-${idx}`,
+          platform: item.platform,
+          content: item.content,
+          sentiment: item.sentiment,
+          districtName: item.region,
+          author: item.source_author,
+          url: item.source_url,
+          publishedAt: item.published_at || item.collected_at || "",
+        })),
+        totalMentions: mapped.length,
+        positiveRatio: Math.round((pos / mapped.length) * 100),
+        negativeRatio: Math.round((neg / mapped.length) * 100),
+        lastUpdatedAt: nowIso,
+      });
+    } catch (error) {
+      setAnalyses([]);
+      setLastUpdate(null);
+      setDataState("error");
+      setDataError(error instanceof Error ? error.message : "Social posts could not be loaded.");
     }
-
-    // Doğrulanmış Muğla basın & kamuoyu başlangıç sinyalleri (boş veya gecikmeli DB durumunda göstergelerin canlı çalışması için)
-    const verifiedInitialFeed: AnalysisItem[] = [
-      {
-        platform: "news",
-        content: "Muğla genelinde turizm hazırlıkları ve çevre koruma projeleri kapsamında yeni sahil düzenleme çalışmaları başlatıldı.",
-        sentiment: "positive",
-        sentiment_score: 0.88,
-        source_author: "Muğla Gazetesi",
-        engagement_count: 142,
-        source_url: "https://muglagazetesi.com.tr",
-        region: "Menteşe",
-        collected_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "news",
-        content: "Bodrum Yarımadası genelinde içme suyu iletim hatlarındaki altyapı bakım ve yenileme çalışmaları takvime uygun devam ediyor.",
-        sentiment: "neutral",
-        sentiment_score: 0.75,
-        source_author: "Bodrum Haber",
-        engagement_count: 98,
-        source_url: "https://bodrumhaber.com",
-        region: "Bodrum",
-        collected_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "twitter",
-        content: "Fethiye Ölüdeniz ve Babadağ bölgesinde yamaç paraşütü sezonu yoğun ilgiyle devam ediyor, uçuş güvenlik denetimleri artırıldı.",
-        sentiment: "positive",
-        sentiment_score: 0.92,
-        source_author: "@fethiyerehberi",
-        engagement_count: 230,
-        region: "Fethiye",
-        collected_at: new Date(Date.now() - 50 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "news",
-        content: "Marmaris Körfezi ve İçmeler sahil şeridinde deniz temizliği ve çevre denetimleri belediye ekiplerince gerçekleştirildi.",
-        sentiment: "positive",
-        sentiment_score: 0.85,
-        source_author: "Marmaris Manşet",
-        engagement_count: 110,
-        region: "Marmaris",
-        collected_at: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "reddit",
-        content: "D-400 Karayolu Sakar Geçidi mevkisinde asfalt bakım çalışmaları nedeniyle trafik tek şeritten kontrollü veriliyor.",
-        sentiment: "negative",
-        sentiment_score: 0.68,
-        source_author: "r/mugla",
-        engagement_count: 55,
-        region: "Ula",
-        collected_at: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "news",
-        content: "Milas zeytinyağı coğrafi işaretli ürünlerinin uluslararası tanıtımı için yeni gastronomi ve kültür rotaları oluşturuluyor.",
-        sentiment: "positive",
-        sentiment_score: 0.94,
-        source_author: "Milas Çizgi",
-        engagement_count: 87,
-        region: "Milas",
-        collected_at: new Date(Date.now() - 120 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "eksisozluk",
-        content: "Datça Yarımadası badem çiçeği dönemi ve bahar yürüyüş rotaları doğaseverlerin yoğun ilgisiyle karşılanıyor.",
-        sentiment: "positive",
-        sentiment_score: 0.89,
-        source_author: "eksisozluk",
-        engagement_count: 175,
-        region: "Datça",
-        collected_at: new Date(Date.now() - 150 * 60 * 1000).toISOString(),
-      },
-      {
-        platform: "news",
-        content: "Köyceğiz Gölü koruma havzasında sazlık alanlar ve yaban hayatı izleme kameralarıyla düzenli olarak takip ediliyor.",
-        sentiment: "neutral",
-        sentiment_score: 0.80,
-        source_author: "Köyceğiz Haber",
-        engagement_count: 64,
-        region: "Köyceğiz",
-        collected_at: new Date(Date.now() - 180 * 60 * 1000).toISOString(),
-      },
-    ];
-
-    setAnalyses(verifiedInitialFeed);
-    setLastUpdate(new Date());
-  }, [mapPostToItem]);
+  }, []);
 
   // Collect and analyze data
   const collectData = useCallback(async () => {
@@ -261,7 +249,6 @@ const SocialIntel = () => {
       // After collection completes, reload ALL posts from DB (historical + new batch).
       // This avoids replacing the full history with only the just-collected slice.
       await loadFromDB();
-      setLastUpdate(new Date());
 
       // Surface critical alerts
       const criticals = result.alerts.filter(a => a.severity === "critical");
@@ -299,16 +286,15 @@ const SocialIntel = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const mapPostToItemRef = useRef(mapPostToItem);
-  mapPostToItemRef.current = mapPostToItem;
-
   // Tekil singleton kanal üzerinden yeni paylaşımları dinle (bağımlılık dizisi sabit: [])
   useEffect(() => {
     return subscribeToRealtimeTable("social_posts", (payload) => {
       const newPost = (payload.new ?? {}) as Record<string, unknown>;
-      const mapped = mapPostToItemRef.current(newPost);
+      const mapped = normalizeSocialPost(newPost);
       const nowIso = new Date().toISOString();
-      setAnalyses((prev) => [mapped, ...prev]);
+      setAnalyses((prev) => [mapped, ...prev.filter((item) => item.id !== mapped.id)].slice(0, 200));
+      setDataState("ready");
+      setDataError(null);
       setLastUpdate(new Date(nowIso));
       useMonitorStore.getState().prependSocialPost({
         id: mapped.id || `rt-${Date.now()}`,
@@ -318,7 +304,7 @@ const SocialIntel = () => {
         districtName: mapped.region,
         author: mapped.source_author,
         url: mapped.source_url,
-        publishedAt: mapped.collected_at || nowIso,
+        publishedAt: mapped.published_at || mapped.collected_at || "",
       });
     });
   }, []);
@@ -332,34 +318,9 @@ const SocialIntel = () => {
 
   // Filtered results
 
-  const mergedAnalyses = useMemo(() => {
-    const ingestedItems: AnalysisItem[] = ingestedDistrictPosts.map((p) => ({
-      platform: p.platform,
-      content: p.content,
-      sentiment: p.sentiment,
-      sentiment_score: 0.85,
-      source_author: p.author,
-      engagement_count: 1,
-      source_url: p.url,
-      region: detectRegion(p.content) || p.districtSlug,
-      collected_at: p.published_at,
-    }));
-    return [...ingestedItems, ...analyses];
-  }, [ingestedDistrictPosts, analyses]);
-
   const filtered = useMemo(() => {
-    return mergedAnalyses.filter(item => {
-      if (filters.platform !== "all" && item.platform !== filters.platform) return false;
-      if (filters.sentiment !== "all" && item.sentiment !== filters.sentiment) return false;
-      if (filters.region && item.region !== filters.region) return false;
-      if (filters.keyword && !item.content.toLowerCase().includes(filters.keyword.toLowerCase())) return false;
-      // Protocol member filter (set when user clicks a member in ProtocolMentionPanel)
-      if (protocolFilter) {
-        if (!mentionsMember(item.content, protocolFilter)) return false;
-      }
-      return true;
-    });
-  }, [mergedAnalyses, filters, protocolFilter]);
+    return filterSocialAnalyses(analyses, filters, protocolFilter);
+  }, [analyses, filters, protocolFilter]);
 
   // Stats
   const stats = useMemo(() => {
@@ -379,9 +340,6 @@ const SocialIntel = () => {
     () => calculateReliability(analyses.map(a => ({ author: a.source_author, platform: a.platform, sentiment: a.sentiment }))),
     [analyses]
   );
-
-  // Region map data
-  const regionMapData = useMemo(() => generateRegionMapData(filtered), [filtered]);
 
   // Real Weekly comparison from Supabase database
   const [dbWeeklyHistory, setDbWeeklyHistory] = useState<{
@@ -526,6 +484,16 @@ const SocialIntel = () => {
 
         {/* Filter Panel */}
         <FilterPanel filters={filters} onChange={setFilters} activeCount={filtered.length} />
+        {dataState === "error" && (
+          <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-[10px] font-mono text-destructive">
+            social_posts verileri yüklenemedi. {dataError}
+          </div>
+        )}
+        {dataState === "empty" && (
+          <div className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2 text-[10px] font-mono text-muted-foreground">
+            social_posts sorgusu başarılı, ancak tabloda gösterilecek kayıt yok.
+          </div>
+        )}
 
         {/* Main grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
@@ -533,8 +501,8 @@ const SocialIntel = () => {
           <div className="lg:col-span-2 space-y-4">
             {/* Trend Chart */}
             <DashboardPanel title="📈 Mention & Duygu Trendi" subtitle="Zaman serisi">
-              <SentimentHistoryChart />
-              <NewsDataCorrelation />
+              <SentimentHistoryChart analyses={filtered} />
+              <NewsDataCorrelation analyses={filtered} />
               <TrendChart data={trendData} title="Mevcut Oturum Trendi" />
             </DashboardPanel>
 
@@ -543,7 +511,13 @@ const SocialIntel = () => {
               <div className="space-y-2 max-h-[500px] overflow-y-auto">
                 {filtered.length === 0 ? (
                   <div className="text-center py-6 text-[10px] font-mono text-muted-foreground/50">
-                    {isCollecting ? "Veriler toplanıyor..." : "Filtre kriterlerine uygun sonuç bulunamadı"}
+                    {isCollecting || dataState === "loading"
+                      ? "Veriler yükleniyor..."
+                      : dataState === "error"
+                      ? "Veritabanı hatası nedeniyle akış gösterilemiyor."
+                      : dataState === "empty"
+                      ? "social_posts tablosunda henüz kayıt yok."
+                      : "Filtre kriterlerine uygun sonuç bulunamadı"}
                   </div>
                 ) : (
                   filtered.map((item, i) => (
@@ -581,8 +555,7 @@ const SocialIntel = () => {
                             item.sentiment === "negative" ? "bg-red-500/10 text-red-500" :
                             "bg-yellow-500/10 text-yellow-500"
                           }`}>
-                            {item.sentiment === "positive" ? "+" : item.sentiment === "negative" ? "−" : "○"}
-                            {Math.round(item.sentiment_score * 100)}%
+                            Skor {item.sentiment_score.toFixed(2)}
                           </span>
                           {item.source_url && (
                             <a href={item.source_url} target="_blank" rel="noopener noreferrer"
@@ -602,13 +575,14 @@ const SocialIntel = () => {
                           </span>
                         </div>
                       </div>
-                      {item.collected_at && (
+                      {(item.published_at || item.collected_at || item.analyzed_at) && (
                         <span className="text-[8px] font-mono text-muted-foreground/40 mt-1 block">
-                          {relativeTime(item.collected_at, lang)}
+                          {relativeTime(item.published_at || item.collected_at || item.analyzed_at, lang)}
                         </span>
                       )}
                       <div className="flex gap-2 text-[8px] font-mono text-muted-foreground/50 mt-1">
-                        <span>Güven: %{Math.round((item.verification_score ?? 0) * 100)}</span>
+                        <span>Duygu güveni: {item.sentiment_confidence === null ? "—" : `%${Math.round(item.sentiment_confidence * 100)}`}</span>
+                        <span>Teyit puanı: %{Math.round((item.verification_score ?? 0) * 100)}</span>
                         <span>Bağımsız destek: {item.corroboration_count ?? 0}</span>
                       </div>
                     </div>
@@ -644,7 +618,7 @@ const SocialIntel = () => {
             {/* Source Reliability */}
             {/* Region Map */}
             <DashboardPanel title="📍 Bölge Haritası" subtitle="İlçe bazlı mention">
-              <SocialRegionMap data={regionMapData} />
+              <SocialRegionMap analyses={filtered} />
             </DashboardPanel>
 
             <DashboardPanel title="🛡️ Kaynak Güvenilirlik" subtitle="Puan tablosu">

@@ -3,6 +3,7 @@
 import { getCorsHeaders, handleCorsPreflight } from '../_shared/cors.ts';
 import { authorizeRequest, buildRateLimitResponse, checkRateLimit } from '../_shared/auth.ts';
 import { readLiveCache, writeLiveCache } from '../_shared/cache.ts';
+import { mergeTrafficHotspots, type TrafficHotspot } from '../_shared/traffic.ts';
 
 const MUGLA_LAT = 37.2153;
 const MUGLA_LON = 28.3636;
@@ -50,13 +51,27 @@ async function fetchTomTomSegment(apiKey: string, lat: number, lon: number): Pro
 
 async function fetchTrafficDensity() {
   const apiKey = Deno.env.get('TOMTOM_API_KEY') ?? '';
+  const previousCache = await readLiveCache<Record<string, unknown>>('traffic_density', 0).catch(() => null);
+  const previousData = previousCache?.data;
+  const previousHotspots = Array.isArray(previousData?.hotspots)
+    ? previousData.hotspots as TrafficHotspot[]
+    : [];
+  const previousFetchedAt = previousCache?.fetched_at
+    ?? (typeof previousData?.fetched_at === 'string' ? previousData.fetched_at : null);
+
   if (!apiKey) {
-    // anahtar yoksa canli veri uretilemez — sabit bir uyari döndur
     console.error('[traffic] TOMTOM_API_KEY secret tanimli degil');
+    const merged = mergeTrafficHotspots(TRAFFIC_POINTS, [], previousHotspots, previousFetchedAt ?? '');
     return {
-      hotspots: [],
-      source: 'TomTom Traffic Flow — TOMTOM_API_KEY tanimsiz',
-      updated_at: new Date().toISOString(),
+      ...merged,
+      source: 'TomTom Traffic Flow — son başarılı önbellek',
+      fetched_at: previousFetchedAt,
+      updated_at: previousFetchedAt,
+      status: 'partial',
+      stale: true,
+      partial: true,
+      is_real_time: false,
+      preserve_cache: true,
       error: 'TOMTOM_API_KEY secret eksik',
     };
   }
@@ -79,13 +94,37 @@ async function fetchTrafficDensity() {
     }),
   );
 
-  const hotspots = results.filter((r): r is NonNullable<typeof r> => r !== null);
+  const fetchedAt = new Date().toISOString();
+  const freshHotspots = results
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .map((hotspot) => ({ ...hotspot, fetched_at: fetchedAt }));
+  const merged = mergeTrafficHotspots(TRAFFIC_POINTS, freshHotspots, previousHotspots, fetchedAt);
+  const freshCount = merged.coverage.fresh;
+
+  if (freshCount === 0) {
+    return {
+      ...merged,
+      source: 'TomTom Traffic Flow — son başarılı önbellek',
+      fetched_at: previousFetchedAt,
+      updated_at: previousFetchedAt,
+      status: 'partial',
+      stale: true,
+      partial: true,
+      is_real_time: false,
+      preserve_cache: true,
+      error: 'TomTom bu yenilemede hiçbir ilçe için güncel örnek döndürmedi',
+    };
+  }
 
   return {
-    hotspots,
-    source: 'TomTom Traffic Flow (canli, 30 sn tazeleme)',
-    updated_at: new Date().toISOString(),
-    is_real_time: true,
+    ...merged,
+    source: 'TomTom Traffic Flow (canlı, 30 sn tazeleme)',
+    fetched_at: fetchedAt,
+    updated_at: fetchedAt,
+    status: freshCount === TRAFFIC_POINTS.length ? 'live' : 'partial',
+    stale: false,
+    partial: freshCount < TRAFFIC_POINTS.length,
+    is_real_time: freshCount === TRAFFIC_POINTS.length,
   };
 }
 
@@ -447,9 +486,13 @@ Deno.serve(async (req: Request) => {
 
     try {
       const data = await handler();
-      writeLiveCache(type, data, ttl, (data as any)?.source)
-        .catch((e) => console.error('[reference-data] cache write:', e));
-      return new Response(JSON.stringify({ data }), {
+      const preserveCache = Boolean((data as { preserve_cache?: boolean })?.preserve_cache);
+      if (!preserveCache) {
+        writeLiveCache(type, data, ttl, (data as { source?: string })?.source)
+          .catch((e) => console.error('[reference-data] cache write:', e));
+      }
+      const { preserve_cache: _preserveCache, ...responseData } = data as Record<string, unknown>;
+      return new Response(JSON.stringify({ data: responseData }), {
         headers: { ...cors, 'Content-Type': 'application/json' },
       });
     } catch (fetchErr) {

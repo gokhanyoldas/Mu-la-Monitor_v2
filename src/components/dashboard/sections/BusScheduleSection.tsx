@@ -23,7 +23,7 @@ type BusRoute = {
   return_weekday?: string[]; return_saturday?: string[]; return_sunday?: string[];
   return_price?: string;
   source?: string;
-  dataMode?: DataOrigin;
+  dataMode?: DataOrigin | "partial";
 };
 
 const mockRoutes: BusRoute[] = [
@@ -57,8 +57,8 @@ export const BusScheduleSection = () => {
   const [filter, setFilter] = useState<"all" | "ilçe" | "şehirlerarası">("all");
   const [direction, setDirection] = useState<"gidiş" | "dönüş">("gidiş");
   const [loading, setLoading] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
-  const [dataMode, setDataMode] = useState<DataOrigin>("reference");
+  const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
+  const [dataMode, setDataMode] = useState<DataOrigin | "partial">("reference");
 
   const fetchLiveData = useCallback(async () => {
     setLoading(true);
@@ -92,7 +92,7 @@ export const BusScheduleSection = () => {
             return_sunday: (r.return_sunday as string[]) ?? [],
             return_price: r.return_price ? String(r.return_price) : undefined,
             source: r.source ? String(r.source) : "MUTTAŞ canlı veri",
-            dataMode: "live",
+            dataMode: data.partial || data.stale || data.status === "partial" ? "partial" : "live",
           };
         });
         // Backend şehirlerarası döndürmediyse (henüz deploy edilmemiş olabilir),
@@ -102,13 +102,17 @@ export const BusScheduleSection = () => {
           ? normalized
           : [...normalized, ...mockRoutes.filter((r) => r.type === "şehirlerarası")];
         setRoutes(merged);
-        setDataMode("live");
-        setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
+        setDataMode(data.partial || data.stale || data.status === "partial" ? "partial" : "live");
+        setLastFetchedAt(
+          typeof data.fetched_at === "string"
+            ? data.fetched_at
+            : typeof data.updated_at === "string" ? data.updated_at : null,
+        );
       } else {
         // Edge çağrısı boş/başarısız — kalıcı cache'ten son-bilinen veriyi oku
         // (mockRoutes'a düşmek yerine en son canlı snapshot gösterilir).
         const { data: cache } = await supabase.from("live_data_cache")
-          .select("data").eq("data_type", "bus_schedule").maybeSingle();
+          .select("data, fetched_at").eq("data_type", "bus_schedule").maybeSingle();
         const cached = cache?.data as { routes?: Record<string, unknown>[] } | null;
         if (cached?.routes?.length) {
           const normalized = cached.routes.map((r: Record<string, unknown>) => {
@@ -136,7 +140,7 @@ export const BusScheduleSection = () => {
           if (normalized.length) {
             setRoutes(normalized);
             setDataMode("cached");
-            setLastUpdate(new Date().toLocaleTimeString("tr-TR", { hour12: false }));
+            setLastFetchedAt(cache?.fetched_at ?? null);
           }
         }
       }
@@ -159,11 +163,14 @@ export const BusScheduleSection = () => {
     <DashboardPanel
       title="Otobüs Seferleri"
       icon={<Bus size={14} />}
-      badge={dataMode === "live" ? "CANLI" : dataMode === "cached" ? "ÖNBELLEK" : "REFERANS"}
-      badgeVariant={dataMode === "live" ? "live" : dataMode === "cached" ? "info" : "warning"}
+      badge={dataMode === "partial" ? (isEn ? "PARTIAL DATA" : "KISMİ VERİ") : dataMode === "live" ? "CANLI" : dataMode === "cached" ? "ÖNBELLEK" : "REFERANS"}
+      badgeVariant={dataMode === "live" ? "live" : dataMode === "cached" || dataMode === "partial" ? "info" : "warning"}
       count={filtered.length}
     >
-      <DataOriginBadge origin={dataMode} className="mb-2" />
+      <DataOriginBadge origin={dataMode === "partial" ? "cached" : dataMode} className="mb-2" />
+      <p className="text-[8px] font-mono text-muted-foreground mb-2">
+        {isEn ? "Source" : "Kaynak"}: {routes.find((route) => route.source)?.source ?? (dataMode === "reference" ? (isEn ? "Reference schedule" : "Referans sefer planı") : "MUTTAŞ")}
+      </p>
       {/* Filters + Direction toggle */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1">
@@ -202,7 +209,11 @@ export const BusScheduleSection = () => {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          {lastUpdate && <span className="text-[8px] font-mono text-muted-foreground">{lastUpdate}</span>}
+          {lastFetchedAt && !Number.isNaN(new Date(lastFetchedAt).getTime()) && (
+            <span className="text-[8px] font-mono text-muted-foreground">
+              {isEn ? "Fetched" : "Alındı"}: {new Date(lastFetchedAt).toLocaleString(isEn ? "en-US" : "tr-TR")}
+            </span>
+          )}
           <button
             onClick={fetchLiveData}
             disabled={loading}
@@ -245,7 +256,7 @@ export const BusScheduleSection = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] text-muted-foreground">{route.carrier}</span>
-                  <DataOriginBadge origin={route.dataMode ?? dataMode} />
+                  <DataOriginBadge origin={route.dataMode === "partial" ? "cached" : route.dataMode ?? (dataMode === "partial" ? "cached" : dataMode)} />
                   <span className="text-[8px] text-muted-foreground">•</span>
                   <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
                     <Clock size={8} /> {displayDuration}

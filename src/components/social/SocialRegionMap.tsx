@@ -1,13 +1,8 @@
 // src/components/social/SocialRegionMap.tsx
-// Live heat map with crisis pulse animation
-// - Self-contained: queries social_posts directly with Supabase real-time subscription
-// - Crisis districts (yangın, kaza, duman, sel, deprem…) pulse red
-// - Non-crisis negative → static red; positive → green; neutral → yellow
+// Presentational heat map for the parent-filtered social analysis dataset.
+// Crisis districts pulse red; other districts use their aggregate sentiment.
 
-import { useMemo, useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { subscribeToRealtimeTable } from "@/lib/supabase-realtime-singleton";
-import { Loader2 } from "lucide-react";
+import { useMemo } from "react";
 
 // ─── Crisis keywords ──────────────────────────────────────────────────────────
 const CRISIS_KEYWORDS = [
@@ -61,12 +56,10 @@ interface RegionPoint {
   sentiment: "positive" | "negative" | "neutral";
 }
 
-interface PostRow {
-  platform: string;
+interface AnalysisForMap {
   content: string;
-  sentiment: string | null;
-  region?: string | null;
-  published_at?: string | null;
+  sentiment: string;
+  region?: string;
 }
 
 interface RegionStats {
@@ -77,105 +70,28 @@ interface RegionStats {
   hasCrisis: boolean;
 }
 
-// ─── detectRegion ─────────────────────────────────────────────────────────────
-// Lightweight inline version to avoid circular import
-function detectRegionLocal(content: string): string | null {
-  const lower = content.toLowerCase();
-  const map: [string, string][] = [
-    ["bodrum", "Bodrum"],
-    ["marmaris", "Marmaris"],
-    ["fethiye", "Fethiye"],
-    ["datça", "Datça"],
-    ["dalaman", "Dalaman"],
-    ["milas", "Milas"],
-    ["köyceğiz", "Köyceğiz"],
-    ["ortaca", "Ortaca"],
-    ["menteşe", "Menteşe"],
-    ["yatağan", "Yatağan"],
-    ["seydikemer", "Seydikemer"],
-    ["kavaklıdere", "Kavaklıdere"],
-    ["muğla", "Muğla Merkez"],
-  ];
-  for (const [kw, name] of map) {
-    if (lower.includes(kw)) return name;
-  }
-  return null;
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface SocialRegionMapProps {
-  /** If provided, uses this static data instead of live query */
-  data?: RegionPoint[];
+  analyses: AnalysisForMap[];
 }
 
-export const SocialRegionMap = ({ data: staticData }: SocialRegionMapProps) => {
-  const [posts, setPosts] = useState<PostRow[]>([]);
-  const [loading, setLoading] = useState(true);
+export const SocialRegionMap = ({ analyses }: SocialRegionMapProps) => {
   const W = 320;
   const H = 180;
 
-  // ── Live query ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    // Initial fetch
-    supabase
-      .from("social_posts")
-      .select("platform,content,sentiment,region,published_at")
-      .order("published_at", { ascending: false })
-      .limit(500)
-      .then(({ data }) => {
-        setPosts((data as PostRow[]) ?? []);
-        setLoading(false);
-      });
-
-    // Tekil singleton kanal üzerinden canlı sosyal akışı dinle
-    return subscribeToRealtimeTable("social_posts", (payload) => {
-      if (payload.new) {
-        setPosts((prev) => [payload.new as unknown as PostRow, ...prev.slice(0, 499)]);
-      }
-    });
-  }, []);
-
-  // ── Aggregate by district ──────────────────────────────────────────────────
-  const livePoints: RegionPoint[] = useMemo(() => {
-    const source = posts;
-    const regionMap = new Map<string, RegionStats>();
-
-    for (const p of source) {
-      const region = p.region || detectRegionLocal(p.content);
-      if (!region || !DISTRICT_COORDS[region]) continue;
-      if (!regionMap.has(region)) regionMap.set(region, { count: 0, pos: 0, neg: 0, neu: 0, hasCrisis: false });
-      const entry = regionMap.get(region)!;
-      entry.count++;
-      if (p.sentiment === "positive") entry.pos++;
-      else if (p.sentiment === "negative") entry.neg++;
-      else entry.neu++;
-      if (isCrisis(p.content)) entry.hasCrisis = true;
-    }
-
-    return Array.from(regionMap.entries()).map(([name, d]) => {
-      const coords = DISTRICT_COORDS[name];
-      let sentiment: "positive" | "negative" | "neutral" = "neutral";
-      if (d.hasCrisis || d.neg > d.pos) sentiment = "negative";
-      else if (d.pos > d.neg && d.pos > d.neu) sentiment = "positive";
-      return { name, lat: coords.lat, lng: coords.lng, mentionCount: d.count, sentiment };
-    });
-  }, [posts]);
-
-  // Use live data if we have it, fall back to static prop
-  const activeData = livePoints.length > 0 ? livePoints : (staticData ?? []);
+  const activeData = useMemo(() => generateRegionMapData(analyses), [analyses]);
   const maxCount = Math.max(...activeData.map(p => p.mentionCount), 1);
 
   // Crisis districts set (for pulsing)
   const crisisDistricts = useMemo(() => {
     const set = new Set<string>();
-    for (const p of posts) {
+    for (const p of analyses) {
       if (!isCrisis(p.content)) continue;
-      const region = p.region || detectRegionLocal(p.content);
-      if (region) set.add(region);
+      if (p.region) set.add(p.region);
     }
     return set;
-  }, [posts]);
+  }, [analyses]);
 
   const getColor = (p: RegionPoint) => {
     if (crisisDistricts.has(p.name)) return "#ef4444";
@@ -188,11 +104,6 @@ export const SocialRegionMap = ({ data: staticData }: SocialRegionMapProps) => {
 
   return (
     <div className="relative">
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
-        </div>
-      )}
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" style={{ maxHeight: "180px" }}>
         {/* Background */}
         <rect width={W} height={H} fill="hsl(var(--muted))" opacity={0.08} rx={8} />
@@ -280,12 +191,10 @@ export const SocialRegionMap = ({ data: staticData }: SocialRegionMapProps) => {
           <text x={11} y={43} fontSize={5} fill="#ef4444" fontFamily="monospace">KRİZ ⚠</text>
         </g>
 
-        {/* Live dot */}
+        {/* Scope indicator */}
         <g transform={`translate(8, 8)`}>
-          <circle cx={0} cy={0} r={3} fill="#22c55e">
-            <animate attributeName="opacity" values="1;0.2;1" dur="2s" repeatCount="indefinite" />
-          </circle>
-          <text x={7} y={3} fontSize={5} fill="#22c55e" fontFamily="monospace">CANLI</text>
+          <circle cx={0} cy={0} r={3} fill="#a78bfa" />
+          <text x={7} y={3} fontSize={5} fill="#a78bfa" fontFamily="monospace">FİLTRELİ</text>
         </g>
       </svg>
     </div>
@@ -294,7 +203,7 @@ export const SocialRegionMap = ({ data: staticData }: SocialRegionMapProps) => {
 
 // ─── Static data helper (kept for backward compat) ────────────────────────────
 export function generateRegionMapData(
-  analyses: Array<{ region?: string; sentiment: string; content?: string }>
+  analyses: AnalysisForMap[]
 ): RegionPoint[] {
   const regionMap = new Map<string, RegionStats>();
   for (const item of analyses) {
@@ -312,6 +221,7 @@ export function generateRegionMapData(
     let sentiment: "positive" | "negative" | "neutral" = "neutral";
     if (data.hasCrisis || data.neg > data.pos) sentiment = "negative";
     else if (data.pos > data.neg && data.pos > data.neu) sentiment = "positive";
-    return { name, lat: coords?.lat || 37.0, lng: coords?.lng || 28.3, mentionCount: data.count, sentiment };
-  });
+    if (!coords) return null;
+    return { name, lat: coords.lat, lng: coords.lng, mentionCount: data.count, sentiment };
+  }).filter((point): point is RegionPoint => point !== null);
 }
