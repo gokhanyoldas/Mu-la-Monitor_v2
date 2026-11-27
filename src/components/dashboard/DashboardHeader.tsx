@@ -4,6 +4,7 @@ import { DISTRICTS, getDistrictBySlug } from "@/data/districts";
 import { MapPin, ChevronDown, ExternalLink } from "lucide-react";
 import { AlertPanel } from "./AlertPanel";
 import { AccessibilityToolbar } from "./AccessibilityToolbar";
+import { AccountMenu } from "./AccountMenu";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -140,6 +141,9 @@ export const DashboardHeader = ({
 
           {/* Hızlı TR / EN Dil Seçici */}
           <LanguageSwitcher />
+
+          {/* Hesap durumu, günlük bülten tercihi ve tek tıkla çıkış */}
+          <AccountMenu />
 
           {/* Tarayıcı bildirimleri */}
           <NotificationBell />

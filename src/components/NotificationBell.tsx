@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, BellOff, BellRing, X } from "lucide-react";
+import { Bell, BellOff, BellRing, Mail, X } from "lucide-react";
 import { useNotifications, type NotificationPreferences } from "@/hooks/useNotifications";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useAuth } from "@/hooks/useAuth";
+import { useNewsletterSubscription } from "@/hooks/useNewsletterSubscription";
 
 export const NotificationBell = () => {
   const {
@@ -12,6 +14,14 @@ export const NotificationBell = () => {
     updatePreferences,
     showLocalNotification,
   } = useNotifications();
+  const { isAuthenticated, user } = useAuth();
+  const {
+    subscribed: newsletterSubscribed,
+    isLoading: isNewsletterLoading,
+    isSaving: isNewsletterSaving,
+    errorMessage: newsletterError,
+    toggleSubscription: toggleNewsletter,
+  } = useNewsletterSubscription();
   const { lang, t } = useTranslation();
   const isEn = lang === "en";
 
@@ -33,11 +43,11 @@ export const NotificationBell = () => {
     };
   }, []);
 
-  if (!isSupported) return null;
+  if (!isSupported && !isAuthenticated) return null;
 
-  const isGranted = permission === "granted";
-  const isDenied = permission === "denied";
-  const hasActive = isGranted && Object.values(preferences).some(Boolean);
+  const isGranted = isSupported && permission === "granted";
+  const isDenied = isSupported && permission === "denied";
+  const hasActive = (isGranted && Object.values(preferences).some(Boolean)) || (isAuthenticated && newsletterSubscribed);
 
   const handleEnable = async () => {
     const ok = await requestPermission();
@@ -112,74 +122,130 @@ export const NotificationBell = () => {
           </div>
 
           <div className="p-2.5 space-y-1">
-            {!isGranted ? (
-              isDenied ? (
-                <div className="text-[10px] font-mono text-muted-foreground text-center py-4">
-                  <BellOff size={20} className="mx-auto mb-2 opacity-40" aria-hidden="true" />
-                  {isEn
-                    ? "Enable notifications in your browser settings."
-                    : "Tarayıcı ayarlarından bildirimleri etkinleştirin."}
-                </div>
-              ) : (
-                <div className="text-center py-3">
-                  <p className="text-[10px] font-mono text-muted-foreground mb-3">
+            {isSupported && (
+              !isGranted ? (
+                isDenied ? (
+                  <div className="text-[10px] font-mono text-muted-foreground text-center py-4">
+                    <BellOff size={20} className="mx-auto mb-2 opacity-40" aria-hidden="true" />
                     {isEn
-                      ? "Allow browser alerts for earthquakes, fires, and emergencies."
-                      : "Deprem, yangın ve kriz bildirimlerini almak için izin verin."}
+                      ? "Enable notifications in your browser settings."
+                      : "Tarayıcı ayarlarından bildirimleri etkinleştirin."}
+                  </div>
+                ) : (
+                  <div className="text-center py-3">
+                    <p className="text-[10px] font-mono text-muted-foreground mb-3">
+                      {isEn
+                        ? "Allow browser alerts for earthquakes, fires, and emergencies."
+                        : "Deprem, yangın ve kriz bildirimlerini almak için izin verin."}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleEnable}
+                      className="flex items-center gap-1.5 mx-auto px-3 py-1.5 rounded bg-primary/20 text-primary text-[10px] font-mono font-bold hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Bell size={12} aria-hidden="true" /> {t("notif.enable", "Bildirimleri Etkinleştir")}
+                    </button>
+                  </div>
+                )
+              ) : (
+                <>
+                  <p className="text-[9px] font-mono text-muted-foreground mb-2">
+                    {isEn ? "Choose which alerts to receive:" : "Hangi uyarıları almak istediğinizi seçin:"}
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleEnable}
-                    className="flex items-center gap-1.5 mx-auto px-3 py-1.5 rounded bg-primary/20 text-primary text-[10px] font-mono font-bold hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <Bell size={12} aria-hidden="true" /> {t("notif.enable", "Bildirimleri Etkinleştir")}
-                  </button>
-                </div>
-              )
-            ) : (
-              <>
-                <p className="text-[9px] font-mono text-muted-foreground mb-2">
-                  {isEn ? "Choose which alerts to receive:" : "Hangi uyarıları almak istediğinizi seçin:"}
-                </p>
-                {(
-                  Object.entries(prefLabels) as [
-                    keyof NotificationPreferences,
-                    (typeof prefLabels)[keyof NotificationPreferences]
-                  ][]
-                ).map(([key, cfg]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="switch"
-                    aria-checked={preferences[key]}
-                    aria-label={cfg.label}
-                    onClick={() => updatePreferences({ [key]: !preferences[key] })}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <div
-                      className={`w-8 h-4 rounded-full transition-colors flex-shrink-0 flex items-center ${
-                        preferences[key] ? "bg-primary/60" : "bg-muted/40"
-                      }`}
+                  {(
+                    Object.entries(prefLabels) as [
+                      keyof NotificationPreferences,
+                      (typeof prefLabels)[keyof NotificationPreferences]
+                    ][]
+                  ).map(([key, cfg]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="switch"
+                      aria-checked={preferences[key]}
+                      aria-label={cfg.label}
+                      onClick={() => updatePreferences({ [key]: !preferences[key] })}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 cursor-pointer text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     >
                       <div
-                        className={`w-3 h-3 rounded-full bg-white shadow transition-transform mx-0.5 ${
-                          preferences[key] ? "translate-x-4" : "translate-x-0"
+                        className={`w-8 h-4 rounded-full transition-colors flex-shrink-0 flex items-center ${
+                          preferences[key] ? "bg-primary/60" : "bg-muted/40"
                         }`}
-                      />
+                      >
+                        <div
+                          className={`w-3 h-3 rounded-full bg-white shadow transition-transform mx-0.5 ${
+                            preferences[key] ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </div>
+                      <span className="text-[10px] font-mono flex-1">
+                        <span aria-hidden="true">{cfg.emoji}</span> {cfg.label}
+                      </span>
+                    </button>
+                  ))}
+                  <div className="pt-1 border-t border-border mt-2">
+                    <p className="text-[9px] font-mono text-muted-foreground text-center">
+                      {isEn
+                        ? `${selectedCount} preferences enabled`
+                        : `${selectedCount} tercih seçili`}
+                    </p>
+                  </div>
+                </>
+              )
+            )}
+
+            {/* Giriş yapmış kullanıcılar için Günlük Muğla Gündem Bülteni (08:30) */}
+            {isAuthenticated && user && (
+              <div className={`${isSupported ? "pt-2 mt-2 border-t border-border" : ""} px-1.5 py-1.5 space-y-1.5`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold text-foreground leading-snug">
+                      <Mail size={11} className="text-primary shrink-0" aria-hidden="true" />
+                      <span>
+                        {isEn
+                          ? "Daily Muğla Briefing (08:30)"
+                          : "Günlük Muğla Gündem Bülteni (08:30)"}
+                      </span>
                     </div>
-                    <span className="text-[10px] font-mono flex-1">
-                      <span aria-hidden="true">{cfg.emoji}</span> {cfg.label}
-                    </span>
+                    <p className="text-[9px] font-mono text-muted-foreground mt-0.5 truncate" title={user.email ?? ""}>
+                      {newsletterSubscribed
+                        ? isEn
+                          ? "Active · Sent every morning"
+                          : "Aktif · Her sabah gönderilir"
+                        : isEn
+                          ? "Daily email summary (off)"
+                          : "Günlük e-posta özeti (kapalı)"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    data-testid="notif-newsletter-toggle"
+                    aria-checked={newsletterSubscribed}
+                    aria-label={
+                      isEn
+                        ? "Daily Muğla Briefing (08:30)"
+                        : "Günlük Muğla Gündem Bülteni (08:30)"
+                    }
+                    disabled={isNewsletterLoading || isNewsletterSaving}
+                    onClick={() => void toggleNewsletter(!newsletterSubscribed)}
+                    className={`w-8 h-4 rounded-full transition-colors flex-shrink-0 flex items-center cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                      newsletterSubscribed ? "bg-primary/70" : "bg-muted/40"
+                    }`}
+                  >
+                    <span
+                      className={`w-3 h-3 rounded-full bg-white shadow transition-transform mx-0.5 ${
+                        newsletterSubscribed ? "translate-x-4" : "translate-x-0"
+                      }`}
+                    />
                   </button>
-                ))}
-                <div className="pt-1 border-t border-border mt-2">
-                  <p className="text-[9px] font-mono text-muted-foreground text-center">
-                    {isEn
-                      ? `${selectedCount} preferences enabled`
-                      : `${selectedCount} tercih seçili`}
-                  </p>
                 </div>
-              </>
+                {newsletterError && (
+                  <p className="text-[9px] font-mono text-destructive" role="alert">
+                    {newsletterError}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>

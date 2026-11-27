@@ -91,11 +91,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       await supabase.auth.signOut();
     } catch {
-      // ignore
+      // ignore sign-out network errors and always clear local session state
     }
     setUser(null);
     setSession(null);
     setIsGuest(false);
+    setIsLoading(false);
     safeStorage.removeItem("mugla-guest");
   };
 
