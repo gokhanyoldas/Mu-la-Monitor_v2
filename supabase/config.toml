@@ -11,64 +11,68 @@ verify_jwt = false
 verify_jwt = false
 
 # ── Kullanıcı Oturumu veya İç Servis Gerektiren Veri/AI Endpoint'leri ─────────
+# Not: Bu uç noktalar kimlik doğrulamasını kendi içinde `authorizeRequest` ile
+# yapar (INTERNAL_FUNCTION_SECRET veya geçerli kullanıcı oturumu). Cron ve
+# servisler arası çağrılar JWT olmayan INTERNAL_FUNCTION_SECRET taşıdığı için
+# `verify_jwt = true` bu çağrıları gateway'de 401 ile bloklar; bu yüzden kapalı.
 [functions.data-scrape]
-verify_jwt = true
+verify_jwt = false
 
 [functions.reference-data]
-verify_jwt = true
+verify_jwt = false
 
 [functions.social-analyze]
 verify_jwt = true
 
 [functions.social-collect]
-verify_jwt = true
+verify_jwt = false
 
 [functions.transport-scrape]
-verify_jwt = true
+verify_jwt = false
 
 [functions.executive-report]
-verify_jwt = true
+verify_jwt = false
 
 [functions.city-briefing]
 verify_jwt = true
 
 [functions.ai-summary]
-verify_jwt = true
+verify_jwt = false
 
 [functions.osint-lookup]
 verify_jwt = true
 
 [functions.protocol-scrape]
-verify_jwt = true
+verify_jwt = false
 
 # ── Yönetici / Geliştirme Ortamı Endpoint'leri ────────────────────────────────
 [functions.mock-data-injector]
-verify_jwt = true
+verify_jwt = false
 
 # ── İç Servis / Cron / Worker Endpoint'leri (Tarayıcıya Kapalı) ────────────────
 [functions.job-worker]
-verify_jwt = true
+verify_jwt = false
 
 [functions.twitter-collect]
-verify_jwt = true
+verify_jwt = false
 
 [functions.news-scrape]
-verify_jwt = true
+verify_jwt = false
 
 [functions.spike-scan]
-verify_jwt = true
+verify_jwt = false
 
 [functions.anomaly-scan]
-verify_jwt = true
+verify_jwt = false
 
 [functions.tourism-data-checker]
-verify_jwt = true
+verify_jwt = false
 
 [functions.traffic-teyit]
-verify_jwt = true
+verify_jwt = false
 
 [functions.email-alerts-ingest]
-verify_jwt = true
+verify_jwt = false
 
 [functions.social-cron]
-verify_jwt = true
+verify_jwt = false
