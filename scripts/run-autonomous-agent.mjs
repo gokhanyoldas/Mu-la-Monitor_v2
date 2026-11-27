@@ -1632,21 +1632,30 @@ export function deterministicUuid(namespace, key) {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${variant}${hash.slice(18, 20)}-${hash.slice(20, 32)}`;
 }
 
-// Muğla'nın 13 resmi ilçesi — canlı Supabase `districts` şeması birebir: (id, name, lat, lng)
+// monitor_data `varchar(20)` sütunları için kısa sabit kaynak kodu (<= 20 karakter)
+export const MONITOR_DATA_SOURCE = "otonom-ajan";
+
+export function clampVarchar20(value, fallback = "") {
+  const cleaned = String(value ?? "").trim() || String(fallback ?? "").trim();
+  return cleaned.slice(0, 20);
+}
+
+// Muğla'nın 13 resmi ilçesi — canlı Supabase `districts` şeması: (id integer, name, lat, lng)
+// `slug` yalnızca iç eşleştirme/nüfus araması içindir; Supabase `districts` tablosuna ASLA gönderilmez.
 export const VERIFIED_DISTRICTS_SEED = Object.freeze([
-  { id: "mentese", name: "Menteşe", lat: 37.2153, lng: 28.3636 },
-  { id: "bodrum", name: "Bodrum", lat: 37.0344, lng: 27.4305 },
-  { id: "fethiye", name: "Fethiye", lat: 36.6222, lng: 29.1156 },
-  { id: "marmaris", name: "Marmaris", lat: 36.855, lng: 28.2742 },
-  { id: "milas", name: "Milas", lat: 37.3164, lng: 27.7839 },
-  { id: "dalaman", name: "Dalaman", lat: 36.7658, lng: 28.8028 },
-  { id: "ortaca", name: "Ortaca", lat: 36.8392, lng: 28.7647 },
-  { id: "koycegiz", name: "Köyceğiz", lat: 36.9689, lng: 28.6939 },
-  { id: "datca", name: "Datça", lat: 36.7378, lng: 27.6844 },
-  { id: "ula", name: "Ula", lat: 37.1056, lng: 28.4167 },
-  { id: "yatagan", name: "Yatağan", lat: 37.3397, lng: 28.1369 },
-  { id: "seydikemer", name: "Seydikemer", lat: 36.6458, lng: 29.3611 },
-  { id: "kavaklidere", name: "Kavaklıdere", lat: 37.4447, lng: 28.3661 },
+  { id: 1, slug: "mentese", name: "Menteşe", lat: 37.2153, lng: 28.3636 },
+  { id: 2, slug: "bodrum", name: "Bodrum", lat: 37.0344, lng: 27.4305 },
+  { id: 3, slug: "fethiye", name: "Fethiye", lat: 36.6222, lng: 29.1156 },
+  { id: 4, slug: "marmaris", name: "Marmaris", lat: 36.855, lng: 28.2742 },
+  { id: 5, slug: "milas", name: "Milas", lat: 37.3164, lng: 27.7839 },
+  { id: 6, slug: "dalaman", name: "Dalaman", lat: 36.7658, lng: 28.8028 },
+  { id: 7, slug: "ortaca", name: "Ortaca", lat: 36.8392, lng: 28.7647 },
+  { id: 8, slug: "koycegiz", name: "Köyceğiz", lat: 36.9689, lng: 28.6939 },
+  { id: 9, slug: "datca", name: "Datça", lat: 36.7378, lng: 27.6844 },
+  { id: 10, slug: "ula", name: "Ula", lat: 37.1056, lng: 28.4167 },
+  { id: 11, slug: "yatagan", name: "Yatağan", lat: 37.3397, lng: 28.1369 },
+  { id: 12, slug: "seydikemer", name: "Seydikemer", lat: 36.6458, lng: 29.3611 },
+  { id: 13, slug: "kavaklidere", name: "Kavaklıdere", lat: 37.4447, lng: 28.3661 },
 ]);
 
 // TÜİK 2024 ADNKS resmi ilçe nüfusları (özet hesaplamaları için; districts tablosuna gönderilmez)
@@ -2008,7 +2017,7 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
   const economyHighlights = [];
 
   for (const d of VERIFIED_DISTRICTS_SEED) {
-    districtCounts[d.id] = { id: d.id, name: d.name, total: 0, negative: 0, positive: 0 };
+    districtCounts[d.slug] = { id: d.id, slug: d.slug, name: d.name, total: 0, negative: 0, positive: 0 };
   }
 
   for (const post of posts) {
@@ -2028,7 +2037,7 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
       post?.region || metaObj.district || post?.district || ""
     );
     let matchedDistrict = VERIFIED_DISTRICTS_SEED.find(
-      (d) => rawRegion === d.id || rawRegion.includes(normalizeTextForMatch(d.name))
+      (d) => rawRegion === d.slug || rawRegion.includes(normalizeTextForMatch(d.name))
     );
     if (!matchedDistrict) {
       const combinedText = `${norm} ${normalizeTextForMatch(kwText)}`;
@@ -2037,9 +2046,9 @@ export function extractSignalsFromSocialPosts(recentSocialPosts = [], now = new 
       );
     }
     if (matchedDistrict) {
-      districtCounts[matchedDistrict.id].total += 1;
-      if (sentiment === "negative") districtCounts[matchedDistrict.id].negative += 1;
-      if (sentiment === "positive") districtCounts[matchedDistrict.id].positive += 1;
+      districtCounts[matchedDistrict.slug].total += 1;
+      if (sentiment === "negative") districtCounts[matchedDistrict.slug].negative += 1;
+      if (sentiment === "positive") districtCounts[matchedDistrict.slug].positive += 1;
     }
 
     // Kategori sınıflandırması (`raw_metadata.category`, `keywords_matched` ve `content`)
@@ -2236,6 +2245,7 @@ export function buildBridgeTablePayloads({
   recentSocialPosts = [],
   existingAlertTitles = [],
   existingProtocolChangesCount = 0,
+  existingDistrictRows = [],
   now = new Date(),
 }) {
   const isoNow = now.toISOString();
@@ -2244,13 +2254,64 @@ export function buildBridgeTablePayloads({
   const nextYear = currentYear + 1;
   const signals = extractSignalsFromSocialPosts(recentSocialPosts, now);
 
-  // 1. districts — YALNIZCA gerçek sütunlar: (id, name, lat, lng)
-  const districtsRows = VERIFIED_DISTRICTS_SEED.map((d) => ({
-    id: d.id,
-    name: d.name,
-    lat: d.lat,
-    lng: d.lng,
-  }));
+  // 1. districts — `districts.id` INTEGER tipindedir; ASLA metin id ("mentese" vb.) gönderilmez.
+  // Mevcut `id, name` kayıtları eşleşirse kendi sayısal id'siyle güncellenir;
+  // yoksa `id` alanı gönderilmeden yalnızca `name, lat, lng` eklenir (sequence yoksa 1..13 sayısal id yedeği hazır tutulur).
+  const existingDistrictIdByName = new Map();
+  const usedNumericIds = new Set();
+  for (const row of Array.isArray(existingDistrictRows) ? existingDistrictRows : []) {
+    const parsedId = Number(row?.id);
+    if (Number.isInteger(parsedId) && parsedId > 0) {
+      usedNumericIds.add(parsedId);
+      const normName = normalizeTextForMatch(row?.name);
+      if (normName) {
+        existingDistrictIdByName.set(normName, parsedId);
+      }
+    }
+  }
+
+  let nextFallbackId = 1;
+  const takeUnusedNumericId = (preferredId) => {
+    if (Number.isInteger(preferredId) && preferredId > 0 && !usedNumericIds.has(preferredId)) {
+      usedNumericIds.add(preferredId);
+      return preferredId;
+    }
+    while (usedNumericIds.has(nextFallbackId)) {
+      nextFallbackId += 1;
+    }
+    usedNumericIds.add(nextFallbackId);
+    return nextFallbackId;
+  };
+
+  const districtsUpdateRows = [];
+  const districtsInsertRows = [];
+  const districtsInsertWithNumericIdFallback = [];
+
+  for (const d of VERIFIED_DISTRICTS_SEED) {
+    const matchedNumericId = existingDistrictIdByName.get(normalizeTextForMatch(d.name));
+    if (typeof matchedNumericId === "number" && Number.isInteger(matchedNumericId)) {
+      districtsUpdateRows.push({
+        id: matchedNumericId,
+        name: d.name,
+        lat: d.lat,
+        lng: d.lng,
+      });
+    } else {
+      districtsInsertRows.push({
+        name: d.name,
+        lat: d.lat,
+        lng: d.lng,
+      });
+      districtsInsertWithNumericIdFallback.push({
+        id: takeUnusedNumericId(d.id),
+        name: d.name,
+        lat: d.lat,
+        lng: d.lng,
+      });
+    }
+  }
+
+  const districtsRows = [...districtsUpdateRows, ...districtsInsertRows];
 
   // 2. protocol_members & protocol_changes
   const activeProtocolMap = new Map(
@@ -2508,10 +2569,12 @@ export function buildBridgeTablePayloads({
     summary,
     metrics,
   }) => ({
-    source: AGENT_SOURCE,
-    district_name: districtName,
-    category: tabKey,
-    sentiment,
+    // varchar(20) sütunları: en fazla 20 karakter kısa sabit kodlar
+    source: clampVarchar20(MONITOR_DATA_SOURCE, "otonom-ajan"),
+    district_name: clampVarchar20(districtName, "Muğla"),
+    category: clampVarchar20(tabKey, "genel"),
+    sentiment: clampVarchar20(sentiment, "neutral"),
+    // Uzun metin ve yapılandırılmış JSON yalnızca `text` tipindeki `content` sütununa yazılır
     content: JSON.stringify({
       tabKey,
       title,
@@ -2708,6 +2771,9 @@ export function buildBridgeTablePayloads({
 
   return {
     districtsRows,
+    districtsUpdateRows,
+    districtsInsertRows,
+    districtsInsertWithNumericIdFallback,
     protocolMemberRows,
     protocolChangeRows,
     monitorDataRows,
@@ -2933,6 +2999,17 @@ export async function runAutonomousAgent(options = {}) {
     existingProtocolChangesCount = 0;
   }
 
+  // 1d. Mevcut districts (integer id, name) kayıtlarını oku — eşleşenler sayısal id ile güncellenir
+  let existingDistrictRows = [];
+  try {
+    const { data, error } = await supabase.select("districts", "select=id,name&limit=100");
+    if (!error && Array.isArray(data)) {
+      existingDistrictRows = data;
+    }
+  } catch {
+    existingDistrictRows = [];
+  }
+
   // 2. Dinamik yıl (currentYear / nextYear) destekli Gemini Search Grounding çağrısı
   // Not: Gemini 429 (RESOURCE_EXHAUSTED) durumunda ajan çökmez; [UYARI] loglar ve
   // mevcut social_posts + ücretsiz RSS/açık kaynak yedeğiyle Supabase yazımlarını tamamlar.
@@ -3020,6 +3097,7 @@ export async function runAutonomousAgent(options = {}) {
       ...alertRows.map((a) => a.title),
     ],
     existingProtocolChangesCount,
+    existingDistrictRows,
     now,
   });
 
@@ -3082,19 +3160,50 @@ export async function runAutonomousAgent(options = {}) {
     }
   }
 
-  // 6. districts (13 Muğla ilçesi — idempotent upsert)
-  if (bridgePayloads.districtsRows.length > 0) {
+  // 6. districts (13 Muğla ilçesi — integer id uyumlu güncelleme / id'siz ekleme)
+  if (bridgePayloads.districtsUpdateRows.length > 0) {
     try {
-      const { error } = await supabase.upsert("districts", bridgePayloads.districtsRows, {
+      const { error } = await supabase.upsert("districts", bridgePayloads.districtsUpdateRows, {
         onConflict: "id",
       });
       if (error) {
-        recordStepError("districts upsert", error, "districts");
+        recordStepError("districts sayısal id güncelleme", error, "districts");
       } else {
-        inserted.districts = bridgePayloads.districtsRows.length;
+        inserted.districts += bridgePayloads.districtsUpdateRows.length;
       }
     } catch (err) {
-      recordStepError("districts upsert", err, "districts");
+      recordStepError("districts sayısal id güncelleme", err, "districts");
+    }
+  }
+
+  if (bridgePayloads.districtsInsertRows.length > 0) {
+    try {
+      const { error, count } = await supabase.insert(
+        "districts",
+        bridgePayloads.districtsInsertRows
+      );
+      if (error) {
+        const msg = String(error.message || "").toLowerCase();
+        // Eğer canlı `districts.id` sütununda otomatik sequence/default yoksa 1..13 sayısal id yedeğiyle yaz
+        if (msg.includes('null value in column "id"') || msg.includes("23502")) {
+          const { error: fallbackErr } = await supabase.upsert(
+            "districts",
+            bridgePayloads.districtsInsertWithNumericIdFallback,
+            { onConflict: "id" }
+          );
+          if (fallbackErr) {
+            recordStepError("districts sayısal id ekleme", fallbackErr, "districts");
+          } else {
+            inserted.districts += bridgePayloads.districtsInsertWithNumericIdFallback.length;
+          }
+        } else {
+          recordStepError("districts ekleme", error, "districts");
+        }
+      } else {
+        inserted.districts += count;
+      }
+    } catch (err) {
+      recordStepError("districts ekleme", err, "districts");
     }
   }
 

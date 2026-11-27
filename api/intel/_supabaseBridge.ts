@@ -70,6 +70,13 @@ async function postgrestUpsert(
   return { ok: true, status: res.status, message: "ok" };
 }
 
+const MONITOR_DATA_BRIDGE_SOURCE = "konu-dogrulama";
+
+function clampVarchar20(value: unknown, fallback = ""): string {
+  const cleaned = String(value ?? "").trim() || fallback.trim();
+  return cleaned.slice(0, 20);
+}
+
 const TOPIC_TO_TAB_MAP: Record<string, { tabKey: string; title: string; cacheType: string }> = {
   environment_dams: { tabKey: "cevre", title: "Çevre & Barajlar", cacheType: "dams" },
   transport_infra: { tabKey: "ulasim", title: "Ulaşım & Altyapı", cacheType: "transport" },
@@ -139,6 +146,7 @@ export async function persistTopicGroundingToSupabase(
   }
 
   // 2. monitor_data — canlı sütunlar: (source, district_name, content, sentiment, category, created_at)
+  // `source`, `district_name`, `sentiment`, `category` varchar(20) sınırına uymalıdır; uzun JSON yalnızca `content` içindedir.
   if (meta) {
     try {
       const structuredPayload = {
@@ -167,10 +175,10 @@ export async function persistTopicGroundingToSupabase(
         updatedAt: nowIso,
       };
       const monitorRow = {
-        source: "api-intel-topic-grounding",
-        district_name: "Muğla",
-        category: meta.tabKey,
-        sentiment: "neutral",
+        source: clampVarchar20(MONITOR_DATA_BRIDGE_SOURCE, "konu-dogrulama"),
+        district_name: clampVarchar20("Muğla", "Muğla"),
+        category: clampVarchar20(meta.tabKey, "genel"),
+        sentiment: clampVarchar20("neutral", "neutral"),
         content: JSON.stringify(structuredPayload),
         created_at: nowIso,
       };

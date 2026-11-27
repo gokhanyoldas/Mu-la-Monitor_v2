@@ -3,11 +3,11 @@
 
 CREATE TABLE IF NOT EXISTS public.monitor_data (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source text,
-  district_name text,
+  source varchar(20),
+  district_name varchar(20),
   content text NOT NULL DEFAULT '',
-  sentiment text DEFAULT 'neutral',
-  category text,
+  sentiment varchar(20) DEFAULT 'neutral',
+  category varchar(20),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 

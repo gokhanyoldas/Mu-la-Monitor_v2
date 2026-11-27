@@ -263,13 +263,19 @@ export function useSupabaseRealtimeSync(enabled = true) {
         if (districtsRes.status === "fulfilled" && !districtsRes.value.error && Array.isArray(districtsRes.value.data)) {
           const districtRows = districtsRes.value.data
             .filter((r): r is Record<string, unknown> => Boolean(r && typeof r === "object"))
-            .map((r) => ({
-              id: String(r.id || ""),
-              name: String(r.name || ""),
-              lat: Number(r.lat ?? 0),
-              lng: Number(r.lng ?? r.lon ?? 0),
-            }))
-            .filter((r) => Boolean(r.id && r.name));
+            .map((r) => {
+              const numericId = Number(r.id);
+              return {
+                id:
+                  Number.isInteger(numericId) && numericId > 0
+                    ? numericId
+                    : String(r.id ?? ""),
+                name: String(r.name || ""),
+                lat: Number(r.lat ?? 0),
+                lng: Number(r.lng ?? r.lon ?? 0),
+              };
+            })
+            .filter((r) => Boolean(r.id !== "" && r.name));
           if (districtRows.length > 0) {
             store.setDistrictsRegistry(districtRows);
           }

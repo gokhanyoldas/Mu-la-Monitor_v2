@@ -50,8 +50,8 @@ const syncMockState = {
       },
     ],
     districts: [
-      { id: "mentese", name: "Menteşe", lat: 37.2153, lng: 28.3636 },
-      { id: "bodrum", name: "Bodrum", lat: 37.0344, lng: 27.4305 },
+      { id: 1, name: "Menteşe", lat: 37.2153, lng: 28.3636 },
+      { id: 2, name: "Bodrum", lat: 37.0344, lng: 27.4305 },
     ],
     protocol_members: [
       {
@@ -242,6 +242,17 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
         } as unknown as Response;
       }
 
+      if (method === "GET" && url.includes("/rest/v1/districts")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { id: 48, name: "Menteşe" },
+            { id: 49, name: "Bodrum" },
+          ],
+        } as unknown as Response;
+      }
+
       if (method === "GET") {
         return { ok: true, status: 200, json: async () => [] } as unknown as Response;
       }
@@ -307,14 +318,29 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
     expect(result.inserted.ai_summaries).toBe(2); // daily + pulse
     expect(result.inserted.live_data_cache).toBeGreaterThanOrEqual(6);
 
-    // districts payload'ı YALNIZCA id, name, lat, lng içermeli (lon, population, geom YOK)
-    const districtsPayload = writesByTable.get("districts")![0].body as Array<Record<string, unknown>>;
-    expect(districtsPayload).toHaveLength(13);
-    for (const row of districtsPayload) {
+    // districts: mevcut 2 ilçe kendi sayısal id'siyle (48, 49) güncellenmeli;
+    // kalan 11 ilçe id alanı gönderilmeden yalnızca name/lat/lng ile eklenmeli (ASLA metin id yok)
+    const districtWrites = writesByTable.get("districts")!;
+    expect(districtWrites).toHaveLength(2);
+    const updatedDistricts = districtWrites[0].body as Array<Record<string, unknown>>;
+    const insertedDistricts = districtWrites[1].body as Array<Record<string, unknown>>;
+    expect(updatedDistricts).toHaveLength(2);
+    expect(updatedDistricts.map((d) => ({ id: d.id, name: d.name }))).toEqual([
+      { id: 48, name: "Menteşe" },
+      { id: 49, name: "Bodrum" },
+    ]);
+    for (const row of updatedDistricts) {
+      expect(typeof row.id).toBe("number");
+      expect(Number.isInteger(row.id)).toBe(true);
       expect(Object.keys(row).sort()).toEqual(["id", "lat", "lng", "name"]);
     }
+    expect(insertedDistricts).toHaveLength(11);
+    for (const row of insertedDistricts) {
+      expect("id" in row).toBe(false);
+      expect(Object.keys(row).sort()).toEqual(["lat", "lng", "name"]);
+    }
 
-    // monitor_data payload'ı YALNIZCA 6 gerçek sütun içermeli (metrics, tab_key YOK)
+    // monitor_data payload'ı YALNIZCA 6 gerçek sütun içermeli ve varchar(20) sınırına uymalı
     const monitorPayload = writesByTable.get("monitor_data")![0].body as Array<Record<string, unknown>>;
     expect(monitorPayload).toHaveLength(11);
     for (const row of monitorPayload) {
@@ -326,6 +352,11 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
         "sentiment",
         "source",
       ]);
+      expect(row.source).toBe("otonom-ajan");
+      expect(String(row.source).length).toBeLessThanOrEqual(20);
+      expect(String(row.district_name).length).toBeLessThanOrEqual(20);
+      expect(String(row.sentiment).length).toBeLessThanOrEqual(20);
+      expect(String(row.category).length).toBeLessThanOrEqual(20);
       expect(typeof row.content).toBe("string");
       const parsed = JSON.parse(row.content as string);
       expect(parsed.tabKey).toBe(row.category);
@@ -513,6 +544,11 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
       "source",
     ]);
     expect("metrics" in monitorBody).toBe(false);
+    expect(monitorBody.source).toBe("konu-dogrulama");
+    expect(String(monitorBody.source).length).toBeLessThanOrEqual(20);
+    expect(String(monitorBody.district_name).length).toBeLessThanOrEqual(20);
+    expect(String(monitorBody.sentiment).length).toBeLessThanOrEqual(20);
+    expect(String(monitorBody.category).length).toBeLessThanOrEqual(20);
   });
 
   it("5. useSupabaseRealtimeSync monitor_data.content alanını hem JSON hem düz metin olarak güvenle okur ve districts.lng eşler", async () => {
@@ -716,6 +752,63 @@ describe("7-Tablolu Supabase Yazım Köprüsü ve Canlı Senkronizasyon", () => 
       expect(result.inserted.monitor_data).toBe(11);
       expect(result.inserted.districts).toBe(13);
       expect(result.inserted.alert_events).toBeGreaterThanOrEqual(2);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("7. districts.id sequence yoksa null-id hatasında 1..13 sayısal id yedeğiyle yazar (asla metin id göndermez)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const districtPostBodies: Array<Array<Record<string, unknown>>> = [];
+    let districtPostCount = 0;
+
+    const mockFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = (init?.method || "GET").toUpperCase();
+      if (method === "GET") {
+        return { ok: true, status: 200, json: async () => [] } as unknown as Response;
+      }
+      if (url.includes("/rest/v1/districts")) {
+        districtPostCount += 1;
+        const parsed = JSON.parse(String(init?.body || "[]")) as Array<Record<string, unknown>>;
+        districtPostBodies.push(parsed);
+        if (districtPostCount === 1) {
+          return {
+            ok: false,
+            status: 400,
+            text: async () =>
+              JSON.stringify({
+                code: "23502",
+                message: 'null value in column "id" of relation "districts" violates not-null constraint',
+              }),
+          } as unknown as Response;
+        }
+      }
+      return { ok: true, status: 201, json: async () => [], text: async () => "" } as unknown as Response;
+    });
+
+    try {
+      const result = await runAutonomousAgent({
+        now: new Date("2026-11-27T08:00:00Z"),
+        env: {
+          SUPABASE_URL: "https://ntheudveohozxdjgcvif.supabase.co",
+          SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        },
+        fetchImpl: mockFetch,
+        retryDelayMs: 0,
+        skipOpenRssFallback: true,
+      });
+
+      expect(result.status).toBe("ok");
+      expect(result.errors).toHaveLength(0);
+      expect(result.inserted.districts).toBe(13);
+      expect(districtPostBodies).toHaveLength(2);
+      // İlk deneme id'siz, ikinci deneme 1..13 integer id'li olmalı
+      expect(districtPostBodies[0].every((r) => !("id" in r))).toBe(true);
+      expect(
+        districtPostBodies[1].every(
+          (r) => typeof r.id === "number" && Number.isInteger(r.id) && r.id >= 1 && r.id <= 13
+        )
+      ).toBe(true);
     } finally {
       warnSpy.mockRestore();
     }

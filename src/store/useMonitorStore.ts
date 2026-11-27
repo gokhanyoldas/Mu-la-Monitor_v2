@@ -131,7 +131,7 @@ export interface MonitorTabRecord {
 }
 
 export interface MonitorDistrictRecord {
-  id: string;
+  id: number | string;
   name: string;
   lat: number;
   lng: number;

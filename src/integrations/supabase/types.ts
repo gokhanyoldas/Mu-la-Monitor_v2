@@ -682,19 +682,19 @@ export type Database = {
       }
       districts: {
         Row: {
-          id: string
+          id: number
           lat: number
           lng: number
           name: string
         }
         Insert: {
-          id: string
+          id?: number
           lat: number
           lng: number
           name: string
         }
         Update: {
-          id?: string
+          id?: number
           lat?: number
           lng?: number
           name?: string
