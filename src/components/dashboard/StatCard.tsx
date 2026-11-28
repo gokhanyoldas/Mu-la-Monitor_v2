@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface StatCardProps {
   label: string;
@@ -8,7 +9,7 @@ interface StatCardProps {
   change?: number;
   icon?: React.ReactNode;
   variant?: "default" | "primary" | "warning" | "destructive" | "accent";
-  /** Hover'da gösterilen kaynak/periyot bilgisi */
+  /** "i" ikonuna tıklandığında gösterilen kaynak/periyot bilgisi */
   info?: string;
 }
 
@@ -21,19 +22,47 @@ const variantStyles = {
 };
 
 export const StatCard = ({ label, value, unit, change, icon, variant = "default", info }: StatCardProps) => {
-  const { t } = useTranslation();
+  const { lang, t } = useTranslation();
   const displayVal = typeof value === "string" ? t(value) : value;
+  const infoLabel = lang === "en" ? "Source & detail" : "Kaynak & bilgi";
 
   return (
-    <div className="group relative bg-muted/30 rounded-md p-2.5 border border-border/50 animate-slide-in">
+    <div className="relative bg-muted/30 rounded-md p-2.5 border border-border/50 animate-slide-in">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-          {t(label)}
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1 min-w-0">
+          <span className="truncate">{t(label)}</span>
           {info && (
-            <Info size={9} className="text-muted-foreground/60 group-hover:text-primary transition-colors" />
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`${t(label)} — ${infoLabel}`}
+                  className="inline-flex items-center justify-center w-5 h-5 !min-h-[20px] -my-1 shrink-0 rounded-full text-muted-foreground/75 hover:text-primary data-[state=open]:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary transition-colors cursor-pointer"
+                >
+                  <Info size={11} aria-hidden="true" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="center"
+                sideOffset={6}
+                collisionPadding={12}
+                role="tooltip"
+                onClick={(e) => e.stopPropagation()}
+                className="z-[90] w-60 max-w-[calc(100vw-24px)] rounded-md border border-border bg-popover px-3 py-2 shadow-xl text-left normal-case tracking-normal"
+              >
+                <div className="text-[10px] font-mono font-semibold text-primary mb-0.5">
+                  {t(label)}
+                </div>
+                <p className="text-[11px] font-mono text-popover-foreground leading-relaxed">
+                  {t(info)}
+                </p>
+              </PopoverContent>
+            </Popover>
           )}
         </span>
-        {icon && <span className="text-muted-foreground text-xs">{icon}</span>}
+        {icon && <span className="text-muted-foreground text-xs shrink-0">{icon}</span>}
       </div>
       <div className="flex items-baseline gap-1.5">
         <span className={`text-lg font-mono font-bold ${variantStyles[variant]}`}>
@@ -48,14 +77,6 @@ export const StatCard = ({ label, value, unit, change, icon, variant = "default"
           <span className={`text-[10px] font-mono ${change >= 0 ? "text-success" : "text-destructive"}`}>
             {change >= 0 ? "▲" : "▼"} {Math.abs(change)}%
           </span>
-        </div>
-      )}
-
-      {/* Hover tooltip — kaynak + periyot bilgisi */}
-      {info && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-48 p-2 rounded-md bg-popover border border-border shadow-xl text-[9px] font-mono text-popover-foreground leading-relaxed opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 pointer-events-none">
-          {t(info)}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-r border-b border-border -mt-1" />
         </div>
       )}
     </div>

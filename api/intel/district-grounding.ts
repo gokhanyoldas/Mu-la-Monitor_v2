@@ -4,8 +4,8 @@ import {
   isGeminiRateLimitError,
   getGeminiRateLimitState,
   markGeminiRateLimited,
-} from "./topic-grounding";
-import { persistDistrictGroundingToSupabase } from "./_supabaseBridge";
+} from "./topic-grounding.ts";
+import { persistDistrictGroundingToSupabase } from "./_supabaseBridge.ts";
 
 type VercelRequest = IncomingMessage & {
   method?: string;

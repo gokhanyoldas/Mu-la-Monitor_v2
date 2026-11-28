@@ -266,4 +266,47 @@ describe("10 Sekme Ekran Tutarlılık ve Boş Alan Düzeltmeleri", () => {
 
     expect(container.textContent ?? "").not.toContain("canlı meteoroloji ölçümü bekleniyor");
   });
+
+  it("7. StatCard 'i' ve PanelHelpTooltip '?' bilgileri yalnızca tıklandığında açılır, hover ile veya topluca görünmez", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const { StatCard } = await import("@/components/dashboard/StatCard");
+    const { PanelHelpTooltip } = await import("@/components/dashboard/PanelHelpTooltip");
+    const { SmartCard } = await import("@/components/intelligence/SmartCard");
+
+    renderWithProviders(
+      <SmartCard category="economy">
+        <div>
+          <PanelHelpTooltip panelTitle="Ekonomi & İstihdam" customHelpText="Ekonomi yardım metni." />
+          <StatCard label="İşsizlik" value="7.4" unit="%" info="TÜİK İşgücü İstatistikleri." />
+          <StatCard label="Yeni Şirket" value="2.840" info="TOBB 2024 Kurulan Şirket." />
+        </div>
+      </SmartCard>
+    );
+
+    // Başlangıçta ve hover durumunda hiçbir bilgi balonu görünmemeli
+    expect(screen.queryByText("TÜİK İşgücü İstatistikleri.")).toBeNull();
+    expect(screen.queryByText("TOBB 2024 Kurulan Şirket.")).toBeNull();
+    expect(screen.queryByText("Ekonomi yardım metni.")).toBeNull();
+
+    const infoBtn = screen.getByRole("button", { name: /İşsizlik — Kaynak & bilgi/i });
+    const helpBtn = screen.getByRole("button", { name: /Bu panel ne işe yarar\? — Ekonomi & İstihdam/i });
+
+    fireEvent.mouseEnter(infoBtn);
+    fireEvent.mouseEnter(helpBtn);
+    expect(screen.queryByText("TÜİK İşgücü İstatistikleri.")).toBeNull();
+    expect(screen.queryByText("Ekonomi yardım metni.")).toBeNull();
+
+    // "i" ikonuna tıklanınca yalnızca ilgili bilgi açılır
+    fireEvent.click(infoBtn);
+    expect(screen.getByText("TÜİK İşgücü İstatistikleri.")).toBeTruthy();
+    expect(screen.queryByText("TOBB 2024 Kurulan Şirket.")).toBeNull();
+
+    // Tekrar tıklanınca kapanır
+    fireEvent.click(infoBtn);
+    expect(screen.queryByText("TÜİK İşgücü İstatistikleri.")).toBeNull();
+
+    // "?" ikonuna tıklanınca panel yardımı açılır
+    fireEvent.click(helpBtn);
+    expect(screen.getByText("Ekonomi yardım metni.")).toBeTruthy();
+  });
 });

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
-import { persistTopicGroundingToSupabase } from "./_supabaseBridge";
+import { persistTopicGroundingToSupabase } from "./_supabaseBridge.ts";
 
 type VercelRequest = IncomingMessage & {
   method?: string;

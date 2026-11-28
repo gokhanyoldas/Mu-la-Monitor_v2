@@ -4,7 +4,7 @@ import {
   isGeminiRateLimitError,
   getGeminiRateLimitState,
   markGeminiRateLimited,
-} from "./topic-grounding";
+} from "./topic-grounding.ts";
 
 type VercelRequest = IncomingMessage & {
   method?: string;

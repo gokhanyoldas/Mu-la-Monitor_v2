@@ -1,7 +1,6 @@
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import {
   executeTopicGrounding,
@@ -316,6 +315,7 @@ Bulduğun güncel olay ve vatandaş gündemlerini aşağıdaki JSON formatında 
   });
 
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false, ws: false },
       appType: "spa",
