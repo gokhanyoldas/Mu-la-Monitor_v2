@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { DISTRICTS, getDistrictBySlug } from "@/data/districts";
-import { MapPin, ChevronDown, ExternalLink } from "lucide-react";
+import { MapPin, ChevronDown, ExternalLink, Send } from "lucide-react";
 import { AlertPanel } from "./AlertPanel";
 import { AccessibilityToolbar } from "./AccessibilityToolbar";
 import { AccountMenu } from "./AccountMenu";
@@ -12,6 +12,22 @@ import { useMonitorStore, selectLastSyncedAt, selectActiveDistrict } from "@/sto
 import { formatRelativeTime } from "@/lib/time-utils";
 
 export type DashboardTab = "genel" | "diyagram" | "ekonomi" | "cevre" | "turizm" | "ulasim" | "sosyal" | "guvenlik" | "enerji" | "protokol" | "ag_grafigi";
+
+const DEFAULT_TELEGRAM_CHANNEL_URL = "https://t.me/muglamonitor";
+
+export function resolveTelegramChannelUrl(raw?: string): string {
+  const candidate = (raw ?? import.meta.env.VITE_TELEGRAM_CHANNEL_URL ?? "").trim();
+  if (!candidate) return DEFAULT_TELEGRAM_CHANNEL_URL;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return parsed.toString();
+    }
+  } catch {
+    // geçersiz URL yedeğe düşer
+  }
+  return DEFAULT_TELEGRAM_CHANNEL_URL;
+}
 
 interface DashboardHeaderProps {
   activeTab?: DashboardTab;
@@ -141,6 +157,22 @@ export const DashboardHeader = ({
 
           {/* Hızlı TR / EN Dil Seçici */}
           <LanguageSwitcher />
+
+          {/* Sade Telegram Bülteni bağlantısı */}
+          <a
+            href={resolveTelegramChannelUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="header-telegram-link"
+            aria-label={lang === "en" ? "Telegram Briefing" : "Telegram Bülteni"}
+            title={lang === "en" ? "Follow daily Muğla updates on Telegram" : "Günlük Muğla özetini Telegram kanalından takip et"}
+            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-border/50 bg-muted/15 hover:bg-primary/15 hover:border-primary/40 hover:text-primary text-[10px] font-mono text-muted-foreground transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <Send size={11} className="text-primary shrink-0" aria-hidden="true" />
+            <span className="hidden lg:inline">
+              {lang === "en" ? "Telegram Briefing" : "Telegram Bülteni"}
+            </span>
+          </a>
 
           {/* Hesap durumu, günlük bülten tercihi ve tek tıkla çıkış */}
           <AccountMenu />

@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { Send } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
-import { DashboardHeader, type DashboardTab } from "@/components/dashboard/DashboardHeader";
+import { DashboardHeader, resolveTelegramChannelUrl, type DashboardTab } from "@/components/dashboard/DashboardHeader";
 import { useMonitorUrlState } from "@/hooks/useMonitorUrlState";
 import {
   TourismMovementPanel,
@@ -844,21 +845,33 @@ const Index = () => {
           )}
         </div>
 
-        {/* Sade Footer + Tek Göze Batmayan Geliştirici Sistem Durumu Bağlantısı */}
+        {/* Sade Footer + Telegram Bülteni + Sistem Durumu */}
         <footer className="mt-8 pt-4 pb-3 border-t border-border/40 flex flex-wrap items-center justify-between gap-2 text-[11px] font-sans text-muted-foreground">
           <span>{t("Muğla Monitör · Şehir Bilgi Platformu")}</span>
-          <button
-            type="button"
-            data-testid="footer-system-status-btn"
-            onClick={() => {
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(new CustomEvent("open-data-quality-agent", { detail: { tab: "quality" } }));
-              }
-            }}
-            className="text-[11px] text-muted-foreground/70 hover:text-foreground underline-offset-4 hover:underline transition-colors"
-          >
-            {t("Sistem Durumu")}
-          </button>
+          <div className="flex items-center gap-4">
+            <a
+              href={resolveTelegramChannelUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="footer-telegram-link"
+              className="inline-flex items-center gap-1.5 text-[11px] text-primary/90 hover:text-primary underline-offset-4 hover:underline transition-colors"
+            >
+              <Send size={11} aria-hidden="true" />
+              <span>{lang === "en" ? "Telegram Briefing" : "Telegram Bülteni"}</span>
+            </a>
+            <button
+              type="button"
+              data-testid="footer-system-status-btn"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(new CustomEvent("open-data-quality-agent", { detail: { tab: "quality" } }));
+                }
+              }}
+              className="text-[11px] text-muted-foreground/70 hover:text-foreground underline-offset-4 hover:underline transition-colors"
+            >
+              {t("Sistem Durumu")}
+            </button>
+          </div>
         </footer>
       </main>
     </div>

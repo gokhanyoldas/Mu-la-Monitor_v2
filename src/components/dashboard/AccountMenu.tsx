@@ -150,14 +150,14 @@ export const AccountMenu = () => {
         disabled={signingOut}
         aria-label={isEn ? "Sign Out" : "Çıkış Yap"}
         title={isEn ? "Sign Out" : "Çıkış Yap"}
-        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-border/50 bg-muted/15 hover:bg-destructive/15 hover:border-destructive/40 hover:text-destructive text-[10px] font-mono text-muted-foreground transition-colors whitespace-nowrap disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md border border-border/50 bg-muted/15 hover:bg-destructive/15 hover:border-destructive/40 hover:text-destructive text-[10px] font-mono text-foreground/85 transition-colors whitespace-nowrap disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         {signingOut ? (
           <Loader2 size={11} className="animate-spin" aria-hidden="true" />
         ) : (
           <LogOut size={11} aria-hidden="true" />
         )}
-        <span className="hidden sm:inline">{isEn ? "Sign Out" : "Çıkış Yap"}</span>
+        <span>{isEn ? "Sign Out" : "Çıkış Yap"}</span>
       </button>
 
       {/* Hesap ve Günlük Bülten Menüsü */}
@@ -250,6 +250,18 @@ export const AccountMenu = () => {
                 {errorMessage}
               </p>
             )}
+
+            <div className="pt-2 border-t border-border/50">
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={signingOut}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border border-border/60 bg-muted/20 hover:bg-destructive/15 hover:border-destructive/40 hover:text-destructive text-[10px] font-mono text-foreground/85 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <LogOut size={11} aria-hidden="true" />
+                <span>{isEn ? "Sign Out" : "Çıkış Yap"}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

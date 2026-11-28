@@ -10,6 +10,7 @@ import {
   RATE_LIMIT_COOLDOWN_MS,
 } from "./api/intel/topic-grounding.ts";
 import { getFlightsPayload } from "./api/flights.ts";
+import sendTelegramDigestHandler from "./api/telegram/send-digest.ts";
 
 const PORT = Number(process.env.PORT || 3000);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-4-hydrogen";
@@ -70,6 +71,11 @@ async function startServer() {
       const { buildReferenceFlightsPayload } = await import("./api/flights.ts");
       return res.json(buildReferenceFlightsPayload());
     }
+  });
+
+  // Telegram Günlük Muğla Bülteni (Bearer TELEGRAM_DIGEST_SECRET / CRON_SECRET korumalı)
+  app.all("/api/telegram/send-digest", async (req, res) => {
+    await sendTelegramDigestHandler(req, res);
   });
 
   // Step 3: Multi-Issue Decomposition, Implicit Subtext & Multimodal Post Analysis

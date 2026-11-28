@@ -2837,6 +2837,368 @@ export function buildBridgeTablePayloads({
   };
 }
 
+const TELEGRAM_DIGEST_CACHE_KEY = "telegram_digest_last_sent";
+const TELEGRAM_MAX_HTML_LENGTH = 3900;
+
+const TELEGRAM_CATEGORY_LABELS_TR = {
+  ekonomi: "Ekonomi",
+  cevre: "Çevre",
+  turizm: "Turizm",
+  ulasim: "Ulaşım",
+  sosyal: "Sosyal",
+  guvenlik: "Güvenlik",
+  enerji: "Enerji",
+  protokol: "Protokol",
+  altyapi: "Altyapı",
+};
+
+export function getIstanbulDateKey(now = new Date()) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Istanbul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+  } catch {
+    return now.toISOString().slice(0, 10);
+  }
+}
+
+export function escapeTelegramHtml(input) {
+  return String(input ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function summarizeMonitorContentForTelegram(rawContent) {
+  if (!rawContent || typeof rawContent !== "string") return "";
+  const trimmed = rawContent.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      for (const candidate of [parsed?.summary, parsed?.headline, parsed?.title, parsed?.note, parsed?.status]) {
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim().slice(0, 140);
+        }
+      }
+      if (parsed?.metrics && typeof parsed.metrics === "object") {
+        const pairs = Object.entries(parsed.metrics)
+          .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== "")
+          .slice(0, 3)
+          .map(([k, v]) => `${k}: ${String(v)}`);
+        if (pairs.length > 0) return pairs.join(" · ").slice(0, 140);
+      }
+    } catch {
+      // düz metin olarak devam et
+    }
+  }
+  return trimmed.replace(/\s+/g, " ").slice(0, 140);
+}
+
+function sanitizeTelegramSiteUrl(raw) {
+  const fallback = "https://mugla-monitor.vercel.app";
+  if (!raw || typeof raw !== "string") return fallback;
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+      return parsed.toString().replace(/\/+$/, "");
+    }
+  } catch {
+    // geçersiz URL
+  }
+  return fallback;
+}
+
+export function buildAgentTelegramDigestHtml({
+  now = new Date(),
+  monitorData = [],
+  alerts = [],
+  protocolMembers = [],
+  aiSummaries = [],
+  siteUrl,
+} = {}) {
+  let dateHeader = getIstanbulDateKey(now);
+  try {
+    dateHeader = new Intl.DateTimeFormat("tr-TR", {
+      timeZone: "Europe/Istanbul",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      weekday: "long",
+    }).format(now);
+  } catch {
+    // varsayılan tarih anahtarı kullanılır
+  }
+
+  const lines = [
+    `<b>📍 MUĞLA GÜNLÜK ŞEHİR BÜLTENİ</b>`,
+    `<i>${escapeTelegramHtml(dateHeader)}</i>`,
+    "",
+  ];
+
+  const latestSummary = (Array.isArray(aiSummaries) ? aiSummaries : []).find((s) => {
+    const text = s?.summary || s?.content;
+    return typeof text === "string" && text.trim().length > 0;
+  });
+  const latestSummaryText = latestSummary?.summary || latestSummary?.content || "";
+  if (latestSummaryText.trim().length > 0) {
+    lines.push(`<b>🧭 Günün Özeti</b>`);
+    lines.push(escapeTelegramHtml(latestSummaryText.trim().replace(/\s+/g, " ").slice(0, 480)));
+    lines.push("");
+  }
+
+  const validAlerts = (Array.isArray(alerts) ? alerts : [])
+    .filter((a) => typeof a?.title === "string" && a.title.trim().length > 0)
+    .slice(0, 4);
+  lines.push(`<b>🚨 Güncel Uyarılar (${validAlerts.length})</b>`);
+  if (validAlerts.length > 0) {
+    for (const alert of validAlerts) {
+      const sev = String(alert.severity || "").toLowerCase();
+      const icon = sev === "critical" || sev === "kritik" ? "🔴" : sev === "high" || sev === "yuksek" ? "🟠" : "🟡";
+      const title = escapeTelegramHtml(alert.title.trim().slice(0, 120));
+      const rawBody = alert.body || alert.message || alert.description || "";
+      const detail =
+        typeof rawBody === "string" && rawBody.trim()
+          ? ` — ${escapeTelegramHtml(rawBody.trim().replace(/\s+/g, " ").slice(0, 100))}`
+          : "";
+      lines.push(`${icon} <b>${title}</b>${detail}`);
+    }
+  } else {
+    lines.push(`✅ Kayıtlı kritik şehir uyarısı bulunmuyor.`);
+  }
+  lines.push("");
+
+  const seenCategories = new Set();
+  const sectorLines = [];
+  for (const row of Array.isArray(monitorData) ? monitorData : []) {
+    const catKey = String(row?.category || "").trim().toLowerCase() || "genel";
+    if (seenCategories.has(catKey)) continue;
+    const snippet = summarizeMonitorContentForTelegram(row?.content);
+    if (!snippet) continue;
+    seenCategories.add(catKey);
+    const label = TELEGRAM_CATEGORY_LABELS_TR[catKey] || catKey.toUpperCase();
+    const districtTag = row?.district_name ? ` (${row.district_name})` : "";
+    sectorLines.push(
+      `• <b>${escapeTelegramHtml(label)}${escapeTelegramHtml(districtTag)}:</b> ${escapeTelegramHtml(snippet)}`
+    );
+    if (sectorLines.length >= 6) break;
+  }
+  if (sectorLines.length > 0) {
+    lines.push(`<b>📊 Sekme &amp; İlçe Özetleri</b>`);
+    lines.push(...sectorLines);
+    lines.push("");
+  }
+
+  const protocolList = Array.isArray(protocolMembers) ? protocolMembers : [];
+  if (protocolList.length > 0) {
+    const governor = protocolList.find((m) =>
+      String(m?.unvan || m?.title || "").toLocaleLowerCase("tr-TR").includes("vali")
+    );
+    const mayor = protocolList.find((m) =>
+      String(m?.unvan || m?.title || "").toLocaleLowerCase("tr-TR").includes("büyükşehir belediye başkanı")
+    );
+    lines.push(`<b>🏛️ Muğla Protokol İzleme</b>`);
+    const govName = governor?.isim || governor?.name;
+    if (govName) {
+      lines.push(
+        `• ${escapeTelegramHtml(governor?.unvan || governor?.title || "Muğla Valisi")}: <b>${escapeTelegramHtml(govName)}</b>`
+      );
+    }
+    const mayorName = mayor?.isim || mayor?.name;
+    if (mayorName) {
+      lines.push(
+        `• ${escapeTelegramHtml(mayor?.unvan || mayor?.title || "Büyükşehir Belediye Başkanı")}: <b>${escapeTelegramHtml(mayorName)}</b>`
+      );
+    }
+    lines.push(`• İzlenen aktif protokol kaydı: <b>${protocolList.length}</b>`);
+    lines.push("");
+  }
+
+  lines.push(`🔗 <a href="${escapeTelegramHtml(sanitizeTelegramSiteUrl(siteUrl))}">Muğla Monitör Canlı Panel</a>`);
+  const joined = lines.join("\n").trim();
+  if (joined.length <= TELEGRAM_MAX_HTML_LENGTH) return joined;
+  return `${joined.slice(0, TELEGRAM_MAX_HTML_LENGTH - 24).trimEnd()}\n…`;
+}
+
+export async function sendDailyTelegramDigestFromAgent({
+  supabase,
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  now = new Date(),
+  fallbackMonitorData = [],
+  fallbackAlerts = [],
+  fallbackProtocolMembers = [],
+  fallbackAiSummaries = [],
+  recordWarning = () => {},
+} = {}) {
+  const botToken = String(env?.TELEGRAM_BOT_TOKEN || "").trim();
+  const chatId = String(env?.TELEGRAM_CHAT_ID || "").trim();
+
+  if (!botToken || !chatId) {
+    return {
+      attempted: false,
+      sent: false,
+      skipped: true,
+      reason: "not_configured",
+    };
+  }
+
+  const todayKey = getIstanbulDateKey(now);
+
+  try {
+    // Aynı gün içinde çift gönderimi engelle (Supabase live_data_cache üzerinden)
+    try {
+      const { data: dedupRows } = await supabase.select(
+        "live_data_cache",
+        `select=data,updated_at&data_type=eq.${encodeURIComponent(TELEGRAM_DIGEST_CACHE_KEY)}&limit=1`
+      );
+      if (Array.isArray(dedupRows) && dedupRows[0]?.data?.date === todayKey) {
+        console.log(
+          `[1. Ajan] Telegram günlük bülteni bugün (${todayKey}) zaten gönderilmiş; tekrar gönderilmiyor.`
+        );
+        return {
+          attempted: true,
+          sent: false,
+          skipped: true,
+          reason: "already_sent_today",
+          date: todayKey,
+        };
+      }
+    } catch {
+      // Cache kontrolü başarısız olsa bile gönderim denenebilir
+    }
+
+    const [monitorRes, alertRes, protocolRes, summaryRes] = await Promise.all([
+      supabase
+        .select(
+          "monitor_data",
+          "select=source,district_name,content,sentiment,category,created_at&order=created_at.desc&limit=30"
+        )
+        .catch(() => ({ data: [] })),
+      supabase
+        .select("alert_events", "select=*&order=created_at.desc&limit=10")
+        .catch(() => ({ data: [] })),
+      supabase
+        .select("protocol_members", "select=*&limit=60")
+        .catch(() => ({ data: [] })),
+      supabase
+        .select("ai_summaries", "select=*&order=date.desc&limit=5")
+        .catch(() => ({ data: [] })),
+    ]);
+
+    const monitorData =
+      Array.isArray(monitorRes?.data) && monitorRes.data.length > 0
+        ? monitorRes.data
+        : fallbackMonitorData;
+    const alerts =
+      Array.isArray(alertRes?.data) && alertRes.data.length > 0
+        ? alertRes.data
+        : fallbackAlerts;
+    const protocolMembers =
+      Array.isArray(protocolRes?.data) && protocolRes.data.length > 0
+        ? protocolRes.data
+        : fallbackProtocolMembers;
+    const aiSummaries =
+      Array.isArray(summaryRes?.data) && summaryRes.data.length > 0
+        ? summaryRes.data
+        : fallbackAiSummaries;
+
+    const resolvedSiteUrl = env?.PUBLIC_APP_URL
+      ? String(env.PUBLIC_APP_URL)
+      : env?.VERCEL_URL
+      ? `https://${String(env.VERCEL_URL).replace(/^https?:\/\//i, "")}`
+      : undefined;
+
+    const htmlText = buildAgentTelegramDigestHtml({
+      now,
+      monitorData,
+      alerts,
+      protocolMembers,
+      aiSummaries,
+      siteUrl: resolvedSiteUrl,
+    });
+
+    const endpoint = `https://api.telegram.org/bot${encodeURIComponent(botToken)}/sendMessage`;
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: htmlText,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      const safeDesc = String(payload?.description || `HTTP ${response.status}`).replace(
+        botToken,
+        "[REDACTED]"
+      );
+      recordWarning("Telegram günlük bülten gönderimi", safeDesc);
+      return {
+        attempted: true,
+        sent: false,
+        skipped: false,
+        date: todayKey,
+        error: safeDesc,
+      };
+    }
+
+    const messageId =
+      typeof payload?.result?.message_id === "number" ? payload.result.message_id : null;
+    try {
+      await supabase.upsert(
+        "live_data_cache",
+        [
+          {
+            data_type: TELEGRAM_DIGEST_CACHE_KEY,
+            data: {
+              date: todayKey,
+              sent_at: now.toISOString(),
+              message_id: messageId,
+              source: "autonomous-agent",
+            },
+            source: "telegram-digest",
+            updated_at: now.toISOString(),
+          },
+        ],
+        { onConflict: "data_type" }
+      );
+    } catch {
+      // Deduplication kaydı başarısız olsa bile mesaj gönderilmiş sayılır
+    }
+
+    console.log(
+      `[1. Ajan] Telegram günlük Muğla bülteni gönderildi (${todayKey}${messageId ? `, message_id: ${messageId}` : ""}).`
+    );
+
+    return {
+      attempted: true,
+      sent: true,
+      skipped: false,
+      date: todayKey,
+      messageId,
+    };
+  } catch (err) {
+    const rawMsg = err instanceof Error ? err.message : String(err || "Bilinmeyen Telegram hatası");
+    const safeMsg = rawMsg.split(botToken).join("[REDACTED]");
+    recordWarning("Telegram günlük bülten gönderimi", safeMsg);
+    return {
+      attempted: true,
+      sent: false,
+      skipped: false,
+      date: todayKey,
+      error: safeMsg,
+    };
+  }
+}
+
 export async function runAutonomousAgent(options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const dryRun = Boolean(options.dryRun);
@@ -2853,7 +3215,8 @@ export async function runAutonomousAgent(options = {}) {
     `[1. Ajan] Aylık Kota Kontrolü: ${quota.monthlyCalls}/${quota.monthlyFreeQuota} (%${quota.percentUsed}) — Limit ≤ %15: ${quota.withinBudget ? "UYGUN" : "AŞIM"}`
   );
 
-  const envConfig = resolveAgentEnv(options.env ?? process.env, options);
+  const rawEnv = options.env ?? process.env;
+  const envConfig = resolveAgentEnv(rawEnv, options);
   const {
     geminiApiKey,
     geminiModel,
@@ -3394,6 +3757,19 @@ export async function runAutonomousAgent(options = {}) {
     }
   }
 
+  // 12. Telegram günlük Muğla özeti (TELEGRAM_BOT_TOKEN & TELEGRAM_CHAT_ID tanımlıysa ve bugün gönderilmediyse)
+  const telegramDigest = await sendDailyTelegramDigestFromAgent({
+    supabase,
+    env: rawEnv,
+    fetchImpl,
+    now,
+    fallbackMonitorData: bridgePayloads.monitorDataRows,
+    fallbackAlerts: allAlertRows,
+    fallbackProtocolMembers: bridgePayloads.protocolMemberRows,
+    fallbackAiSummaries: bridgePayloads.aiSummaryRows,
+    recordWarning,
+  });
+
   const finalStatus = errors.length > 0 ? "partial_ok" : "ok";
   console.log(
     `[1. Ajan] Tablo yazım özeti (${finalStatus}) | Grup ${group.id} | ` +
@@ -3421,6 +3797,7 @@ export async function runAutonomousAgent(options = {}) {
     inserted,
     warnings,
     errors,
+    telegramDigest,
   };
 }
 
